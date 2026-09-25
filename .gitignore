@@ -1,0 +1,17 @@
+# Java/Spring
+**/build/
+**/.gradle/
+
+# Python
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Node/Next.js
+**/node_modules/
+**/.next/
+
+# Flutter
+**/build/
+**/.dart_tool/
+**/ios/Pods/

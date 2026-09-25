@@ -1,0 +1,19 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: auth-service
+          uri: http://auth-service:8081
+          filters:
+            - AddRequestHeader=X-Request-red, blue
+          predicates:
+            - Path=/api/auth/**
+            - Method=GET,POST,PUT,DELETE
+      discovery:
+        locator:
+          enabled: false
