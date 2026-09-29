@@ -176,3 +176,27 @@
 - [ ] Trả lời được câu hỏi: "Điểm khác biệt với Grab/Onfleet là gì?"
 - [ ] Trả lời được câu hỏi: "Vì sao tách thành microservices, không làm monolith cho đơn giản?"
 - [ ] Slide có sơ đồ kiến trúc, use case, sequence diagram rõ ràng (không chỉ toàn chữ)
+
+---
+
+## Phụ lục 1: Kế hoạch triển khai chi tiết API Gateway
+
+**1. Tầng Security & Xác thực (Đang làm)**
+- [ ] Cài đặt dependencies: `spring-boot-starter-oauth2-resource-server`, `spring-boot-starter-security`.
+- [ ] Cấu hình `SecurityWebFilterChain` (Bỏ qua CSRF, cấu hình Public/Private endpoints).
+- [ ] Khai báo `ReactiveJwtDecoder` (Dùng Secret Key hoặc Public Key để tự động giải mã JWT).
+- [ ] Xử lý lỗi 401/403: Chặn lỗi mặc định của Spring, custom lại để trả về JSON (VD: `{"status": 401, "message": "Unauthorized"}`).
+
+**2. Tầng CORS & Headers**
+- [ ] Cấu hình CORS (`CorsWebFilter`) để cho phép React/Flutter gọi API (Allowed origins, methods, headers).
+- [ ] (Tuỳ chọn) Trích xuất thông tin từ JWT (VD: `user_id`, `role`) đẩy vào Header (`X-User-Id`) để các microservice con không cần parse lại JWT.
+
+**3. Tầng Routing (Cấu hình YAML)**
+- [ ] Định nghĩa Route cho `auth-service` (Đã xong).
+- [ ] Định nghĩa Route cho `order-service` (Tương lai).
+- [ ] Định nghĩa Route cho `routing-engine` (Tương lai).
+
+**4. Tầng Quan sát & Ổn định (Observability & Resilience)**
+- [ ] Hoàn thiện `CustomGlobalFilter` để ghi log (Thời gian bắt đầu, kết thúc, URI, IP).
+- [ ] Cấu hình Fallback/Circuit Breaker (Nếu service con sập, Gateway trả JSON 503 thân thiện).
+- [ ] (Tuỳ chọn) Tích hợp Redis Rate Limiter để chống Spam.

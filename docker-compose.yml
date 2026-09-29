@@ -3,8 +3,11 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: postgres
-    ports: ["5432:5432"]
+      # Lấy giá trị từ file .env (Docker Compose sẽ tự động tìm .env cùng thư mục)
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports: ["5433:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     networks:
       - swiftroute-net
@@ -32,12 +35,17 @@ services:
   auth-service:
     build: ./services/auth-service
     ports: ["8081:8081"]
+    # Khai báo env_file để container Auth Service tự động tải toàn bộ biến từ file .env
+    env_file:
+      - .env
     environment:
+      # DB_HOST trong mạng Docker Compose là tên container (tức là "postgres")
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=postgres
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
+      # Lấy trực tiếp từ file .env
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     networks:
       - swiftroute-net
     depends_on:

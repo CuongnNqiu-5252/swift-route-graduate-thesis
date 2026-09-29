@@ -2,6 +2,8 @@ server:
   port: 8081
 
 spring:
+  dotenv:
+    directory: ../../
   application:
     name: auth-service
   datasource:
@@ -21,3 +23,5 @@ spring:
 jwt:
   secret: ${JWT_SECRET:your_super_secret_key_change_in_production}
   expiration: 86400000 # 24 hours in milliseconds
+  access-token-expiry-minutes: 15
+  refresh-token-expiry-days: 30

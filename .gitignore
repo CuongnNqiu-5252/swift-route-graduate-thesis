@@ -1,6 +1,17 @@
-# Java/Spring
+# Java/Spring & Maven
+**/target/
 **/build/
 **/.gradle/
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
 
 # Python
 **/venv/
