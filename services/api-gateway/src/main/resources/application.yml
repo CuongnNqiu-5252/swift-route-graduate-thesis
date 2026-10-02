@@ -2,20 +2,47 @@ server:
   port: 8000
 
 spring:
+  dotenv:
+    directory: ../../  # Đọc .env từ root project (cùng level với docker-compose.yml)
   application:
     name: api-gateway
   autoconfigure:
     exclude:
+      # Loại bỏ UserDetailsService auto-config vì Gateway không quản lý user/session.
+      # JWT verification tự xử lý bởi JwtAuthFilter + JwtVerifier.
       - org.springframework.boot.security.autoconfigure.ReactiveUserDetailsServiceAutoConfiguration
   cloud:
     gateway:
       server:
         webflux:
           routes:
+            # --- Auth Service ---
+            # Tất cả request /api/auth/** → auth-service:8081
+            # Public paths (login, register, refresh) được phép qua SecurityConfig + JwtAuthFilter
             - id: auth-service
-              uri: http://localhost:8081
-              filters:
-                - AddRequestHeader=X-Request-red, blue
+              uri: ${AUTH_SERVICE_URL:http://localhost:8081}
               predicates:
                 - Path=/api/auth/**
 
+            # --- Order Service ---
+            # Tất cả request /api/orders/** → order-service:8082
+            - id: order-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/orders/**
+
+            # --- Tenant onboarding (owned by Order Service) ---
+            - id: tenant-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/tenants/**
+
+# JWT config — phải khớp với auth-service jwt.secret
+jwt:
+  secret: ${JWT_SECRET:your_super_secret_key_change_in_production}
+
+# Logging config
+logging:
+  level:
+    com.swiftroute.apigateway: DEBUG
+    org.springframework.cloud.gateway: INFO
