@@ -6,8 +6,8 @@ import lombok.RequiredArgsConstructor;
 /**
  * Exception gốc cho toàn bộ order-service.
  * Đồng bộ với AppException của auth-service:
- *  - Mọi exception nghiệp vụ đều kế thừa class này.
- *  - GlobalExceptionHandler chỉ cần bắt 1 loại AppException là đủ.
+ * - Mọi exception nghiệp vụ đều kế thừa class này.
+ * - GlobalExceptionHandler chỉ cần bắt 1 loại AppException là đủ.
  */
 @Getter
 @RequiredArgsConstructor

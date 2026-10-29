@@ -1,12 +1,13 @@
 package com.swiftroute.orderservice.dto.response;
 
-import java.time.LocalDateTime;
-import java.time.LocalTime;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.enums.OrderPriority;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
+import com.swiftroute.orderservice.entity.enums.PackageCategory;
 
 /**
  * DTO trả về thông tin đơn hàng cho Frontend.
@@ -23,15 +24,19 @@ public record OrderResponse(
         Double pickupLng,
         Double deliveryLat,
         Double deliveryLng,
+        String pickupAddress,
         String deliveryAddress,
-        LocalTime timeWindowStart,
-        LocalTime timeWindowEnd,
+        OffsetDateTime timeWindowStart,
+        OffsetDateTime timeWindowEnd,
         Double weightKg,
         OrderPriority priority,
         OrderStatus status,
+        PackageCategory packageCategory,
+        String itemDescription,
+        String notes,
         UUID assignedDriverId,
-        LocalDateTime createdAt,
-        LocalDateTime updatedAt) {
+        Instant createdAt,
+        Instant updatedAt) {
     /**
      * Factory method chuyển Entity → DTO.
      * Đặt tại đây (thay vì Service) để logic mapping gần với định nghĩa DTO,
@@ -47,12 +52,16 @@ public record OrderResponse(
                 order.getPickupLng(),
                 order.getDeliveryLat(),
                 order.getDeliveryLng(),
+                order.getPickupAddress(),
                 order.getDeliveryAddress(),
                 order.getTimeWindowStart(),
                 order.getTimeWindowEnd(),
                 order.getWeightKg(),
                 order.getPriority(),
                 order.getStatus(),
+                order.getPackageCategory(),
+                order.getItemDescription(),
+                order.getNotes(),
                 order.getAssignedDriverId(),
                 order.getCreatedAt(),
                 order.getUpdatedAt());

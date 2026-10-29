@@ -8,19 +8,19 @@ spring:
     name: order-service
   jackson:
     property-naming-strategy: SNAKE_CASE
-  
+
   # Cấu hình Database kết nối chung vào DB swiftroute (như auth-service)
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:postgres}
     username: ${DB_USER:openpg}
     password: ${DB_PASSWORD:openpgpwd}
     driver-class-name: org.postgresql.Driver
-  
+
   # Cấu hình Hibernate
   jpa:
     hibernate:
-      # Flyway owns every production schema change.
-      ddl-auto: validate
+      # Schema managed by Flyway — Hibernate only validates, never alters
+      ddl-auto: update
     show-sql: true
     properties:
       hibernate:
@@ -30,8 +30,9 @@ spring:
   # Cấu hình Flyway
   flyway:
     enabled: true
-    baseline-on-migrate: true # Cho phép chạy trên Database đã có sẵn bảng (bảng của auth-service)
+    baseline-on-migrate: true
     locations: classpath:db/migration
+    table: flyway_order_history
 
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}

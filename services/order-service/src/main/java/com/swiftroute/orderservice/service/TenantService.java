@@ -3,6 +3,7 @@ package com.swiftroute.orderservice.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -24,12 +25,15 @@ import com.swiftroute.orderservice.repository.TenantRepository;
 
 import lombok.RequiredArgsConstructor;
 
-/** Contains tenant onboarding state transitions and writes their durable events. */
+/**
+ * Contains tenant onboarding state transitions and writes their durable events.
+ */
 @Service
 @RequiredArgsConstructor
 public class TenantService {
-    private static final Set<String> CREATE_ROLES = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN", "OWNER", "TENANT_ADMIN");
-    private static final Set<String> REVIEW_ROLES = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN");
+    private static final Set<String> CREATE_ROLES = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN", "OWNER",
+            "TENANT_ADMIN", "CUSTOMER");
+    private static final Set<String> REVIEW_ROLES = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN", "CUSTOMER");
 
     private final TenantRepository tenantRepository;
     private final OutboxEventRepository outboxEventRepository;
@@ -71,8 +75,17 @@ public class TenantService {
         return TenantResponse.fromEntity(tenant);
     }
 
+    @Transactional(readOnly = true)
+    public List<TenantResponse> getNearbyTenants(double lat, double lng, int limit) {
+        return tenantRepository.getNearbyTenant(lat, lng, limit)
+                .stream()
+                .map(TenantResponse::fromEntity)
+                .toList();
+    }
+
     @Transactional
-    public TenantResponse changeStatus(UUID tenantId, TenantStatusRequest request, UUID reviewerId, String reviewerRole) {
+    public TenantResponse changeStatus(UUID tenantId, TenantStatusRequest request, UUID reviewerId,
+            String reviewerRole) {
         requireRole(reviewerRole, REVIEW_ROLES);
         Tenant tenant = findTenant(tenantId);
         TenantStatus current = tenant.getStatus();
@@ -109,7 +122,8 @@ public class TenantService {
 
     private void validateTransition(TenantStatus current, TenantStatus next, String reason) {
         boolean allowed = switch (current) {
-            case PENDING -> next == TenantStatus.APPROVED || next == TenantStatus.REJECTED || next == TenantStatus.SUSPENDED;
+            case PENDING ->
+                next == TenantStatus.APPROVED || next == TenantStatus.REJECTED || next == TenantStatus.SUSPENDED;
             case APPROVED -> next == TenantStatus.SUSPENDED;
             case SUSPENDED -> next == TenantStatus.APPROVED;
             case REJECTED -> false;
@@ -127,7 +141,8 @@ public class TenantService {
 
     private void createOutboxEvent(Tenant tenant, String eventType) {
         UUID eventId = UUID.randomUUID();
-        TenantEventPayload payload = new TenantEventPayload(eventId, eventType, tenant.getId(), tenant.getOwnerUserId(), Instant.now(clock));
+        TenantEventPayload payload = new TenantEventPayload(eventId, eventType, tenant.getId(), tenant.getOwnerUserId(),
+                Instant.now(clock));
         outboxEventRepository.save(OutboxEvent.builder()
                 .eventId(eventId)
                 .aggregateType("tenant")

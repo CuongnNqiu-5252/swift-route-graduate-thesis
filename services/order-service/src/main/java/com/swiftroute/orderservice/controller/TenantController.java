@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.controller;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.orderservice.dto.request.CreateTenantRequest;
@@ -40,13 +42,25 @@ public class TenantController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
+    @Operation(summary = "Get approved tenants near a given location")
+    @GetMapping("/nearby")
+    public ResponseEntity<ApiResponse<List<TenantResponse>>> getNearbyTenants(
+            @RequestParam("lat") double lat,
+            @RequestParam("lng") double lng,
+            @RequestParam(value = "limit", defaultValue = "10") int limit) {
+
+        List<TenantResponse> responses = tenantService.getNearbyTenants(lat, lng, limit);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
     @Operation(summary = "Get a tenant visible to its owner or platform staff")
     @GetMapping("/{tenantId}")
     public ResponseEntity<ApiResponse<TenantResponse>> getTenant(
             @PathVariable UUID tenantId,
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {
-        return ResponseEntity.ok(ApiResponse.success(tenantService.getTenant(tenantId, UUID.fromString(userId), userRole)));
+        return ResponseEntity
+                .ok(ApiResponse.success(tenantService.getTenant(tenantId, UUID.fromString(userId), userRole)));
     }
 
     @Operation(summary = "Approve, reject, suspend, or reactivate a tenant")

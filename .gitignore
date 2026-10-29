@@ -26,3 +26,7 @@
 **/build/
 **/.dart_tool/
 **/ios/Pods/
+
+# Tooling
+.taste-skill/
+skills-lock.json

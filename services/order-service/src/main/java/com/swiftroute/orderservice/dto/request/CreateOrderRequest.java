@@ -1,9 +1,10 @@
 package com.swiftroute.orderservice.dto.request;
 
-import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import com.swiftroute.orderservice.entity.enums.OrderPriority;
+import com.swiftroute.orderservice.entity.enums.PackageCategory;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -12,36 +13,38 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 /**
- * DTO nhận dữ liệu từ Frontend khi tạo đơn hàng.
+ * DTO for creating a new delivery order.
  *
- * tenantId được lấy từ header X-Tenant-Id (inject bởi Gateway),
- * không cần client truyền lên để tránh giả mạo.
- * customerId cũng tương tự, lấy từ X-User-Id.
+ * Identity fields (tenantId, customerId) are injected by the API Gateway
+ * via trusted headers (X-Tenant-Id, X-User-Id). They must NOT be accepted
+ * from the request body to prevent spoofing.
  *
- * Dùng record để immutable + compact.
+ * Time windows must be UTC ISO-8601 OffsetDateTime, never plain LocalTime
+ * (which has no date or timezone and cannot represent an absolute constraint).
  */
 public record CreateOrderRequest(
 
-                @NotNull(message = "Vĩ độ điểm lấy hàng không được để trống") @DecimalMin(value = "-90.0", message = "Vĩ độ phải từ -90 đến 90") @DecimalMax(value = "90.0", message = "Vĩ độ phải từ -90 đến 90") Double pickupLat,
+        @NotNull @DecimalMin("-90.0") @DecimalMax("90.0")   Double pickupLat,
+        @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double pickupLng,
+        @NotNull @DecimalMin("-90.0") @DecimalMax("90.0")   Double deliveryLat,
+        @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") Double deliveryLng,
 
-                @NotNull(message = "Kinh độ điểm lấy hàng không được để trống") @DecimalMin(value = "-180.0", message = "Kinh độ phải từ -180 đến 180") @DecimalMax(value = "180.0", message = "Kinh độ phải từ -180 đến 180") Double pickupLng,
+        @Size(max = 500) String pickupAddress,
+        @Size(max = 500) String deliveryAddress,
 
-                @NotNull(message = "Vĩ độ điểm giao hàng không được để trống") @DecimalMin(value = "-90.0", message = "Vĩ độ phải từ -90 đến 90") @DecimalMax(value = "90.0", message = "Vĩ độ phải từ -90 đến 90") Double deliveryLat,
+        /** UTC start of the allowed delivery window. */
+        @NotNull OffsetDateTime timeWindowStart,
 
-                @NotNull(message = "Kinh độ điểm giao hàng không được để trống") @DecimalMin(value = "-180.0", message = "Kinh độ phải từ -180 đến 180") @DecimalMax(value = "180.0", message = "Kinh độ phải từ -180 đến 180") Double deliveryLng,
+        /** UTC end of the allowed delivery window. Must be after timeWindowStart. */
+        @NotNull OffsetDateTime timeWindowEnd,
 
-                @Size(max = 500, message = "Địa chỉ giao hàng tối đa 500 ký tự") String deliveryAddress,
+        @NotNull @Positive Double weightKg,
 
-                @NotNull(message = "Thời gian bắt đầu giao hàng không được để trống") LocalTime timeWindowStart,
+        // Optional — defaults to NORMAL if omitted
+        OrderPriority priority,
 
-                @NotNull(message = "Thời gian kết thúc giao hàng không được để trống") LocalTime timeWindowEnd,
-
-                @NotNull(message = "Khối lượng hàng không được để trống") @Positive(message = "Khối lượng phải lớn hơn 0") Double weightKg,
-
-                // Nullable — mặc định NORMAL nếu không truyền
-                OrderPriority priority,
-
-                // UUID của Tenant (do chính doanh nghiệp truyền lên khi tạo đơn hộ)
-                // Nếu null → hệ thống lấy X-Tenant-Id từ header
-                UUID tenantId) {
+        // Optional — defaults to PARCEL if omitted
+        PackageCategory packageCategory,
+        @Size(max = 255) String itemDescription,
+        @Size(max = 500) String notes) {
 }

@@ -14,7 +14,10 @@ import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-/** Publishes committed outbox records; failed records remain retryable in PostgreSQL. */
+/**
+ * Publishes committed outbox records; failed records remain retryable in
+ * PostgreSQL.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -28,7 +31,8 @@ public class OutboxPublisher {
     public void publishPendingEvents() {
         outboxEventRepository.findTop100ByPublishedAtIsNullOrderByCreatedAtAsc().forEach(event -> {
             try {
-                rabbitTemplate.convertAndSend(TenantEventConfig.EVENT_EXCHANGE, event.getEventType(), event.getPayload());
+                rabbitTemplate.convertAndSend(TenantEventConfig.EVENT_EXCHANGE, event.getEventType(),
+                        event.getPayload());
                 event.setPublishedAt(LocalDateTime.now(clock));
             } catch (RuntimeException ex) {
                 event.setRetryCount(event.getRetryCount() + 1);

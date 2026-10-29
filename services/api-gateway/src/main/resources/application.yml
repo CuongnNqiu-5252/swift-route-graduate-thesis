@@ -31,11 +31,34 @@ spring:
               predicates:
                 - Path=/api/orders/**
 
+            # --- Payment Service ---
+            - id: payment-service
+              uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+              predicates:
+                - Path=/api/payments/**
+
             # --- Tenant onboarding (owned by Order Service) ---
             - id: tenant-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}
               predicates:
                 - Path=/api/tenants/**
+
+            # --- Driver Service ---
+            # /api/drivers/** → driver-service:8083
+            # Gateway injects X-User-Id / X-User-Role / X-Tenant-Id from JWT
+            - id: driver-service
+              uri: ${DRIVER_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/drivers/**
+
+            # --- Routing Engine Service (FastAPI) ---
+            # /api/routing/** → routing-engine:8084
+            - id: routing-engine
+              uri: ${ROUTING_ENGINE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/routing/**
+              filters:
+                - StripPrefix=2
 
 # JWT config — phải khớp với auth-service jwt.secret
 jwt:

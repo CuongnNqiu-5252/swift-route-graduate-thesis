@@ -45,7 +45,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/refresh",
-            "/actuator/health"
+            "/actuator/health",
+            "/api/drivers/*/public"
     );
 
     private final JwtVerifier jwtVerifier;

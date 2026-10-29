@@ -6,20 +6,24 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
+import com.swiftroute.orderservice.exception.AppException;
+import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.service.OrderService;
 
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -29,9 +33,9 @@ import lombok.RequiredArgsConstructor;
  * Quan trọng: Controller này KHÔNG xử lý JWT.
  * Toàn bộ xác thực đã được API Gateway làm.
  * Controller chỉ đọc các header đã được Gateway inject:
- *  - X-User-Id    : UUID của người đang gọi API
- *  - X-User-Role  : Role (CUSTOMER, DRIVER, ADMIN, OPERATOR)
- *  - X-Tenant-Id  : UUID của Tenant (nếu user thuộc về Tenant)
+ * - X-User-Id : UUID của người đang gọi API
+ * - X-User-Role : Role (CUSTOMER, DRIVER, ADMIN, OPERATOR)
+ * - X-Tenant-Id : UUID của Tenant (nếu user thuộc về Tenant)
  */
 @RestController
 @RequestMapping("/api/orders")
@@ -75,6 +79,29 @@ public class OrderController {
     }
 
     /**
+     * GET /api/orders/driver/assigned
+     * Returns the active orders assigned to the authenticated driver,
+     * sorted by delivery window start (earliest first).
+     *
+     * The driver's identity is read from X-User-Id (injected by Gateway after JWT verification).
+     * Only orders in PLANNED or IN_TRANSIT state are returned.
+     * Role required: DRIVER
+     */
+    @Operation(summary = "Get active orders assigned to the authenticated driver")
+    @GetMapping("/driver/assigned")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getDriverOrders(
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+
+        if (!"DRIVER".equals(userRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        List<OrderResponse> orders = orderService.getDriverOrders(UUID.fromString(userId));
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+
+    /**
      * GET /api/orders/{orderId}
      * Lấy chi tiết một đơn hàng.
      * Role được phép: CUSTOMER (chỉ đơn của mình), ADMIN, OPERATOR
@@ -97,9 +124,11 @@ public class OrderController {
      */
     @GetMapping("/tenant/{tenantId}")
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrdersByTenant(
-            @PathVariable UUID tenantId) {
+            @PathVariable UUID tenantId,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
 
-        List<OrderResponse> orders = orderService.getOrdersByTenant(tenantId);
+        List<OrderResponse> orders = orderService.getOrdersByTenant(tenantId, UUID.fromString(userId), userRole);
         return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
@@ -111,9 +140,43 @@ public class OrderController {
     @PatchMapping("/{orderId}/status")
     public ResponseEntity<ApiResponse<OrderResponse>> updateOrderStatus(
             @PathVariable UUID orderId,
-            @RequestBody OrderStatus newStatus) {
+            @RequestBody OrderStatus newStatus,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
 
-        OrderResponse response = orderService.updateOrderStatus(orderId, newStatus);
+        OrderResponse response = orderService.updateOrderStatus(orderId, newStatus, UUID.fromString(userId), userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * PATCH /api/orders/{orderId}/pay
+     * Simulated payment confirmation for demo purposes.
+     * Transitions order from PENDING_PAYMENT to PAID.
+     * Allowed roles: CUSTOMER (owner of the order only), ADMIN, OPS_STAFF.
+     */
+    @Operation(summary = "Confirm mock payment — transitions order to PAID")
+    @PatchMapping("/{orderId}/pay")
+    public ResponseEntity<ApiResponse<OrderResponse>> confirmPayment(
+            @PathVariable UUID orderId,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        OrderResponse response = orderService.confirmPayment(orderId, UUID.fromString(userId), userRole);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * POST /api/orders/assign-batch
+     * Bulk-assigns a list of optimised route stops to drivers.
+     * Transitions each order from PAID to PLANNED and records assigned_driver_id.
+     * Allowed roles: ADMIN, OPS_STAFF.
+     */
+    @Operation(summary = "Assign optimised batch plan to drivers, transitioning orders to PLANNED")
+    @PostMapping("/assign-batch")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> assignBatch(
+            @Valid @RequestBody AssignBatchRequest request,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        List<OrderResponse> responses = orderService.assignBatch(request, UUID.fromString(userId), userRole);
+        return ResponseEntity.ok(ApiResponse.success(responses));
     }
 }

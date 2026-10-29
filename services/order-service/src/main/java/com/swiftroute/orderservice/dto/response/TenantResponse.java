@@ -8,7 +8,9 @@ import com.swiftroute.orderservice.entity.enums.BusinessType;
 import com.swiftroute.orderservice.entity.enums.SubscriptionPlan;
 import com.swiftroute.orderservice.entity.enums.TenantStatus;
 
-/** Public tenant representation; never exposes the persistence entity directly. */
+/**
+ * Public tenant representation; never exposes the persistence entity directly.
+ */
 public record TenantResponse(
         UUID tenantId,
         UUID ownerUserId,

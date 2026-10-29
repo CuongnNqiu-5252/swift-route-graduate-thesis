@@ -1,14 +1,12 @@
 package com.swiftroute.orderservice.entity;
 
-import java.time.LocalDateTime;
-import java.time.LocalTime;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.UUID;
-
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import com.swiftroute.orderservice.entity.enums.OrderPriority;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
+import com.swiftroute.orderservice.entity.enums.PackageCategory;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -62,17 +60,35 @@ public class Order {
     @Column(name = "delivery_lng", nullable = false)
     private Double deliveryLng;
 
+    @Column(name = "pickup_address", length = 500)
+    private String pickupAddress;
+
     @Column(name = "delivery_address", length = 500)
     private String deliveryAddress;
 
-    @Column(name = "time_window_start", nullable = false)
-    private LocalTime timeWindowStart;
+    /** UTC timestamp — start of the allowed delivery window */
+    @Column(name = "time_window_start", nullable = false, columnDefinition = "TIMESTAMPTZ")
+    private OffsetDateTime timeWindowStart;
 
-    @Column(name = "time_window_end", nullable = false)
-    private LocalTime timeWindowEnd;
+    /** UTC timestamp — end of the allowed delivery window */
+    @Column(name = "time_window_end", nullable = false, columnDefinition = "TIMESTAMPTZ")
+    private OffsetDateTime timeWindowEnd;
 
     @Column(name = "weight_kg", nullable = false)
     private Double weightKg;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "package_category", nullable = false, length = 30)
+    @Builder.Default
+    private PackageCategory packageCategory = PackageCategory.PARCEL;
+
+    /** Human-readable description of the items being delivered */
+    @Column(name = "item_description", length = 255)
+    private String itemDescription;
+
+    /** Special instructions for the delivery driver */
+    @Column(name = "notes", length = 500)
+    private String notes;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "priority", nullable = false, length = 20)
@@ -92,11 +108,12 @@ public class Order {
     @Column(name = "plan_id")
     private UUID planId;
 
-    @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    @Builder.Default
+    private Instant createdAt = Instant.now();
 
-    @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    @Builder.Default
+    private Instant updatedAt = Instant.now();
+
 }

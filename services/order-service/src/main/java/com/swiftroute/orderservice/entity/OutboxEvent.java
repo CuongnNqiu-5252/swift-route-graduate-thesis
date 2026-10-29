@@ -42,7 +42,7 @@ public class OutboxEvent {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "jsonb")
-    private TenantEventPayload payload;
+    private Object payload;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

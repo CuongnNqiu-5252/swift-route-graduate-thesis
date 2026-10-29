@@ -8,7 +8,9 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports: ["5433:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-databases.sql:/docker-entrypoint-initdb.d/01-payment-db.sql:ro
     networks:
       - swiftroute-net
 
@@ -51,6 +53,23 @@ services:
     depends_on:
       - postgres
       - redis
+
+  payment-service:
+    build: ./services/payment-service
+    ports: ["8085:8085"]
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - PAYMENT_DB_NAME=payment_db
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+    networks:
+      - swiftroute-net
+    depends_on:
+      - postgres
+      - rabbitmq
 
 networks:
   swiftroute-net:
