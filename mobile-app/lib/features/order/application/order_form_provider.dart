@@ -1,5 +1,6 @@
 // features/order/application/order_form_provider.dart
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/utils/location_helper.dart';
@@ -240,12 +241,24 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
 
   /// Submits the order to backend order-service and auto-confirms payment for demo flow.
   Future<OrderModel?> submitOrder({String? tenantId}) async {
-    if (!state.canSubmit) return null;
+    if (!state.canSubmit) {
+      if (!state.hasValidPickup) {
+        state = state.copyWith(errorMessage: 'Vui lòng chọn Điểm lấy hàng.');
+      } else if (!state.hasValidDelivery) {
+        state = state.copyWith(errorMessage: 'Vui lòng chọn Điểm giao hàng.');
+      } else if (state.isCalculatingRoute) {
+        state = state.copyWith(
+          errorMessage: 'Đang tính toán tuyến đường, vui lòng đợi trong giây lát...',
+        );
+      }
+      return null;
+    }
 
     state = state.copyWith(isSubmitting: true, clearError: true);
 
     try {
-      final effectiveTenant = tenantId ?? state.tenantId ?? 'a1111111-1111-1111-1111-111111111111';
+      final effectiveTenant =
+          tenantId ?? state.tenantId ?? 'a1111111-1111-1111-1111-111111111111';
       final order = await _orderDataSource.createOrder(
         pickupLat: state.pickupLat!,
         pickupLng: state.pickupLng!,
@@ -272,9 +285,31 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
       return paidOrder;
     } catch (e) {
       debugPrint('[OrderFormNotifier] submitOrder error: $e');
+      String msg = 'Không thể tạo đơn hàng.';
+      if (e is DioException) {
+        final resData = e.response?.data;
+        if (resData is Map) {
+          if (resData['message'] != null) {
+            msg = resData['message'].toString();
+          } else if (resData['error'] is Map &&
+              resData['error']['message'] != null) {
+            msg = resData['error']['message'].toString();
+          }
+        } else if (e.response?.statusCode == 401) {
+          msg = 'Phiên đăng nhập đã hết hạn (401). Vui lòng đăng nhập lại.';
+        } else if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout) {
+          msg = 'Hết thời gian kết nối tới máy chủ.';
+        } else {
+          msg = 'Lỗi máy chủ (${e.response?.statusCode ?? e.type}): ${e.message}';
+        }
+      } else {
+        msg = e.toString();
+      }
+
       state = state.copyWith(
         isSubmitting: false,
-        errorMessage: 'Không thể tạo đơn hàng: $e',
+        errorMessage: msg,
       );
       return null;
     }

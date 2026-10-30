@@ -9,14 +9,30 @@ import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/features/order/presentation/widgets/goong_map_widget.dart';
 
 /// Screen displaying real-time live tracking of the driver's motorbike on Goong Map,
-/// timeline status stepper, driver details, and interactive simulation controls for thesis demo.
-class OrderTrackingScreen extends ConsumerWidget {
+/// timeline status stepper, and driver details.
+/// Automatically connects to the server stream and updates vehicle position in real-time.
+class OrderTrackingScreen extends ConsumerStatefulWidget {
   const OrderTrackingScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
+}
+
+class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = ref.read(orderTrackingProvider);
+      if (state.order != null && !state.isDelivered && !state.isSseConnected) {
+        ref.read(orderTrackingProvider.notifier).startSseTracking();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final trackingState = ref.watch(orderTrackingProvider);
-    final trackingNotifier = ref.read(orderTrackingProvider.notifier);
     final order = trackingState.order;
 
     final pickupPoint = order != null
@@ -121,7 +137,7 @@ class OrderTrackingScreen extends ConsumerWidget {
             ),
           ),
 
-          // ── 3. Bottom Tracking Control Panel ──────────────────────────────
+          // ── 3. Bottom Tracking Sheet ──────────────────────────────────────
           Positioned(
             left: 0,
             right: 0,
@@ -208,9 +224,9 @@ class OrderTrackingScreen extends ConsumerWidget {
 
                   const SizedBox(height: 16),
 
-                  // ── Simulation Controls (Dedicated for Thesis Defense Demo) ──
+                  // ── Real Delivery Status Card ──
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: AppColors.surface,
                       borderRadius: BorderRadius.circular(14),
@@ -220,114 +236,93 @@ class OrderTrackingScreen extends ConsumerWidget {
                       children: [
                         Row(
                           children: [
-                            const Icon(
-                              Icons.play_circle_fill,
-                              color: AppColors.accent,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                'Mô phỏng xe chạy (Dành cho Demo):',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textPrimary,
-                                ),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: (trackingState.isDelivered
+                                        ? AppColors.success
+                                        : AppColors.primary)
+                                    .withAlpha(25),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                trackingState.isDelivered
+                                    ? Icons.check_circle
+                                    : Icons.two_wheeler_rounded,
+                                color: trackingState.isDelivered
+                                    ? AppColors.success
+                                    : AppColors.primary,
+                                size: 22,
                               ),
                             ),
-                            // Speed toggles
-                            _speedChip(ref, 1, trackingState.simulationSpeed),
-                            const SizedBox(width: 4),
-                            _speedChip(ref, 2, trackingState.simulationSpeed),
-                            const SizedBox(width: 4),
-                            _speedChip(ref, 4, trackingState.simulationSpeed),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        LinearProgressIndicator(
-                          value: trackingState.progressPercentage,
-                          backgroundColor: Colors.grey.shade300,
-                          color: trackingState.isDelivered
-                              ? AppColors.success
-                              : AppColors.accent,
-                          minHeight: 6,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
+                            const SizedBox(width: 12),
                             Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: trackingState.isDelivered
-                                    ? () => trackingNotifier.resetSimulation()
-                                    : trackingState.isSimulating
-                                        ? () => trackingNotifier.pauseSimulation()
-                                        : () => trackingNotifier.startSimulation(),
-                                icon: Icon(
-                                  trackingState.isDelivered
-                                      ? Icons.replay
-                                      : trackingState.isSimulating
-                                          ? Icons.pause
-                                          : Icons.play_arrow,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  trackingState.isDelivered
-                                      ? 'Chạy lại mô phỏng'
-                                      : trackingState.isSimulating
-                                          ? 'Tạm dừng xe'
-                                          : 'Bắt đầu mô phỏng giao hàng',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    trackingState.isDelivered
+                                        ? 'Đơn hàng đã được giao thành công'
+                                        : 'Tài xế đang giao đơn hàng đến bạn',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                    ),
                                   ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: trackingState.isDelivered
-                                      ? AppColors.primary
-                                      : AppColors.accent,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    trackingState.isDelivered
+                                        ? 'Cảm ơn bạn đã đồng hành cùng SwiftRoute!'
+                                        : 'Vị trí xe máy được cập nhật trực tiếp theo thời gian thực',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                ),
+                                ],
                               ),
                             ),
                           ],
                         ),
+                        if (!trackingState.isDelivered) ...[
+                          const SizedBox(height: 12),
+                          LinearProgressIndicator(
+                            value: trackingState.progressPercentage,
+                            backgroundColor: Colors.grey.shade200,
+                            color: AppColors.primary,
+                            minHeight: 5,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ],
                       ],
                     ),
                   ),
 
-                  // Completed Banner
-                  if (trackingState.isDelivered)
-                    Container(
-                      margin: const EdgeInsets.only(top: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withAlpha(30),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.success),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.check_circle, color: AppColors.success),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Đơn hàng đã được giao thành công tới người nhận!',
-                              style: TextStyle(
-                                color: AppColors.success,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
+                  if (trackingState.isDelivered) ...[
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushNamedAndRemoveUntil(
+                            '/customer/home',
+                            (route) => false,
+                          );
+                        },
+                        icon: const Icon(Icons.home_rounded, size: 18),
+                        label: const Text('Về trang chủ'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                        ],
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
                       ),
                     ),
+                  ],
                 ],
               ),
             ),
@@ -423,32 +418,6 @@ class OrderTrackingScreen extends ConsumerWidget {
           );
         }
       }),
-    );
-  }
-
-  Widget _speedChip(WidgetRef ref, int speed, int currentSpeed) {
-    final isSelected = speed == currentSpeed;
-    return InkWell(
-      onTap: () =>
-          ref.read(orderTrackingProvider.notifier).setSimulationSpeed(speed),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.accent : Colors.white,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isSelected ? AppColors.accent : AppColors.divider,
-          ),
-        ),
-        child: Text(
-          '${speed}x',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: isSelected ? Colors.white : AppColors.textSecondary,
-          ),
-        ),
-      ),
     );
   }
 }

@@ -6,6 +6,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 
@@ -53,6 +54,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.error(ErrorCode.UNAUTHENTICATED));
+    }
+
+    /**
+     * Bỏ qua lỗi ngắt kết nối tự nhiên khi client đóng tab/reload trang trong luồng SSE streaming.
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncDisconnect(AsyncRequestNotUsableException ex) {
+        log.info("Client disconnected from SSE tracking stream: {}", ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

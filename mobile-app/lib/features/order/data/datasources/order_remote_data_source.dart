@@ -1,5 +1,7 @@
 // features/order/data/datasources/order_remote_data_source.dart
 
+import 'dart:async';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +12,54 @@ class OrderRemoteDataSource {
   final Dio _dio;
 
   OrderRemoteDataSource(this._dio);
+
+  /// Subscribes to the live Server-Sent Events (SSE) tracking stream for [orderId].
+  /// Yields decoded events: location_update, connected, status_update, etc.
+  Stream<Map<String, dynamic>> streamOrderTracking(String orderId) async* {
+    try {
+      final response = await _dio.get<ResponseBody>(
+        '/orders/$orderId/tracking/stream',
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: {
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+        ),
+      );
+
+      final stream = response.data?.stream;
+      if (stream == null) return;
+
+      String? currentEventName;
+
+      await for (final line in stream
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        final trimmed = line.trim();
+        if (trimmed.isEmpty) continue;
+
+        if (trimmed.startsWith('event:')) {
+          currentEventName = trimmed.substring(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          final dataString = trimmed.substring(5).trim();
+          try {
+            final decoded = jsonDecode(dataString);
+            if (decoded is Map<String, dynamic>) {
+              decoded['sse_event'] = currentEventName ?? 'message';
+              yield decoded;
+            }
+          } catch (e) {
+            debugPrint('[OrderRemoteDataSource] SSE JSON parse error: $e');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[OrderRemoteDataSource] streamOrderTracking error: $e');
+      rethrow;
+    }
+  }
 
   /// Creates a new delivery order.
   Future<OrderModel> createOrder({
@@ -43,30 +93,14 @@ class OrderRemoteDataSource {
         : 'a1111111-1111-1111-1111-111111111111';
     headers['X-Tenant-Id'] = effectiveTenant;
 
-    try {
-      final response = await _dio.post(
-        '/orders',
-        data: body,
-        options: Options(headers: headers),
-      );
+    final response = await _dio.post(
+      '/orders',
+      data: body,
+      options: Options(headers: headers),
+    );
 
-      final data = response.data['data'] as Map<String, dynamic>;
-      return OrderModel.fromJson(data);
-    } catch (e) {
-      debugPrint(
-        '[OrderRemoteDataSource] createOrder network error: $e, using mock fallback.',
-      );
-      return _mockCreatedOrder(
-        pickupLat: pickupLat,
-        pickupLng: pickupLng,
-        pickupAddress: pickupAddress,
-        deliveryLat: deliveryLat,
-        deliveryLng: deliveryLng,
-        deliveryAddress: deliveryAddress,
-        weightKg: weightKg,
-        priority: priority,
-      );
-    }
+    final data = response.data['data'] as Map<String, dynamic>;
+    return OrderModel.fromJson(data);
   }
 
   /// Retrieves order details by [orderId].
@@ -85,9 +119,14 @@ class OrderRemoteDataSource {
   Future<List<OrderModel>> getMyOrders() async {
     try {
       final response = await _dio.get('/orders/me');
-      final dataList = response.data['data'] as List<dynamic>? ?? [];
-      return dataList
-          .map((item) => OrderModel.fromJson(item as Map<String, dynamic>))
+      final resData = response.data;
+      final rawList = (resData is Map && resData['data'] is List)
+          ? resData['data'] as List
+          : (resData is List ? resData : null);
+      if (rawList == null) return [];
+      return rawList
+          .whereType<Map>()
+          .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
           .toList();
     } catch (e) {
       debugPrint('[OrderRemoteDataSource] getMyOrders error: $e');
@@ -98,11 +137,21 @@ class OrderRemoteDataSource {
   /// Returns the active route stops assigned to the authenticated driver.
   /// The gateway derives the driver's identity from the bearer token.
   Future<List<OrderModel>> getAssignedDriverOrders() async {
-    final response = await _dio.get('/orders/driver/assigned');
-    final dataList = response.data['data'] as List<dynamic>? ?? [];
-    return dataList
-        .map((item) => OrderModel.fromJson(item as Map<String, dynamic>))
-        .toList();
+    try {
+      final response = await _dio.get('/orders/driver/assigned');
+      final resData = response.data;
+      final rawList = (resData is Map && resData['data'] is List)
+          ? resData['data'] as List
+          : (resData is List ? resData : null);
+      if (rawList == null) return [];
+      return rawList
+          .whereType<Map>()
+          .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    } catch (e, stack) {
+      debugPrint('[OrderRemoteDataSource] getAssignedDriverOrders error: $e\n$stack');
+      rethrow;
+    }
   }
 
   /// Advances a driver's assigned order through the delivery state machine.
@@ -115,57 +164,29 @@ class OrderRemoteDataSource {
       data: '"${status.toServerString()}"',
       options: Options(contentType: Headers.jsonContentType),
     );
-    final data = response.data['data'] as Map<String, dynamic>;
-    return OrderModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to update order status');
+    return OrderModel.fromJson(Map<String, dynamic>.from(map));
   }
 
-  /// Confirms the demo payment and moves an owned order to PAID.
+  /// Confirms the payment and moves an owned order to PAID.
   Future<OrderModel> confirmPayment(OrderModel order) async {
     try {
       final response = await _dio.patch('/orders/${order.id}/pay');
-      final data = response.data['data'] as Map<String, dynamic>;
-      return OrderModel.fromJson(data);
+      final resData = response.data;
+      final map = (resData is Map && resData['data'] is Map)
+          ? resData['data'] as Map
+          : (resData is Map ? resData : null);
+      if (map == null) return order;
+      return OrderModel.fromJson(Map<String, dynamic>.from(map));
     } catch (error) {
-      // Keep the offline demo flow usable when the API is intentionally mocked.
-      if (order.id.startsWith('mock-order-')) {
-        return order.copyWith(status: OrderStatus.paid);
-      }
-      debugPrint('[OrderRemoteDataSource] confirmPayment error: $error');
-      rethrow;
+      debugPrint('[OrderRemoteDataSource] confirmPayment warning: $error');
+      // If payment auto-confirmation fails, still return order with current status
+      return order;
     }
-  }
-
-  // ── Fallback Mock ─────────────────────────────────────────────────────────
-
-  OrderModel _mockCreatedOrder({
-    required double pickupLat,
-    required double pickupLng,
-    required String pickupAddress,
-    required double deliveryLat,
-    required double deliveryLng,
-    required String deliveryAddress,
-    required double weightKg,
-    required String priority,
-  }) {
-    return OrderModel(
-      id: 'mock-order-${DateTime.now().millisecondsSinceEpoch}',
-      tenantId: '00000000-0000-0000-0000-000000000001',
-      tenantName: 'SwiftRoute Express',
-      customerId: '00000000-0000-0000-0000-000000000002',
-      pickupLat: pickupLat,
-      pickupLng: pickupLng,
-      pickupAddress: pickupAddress,
-      deliveryLat: deliveryLat,
-      deliveryLng: deliveryLng,
-      deliveryAddress: deliveryAddress,
-      timeWindowStart: DateTime.now().toUtc(),
-      timeWindowEnd: DateTime.now().toUtc().add(const Duration(hours: 4)),
-      weightKg: weightKg,
-      priority: priority,
-      status: OrderStatus.paid,
-      assignedDriverId: 'mock-driver-uuid',
-      createdAt: DateTime.now(),
-    );
   }
 }
 

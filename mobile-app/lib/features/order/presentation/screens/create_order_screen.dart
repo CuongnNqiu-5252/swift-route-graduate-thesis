@@ -92,10 +92,9 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
               size: 24,
               color: AppColors.primary,
             ),
-            onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
-              '/customer/home',
-              (route) => false,
-            ),
+            onPressed: () => Navigator.of(
+              context,
+            ).pushNamedAndRemoveUntil('/customer/home', (route) => false),
             tooltip: 'Về trang chủ',
           ),
           const SizedBox(width: 8),
@@ -104,7 +103,7 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       bottomNavigationBar: const FloatingBottomBar(currentIndex: 2),
       body: Column(
         children: [
-          // ── Active Order Warning Banner (Max 1 active order policy) ───────
+          // ── Active Order Info Banner ─────────────────────────────────────
           if (activeTracking.hasActiveOrder)
             InkWell(
               onTap: () {
@@ -124,14 +123,14 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.warning_amber_rounded,
+                      Icons.info_outline_rounded,
                       color: Color(0xFFD97706),
                       size: 20,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Bạn đang có đơn #${activeTracking.order?.id.substring(0, 8) ?? ""} đang xử lý (tối đa 1 đơn). Nhấn để theo dõi.',
+                        'Bạn đang có đơn #${activeTracking.order?.id.substring(0, 8) ?? ""} đang vận chuyển. Nhấn để xem theo dõi.',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF92400E),
@@ -517,15 +516,6 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                     height: 50,
                     child: ElevatedButton(
                       onPressed: () async {
-                        if (activeTracking.hasActiveOrder) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const OrderTrackingScreen(),
-                            ),
-                          );
-                          return;
-                        }
-
                         if (!formState.hasValidPickup) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -550,13 +540,15 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                         if (createdOrder != null && context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Tạo đơn hàng thành công! Đang mở lộ trình giao...'),
+                              content: Text(
+                                'Tạo đơn hàng thành công! Đang kết nối theo dõi...',
+                              ),
                               backgroundColor: AppColors.success,
                               duration: Duration(seconds: 2),
                             ),
                           );
 
-                          // Initialize tracking with order and Goong route points
+                          // Initialize tracking with the real created order
                           ref
                               .read(orderTrackingProvider.notifier)
                               .initTracking(
@@ -564,16 +556,17 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                                 direction: formState.direction,
                               );
 
-                          // Navigate directly to Live Tracking screen (no payment barrier required)
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const OrderTrackingScreen(),
                             ),
                           );
-                        } else if (formState.errorMessage != null && context.mounted) {
+                        } else if (context.mounted) {
+                          final errorMsg = ref.read(orderFormProvider).errorMessage ??
+                              'Không thể tạo đơn hàng. Vui lòng thử lại.';
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text(formState.errorMessage!),
+                              content: Text(errorMsg),
                               backgroundColor: AppColors.error,
                             ),
                           );
@@ -598,11 +591,9 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                               ),
                             )
                           : Text(
-                              activeTracking.hasActiveOrder
-                                  ? 'XEM ĐƠN HÀNG ĐANG GIAO'
-                                  : (formState.estimatedFee != null
-                                      ? 'ĐẶT GIAO NGAY • ${_formatCurrency(formState.estimatedFee!)} đ'
-                                      : 'XÁC NHẬN ĐẶT GIAO HÀNG'),
+                              formState.estimatedFee != null
+                                  ? 'ĐẶT GIAO NGAY • ${_formatCurrency(formState.estimatedFee!)} đ'
+                                  : 'XÁC NHẬN ĐẶT GIAO HÀNG',
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
@@ -707,5 +698,3 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
         );
   }
 }
-
-

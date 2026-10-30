@@ -59,7 +59,8 @@ public class SecurityConfig {
                                                                 "/api/auth/login",
                                                                 "/api/auth/register",
                                                                 "/api/auth/refresh",
-                                                                "/api/drivers/*/public")
+                                                                "/api/drivers/*/public",
+                                                                "/api/orders/*/tracking/stream")
                                                 .permitAll()
                                                 .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll() // CORS preflight
                                                 .pathMatchers("/actuator/health").permitAll()

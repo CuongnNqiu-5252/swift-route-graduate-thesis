@@ -21,8 +21,12 @@ class DriverRemoteDataSource {
   /// Fetch the current authenticated driver's profile from /drivers/me.
   Future<DriverModel> getMyProfile() async {
     final response = await _dio.get('/drivers/me');
-    final data = response.data['data'] as Map<String, dynamic>;
-    return DriverModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('No driver profile data found');
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Toggle the authenticated driver's availability status.
@@ -31,8 +35,12 @@ class DriverRemoteDataSource {
       '/drivers/me/availability',
       data: {'is_available': isAvailable},
     );
-    final data = response.data['data'] as Map<String, dynamic>;
-    return DriverModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to update driver availability');
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Report current authenticated driver's GPS coordinates to the backend.
@@ -44,15 +52,23 @@ class DriverRemoteDataSource {
       '/drivers/me/location',
       data: {'lat': lat, 'lng': lng},
     );
-    final data = response.data['data'] as Map<String, dynamic>;
-    return DriverModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to update driver location');
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Fetch the driver profile by driverId (UUID string).
   Future<DriverModel> getDriverProfile(String driverId) async {
     final response = await _dio.get('/drivers/$driverId');
-    final data = response.data['data'] as Map<String, dynamic>;
-    return DriverModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Driver profile not found');
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Toggle the driver's availability status.
@@ -65,8 +81,12 @@ class DriverRemoteDataSource {
       '/drivers/$driverId/availability',
       data: {'is_available': isAvailable},
     );
-    final data = response.data['data'] as Map<String, dynamic>;
-    return DriverModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to update availability');
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Report current GPS coordinates to the backend.
@@ -79,16 +99,23 @@ class DriverRemoteDataSource {
       '/drivers/$driverId/location',
       data: {'lat': lat, 'lng': lng},
     );
-    final data = response.data['data'] as Map<String, dynamic>;
-    return DriverModel.fromJson(data);
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to update location');
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Fetch public driver profile (for customers tracking an order).
   Future<Map<String, dynamic>> getDriverPublicInfo(String driverId) async {
     try {
       final response = await _dio.get('/drivers/$driverId/public');
-      final data = response.data['data'] as Map<String, dynamic>;
-      return data;
+      final resData = response.data;
+      if (resData is Map && resData['data'] is Map) {
+        return Map<String, dynamic>.from(resData['data'] as Map);
+      }
+      return {};
     } catch (_) {
       // Mock fallback if service isn't reachable
       return {

@@ -45,14 +45,14 @@ class DriverModel {
 
   factory DriverModel.fromJson(Map<String, dynamic> json) {
     return DriverModel(
-      id: json['id'] as String,
+      id: (json['id'] ?? json['driver_id'] ?? '').toString(),
       tenantId: json['tenant_id'] as String?,
       userId: json['user_id'] as String?,
       fullName: json['full_name'] as String? ?? '',
       phone: json['phone'] as String? ?? '',
       licensePlate: json['license_plate'] as String? ?? '',
       vehicleType: json['vehicle_type'] as String? ?? 'CAR',
-      capacity: json['capacity'] as int?,
+      capacity: (json['capacity'] as num?)?.toInt(),
       driverType: json['driver_type'] as String? ?? 'FULL_TIME',
       shiftStart: json['shift_start'] as String?,
       shiftEnd: json['shift_end'] as String?,

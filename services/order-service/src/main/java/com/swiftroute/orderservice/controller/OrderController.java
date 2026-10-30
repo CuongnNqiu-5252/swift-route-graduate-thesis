@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
@@ -23,6 +25,7 @@ import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.service.OrderService;
+import com.swiftroute.orderservice.service.TrackingSimulationService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -44,6 +47,7 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
     private final OrderService orderService;
+    private final TrackingSimulationService trackingSimulationService;
 
     /**
      * GET /api/orders
@@ -212,5 +216,18 @@ public class OrderController {
             @RequestHeader("X-User-Role") String userRole) {
         List<OrderResponse> responses = orderService.assignBatch(request, UUID.fromString(userId), userRole);
         return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
+    /**
+     * GET /api/orders/{orderId}/tracking/stream
+     * Server-Sent Events (SSE) live real-time location stream.
+     * Streams autonomous simulated waypoints towards destination or real GPS updates.
+     */
+    @Operation(summary = "Subscribe to live real-time SSE tracking stream for an order")
+    @GetMapping(value = "/{orderId}/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamOrderTracking(
+            @PathVariable UUID orderId,
+            @RequestHeader(value = "X-User-Id", required = false) String userId) {
+        return trackingSimulationService.subscribe(orderId);
     }
 }
