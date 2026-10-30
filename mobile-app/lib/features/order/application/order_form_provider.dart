@@ -11,6 +11,7 @@ import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 /// State of the Customer Order Creation Form.
 @immutable
 class OrderFormState {
+  final String? tenantId;
   final String? pickupAddress;
   final double? pickupLat;
   final double? pickupLng;
@@ -32,6 +33,7 @@ class OrderFormState {
   final OrderModel? createdOrder;
 
   const OrderFormState({
+    this.tenantId,
     this.pickupAddress,
     this.pickupLat,
     this.pickupLng,
@@ -66,6 +68,7 @@ class OrderFormState {
       !isCalculatingRoute;
 
   OrderFormState copyWith({
+    String? tenantId,
     String? pickupAddress,
     double? pickupLat,
     double? pickupLng,
@@ -85,6 +88,7 @@ class OrderFormState {
     bool clearError = false,
   }) {
     return OrderFormState(
+      tenantId: tenantId ?? this.tenantId,
       pickupAddress: pickupAddress ?? this.pickupAddress,
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
@@ -155,8 +159,10 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
     required String address,
     required double lat,
     required double lng,
+    String? tenantId,
   }) async {
     state = state.copyWith(
+      tenantId: tenantId,
       pickupAddress: address,
       pickupLat: lat,
       pickupLng: lng,
@@ -232,13 +238,14 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
     }
   }
 
-  /// Submits the order to backend order-service.
+  /// Submits the order to backend order-service and auto-confirms payment for demo flow.
   Future<OrderModel?> submitOrder({String? tenantId}) async {
     if (!state.canSubmit) return null;
 
     state = state.copyWith(isSubmitting: true, clearError: true);
 
     try {
+      final effectiveTenant = tenantId ?? state.tenantId ?? 'a1111111-1111-1111-1111-111111111111';
       final order = await _orderDataSource.createOrder(
         pickupLat: state.pickupLat!,
         pickupLng: state.pickupLng!,
@@ -248,12 +255,21 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
         deliveryAddress: state.deliveryAddress!,
         weightKg: state.weightKg,
         priority: state.priority,
-        tenantId: tenantId,
+        tenantId: effectiveTenant,
       );
 
-      state = state.copyWith(isSubmitting: false, createdOrder: order);
+      // Auto-confirm payment so that the order immediately enters PAID state
+      // and appears on the Web Admin Dispatch optimization board
+      OrderModel paidOrder = order;
+      try {
+        paidOrder = await _orderDataSource.confirmPayment(order);
+      } catch (payError) {
+        debugPrint('[OrderFormNotifier] Auto-pay warning: $payError');
+      }
 
-      return order;
+      state = state.copyWith(isSubmitting: false, createdOrder: paidOrder);
+
+      return paidOrder;
     } catch (e) {
       debugPrint('[OrderFormNotifier] submitOrder error: $e');
       state = state.copyWith(

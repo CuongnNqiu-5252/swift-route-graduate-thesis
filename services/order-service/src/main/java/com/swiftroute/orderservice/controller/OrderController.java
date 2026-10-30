@@ -92,7 +92,7 @@ public class OrderController {
         UUID customerId = UUID.fromString(userId);
         UUID tenantIdUUID = (tenantId != null && !tenantId.isBlank())
                 ? UUID.fromString(tenantId)
-                : null;
+                : UUID.fromString("a1111111-1111-1111-1111-111111111111");
 
         OrderResponse response = orderService.createOrder(request, customerId, tenantIdUUID);
         return ResponseEntity.status(HttpStatus.CREATED)

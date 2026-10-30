@@ -77,6 +77,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         // Verify và parse JWT
         return jwtVerifier.verify(token)
                 .flatMap(claims -> {
+                    String clientTenant = exchange.getRequest().getHeaders().getFirst("X-Tenant-Id");
                     // Inject user context vào header cho downstream services
                     ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
                             .headers(headers -> {
@@ -86,7 +87,16 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                                 headers.remove("X-Tenant-Id");
                                 headers.set("X-User-Id", claims.userId());
                                 headers.set("X-User-Role", claims.role());
-                                headers.set("X-Tenant-Id", claims.tenantId() != null ? claims.tenantId() : "");
+
+                                // For tenant: if JWT claims has a tenant (ADMIN/OPERATOR/DRIVER), enforce it.
+                                // If claims has no tenant (CUSTOMER), allow the target tenant requested by client.
+                                if (claims.tenantId() != null && !claims.tenantId().isBlank()) {
+                                    headers.set("X-Tenant-Id", claims.tenantId());
+                                } else if (clientTenant != null && !clientTenant.isBlank()) {
+                                    headers.set("X-Tenant-Id", clientTenant);
+                                } else {
+                                    headers.set("X-Tenant-Id", "a1111111-1111-1111-1111-111111111111");
+                                }
                             })
                             // Xoá Authorization header để downstream không nhận raw JWT
                             // (tùy chính sách bảo mật — hiện tại giữ lại để tương thích)

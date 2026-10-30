@@ -18,8 +18,10 @@ from api.schemas import (
     PendingOrder,
     RoutingPlan,
     ShiftOptimizationRequest,
+    WhatIfOptimizationRequest,
+    WhatIfOptimizationResponse,
 )
-from service.optimizer_service import solve_batch
+from service.optimizer_service import simulate_what_if, solve_batch
 from service.order_store import order_store
 from service.plan_store import plan_store
 from service.shift_optimizer import dispatch_plan as run_dispatch, optimize_shift
@@ -54,6 +56,16 @@ def optimize_batch(request: BatchOptimizationRequest) -> BatchOptimizationRespon
     - genetic: evolutionary algorithm — good approximation for large n.
     """
     return solve_batch(request)
+
+
+@router.post(
+    "/optimize/what-if",
+    response_model=WhatIfOptimizationResponse,
+    summary="Stateless What-If staffing comparison",
+)
+def optimize_what_if(request: WhatIfOptimizationRequest) -> WhatIfOptimizationResponse:
+    """Compares two routing scenarios entirely in memory; no plan is saved."""
+    return simulate_what_if(request)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

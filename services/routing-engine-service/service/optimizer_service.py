@@ -18,6 +18,9 @@ from api.schemas import (
     BatchOptimizationResponse,
     LocationPoint,
     OrderedStop,
+    WhatIfOptimizationRequest,
+    WhatIfOptimizationResponse,
+    WhatIfScenario,
 )
 from core.distance import build_distance_matrix, build_time_matrix
 from core.tsp_held_karp import held_karp_tsp
@@ -113,4 +116,61 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
         ordered_stops=ordered_stops,
         execution_time_ms=round(elapsed_ms, 2),
         timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def _simulate_driver_capacity(
+    request: WhatIfOptimizationRequest,
+    driver_count: int,
+) -> WhatIfScenario:
+    """Return a deterministic in-memory multi-driver estimate for a What-If run.
+
+    Stops are first put in a globally sensible order, then split into contiguous
+    route segments. Each segment is solved independently from the depot. This is
+    deliberately a dry-run: it creates no plans and changes no order state.
+    """
+    global_route = solve_batch(BatchOptimizationRequest(
+        depot=request.depot,
+        stops=request.stops,
+        algorithm=request.algorithm,
+    ))
+    stop_by_id = {stop.id: stop for stop in request.stops}
+    ordered = [stop_by_id[stop.stop_id] for stop in global_route.ordered_stops]
+    active_drivers = min(driver_count, len(ordered))
+    chunk_size = (len(ordered) + active_drivers - 1) // active_drivers
+    routes = [ordered[index:index + chunk_size] for index in range(0, len(ordered), chunk_size)]
+    results = [solve_batch(BatchOptimizationRequest(
+        depot=request.depot,
+        stops=route,
+        algorithm=request.algorithm,
+    )) for route in routes]
+    completion_minutes = max(result.total_duration_minutes for result in results)
+    late_risk_orders = sum(
+        len(result.ordered_stops)
+        for result in results
+        if result.total_duration_minutes > request.max_shift_minutes
+    )
+    return WhatIfScenario(
+        driver_count=active_drivers,
+        total_distance_km=round(sum(result.total_distance_km for result in results), 3),
+        completion_minutes=round(completion_minutes, 1),
+        late_risk_orders=late_risk_orders,
+        algorithm_used=global_route.algorithm_used,
+    )
+
+
+def simulate_what_if(request: WhatIfOptimizationRequest) -> WhatIfOptimizationResponse:
+    """Compare two staffing levels without writing to SQLite or PostgreSQL."""
+    baseline = _simulate_driver_capacity(request, request.baseline_driver_count)
+    scenario = _simulate_driver_capacity(request, request.scenario_driver_count)
+
+    def percent_change(current: float, reference: float) -> float:
+        return round(((current - reference) / reference) * 100, 1) if reference else 0.0
+
+    return WhatIfOptimizationResponse(
+        baseline=baseline,
+        scenario=scenario,
+        distance_delta_percent=percent_change(scenario.total_distance_km, baseline.total_distance_km),
+        completion_delta_percent=percent_change(scenario.completion_minutes, baseline.completion_minutes),
+        late_risk_delta=scenario.late_risk_orders - baseline.late_risk_orders,
     )

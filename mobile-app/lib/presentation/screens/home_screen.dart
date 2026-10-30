@@ -11,8 +11,8 @@ import 'package:swiftroute_app/features/order/data/models/tenant_model.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/create_order_screen.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/order_tracking_screen.dart';
 import 'package:swiftroute_app/features/order/presentation/widgets/address_search_sheet.dart';
-import 'package:swiftroute_app/widget/bell.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
+import 'package:swiftroute_app/widget/bell.dart';
 import 'package:swiftroute_app/widget/floating_bottom_bar.dart';
 import 'package:swiftroute_app/widget/profile_bottom_sheet.dart';
 
@@ -124,12 +124,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               _buildEmptyState(homeNotifier)
             else
               ...filteredTenants.map(
-                (tenant) => _buildStoreCard(
-                  context,
-                  tenant,
-                  homeState,
-                  trackingState,
-                ),
+                (tenant) =>
+                    _buildStoreCard(context, tenant, homeState, trackingState),
               ),
 
             const SizedBox(height: 84),
@@ -276,9 +272,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: InkWell(
         onTap: () {
           Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const OrderTrackingScreen(),
-            ),
+            MaterialPageRoute(builder: (_) => const OrderTrackingScreen()),
           );
         },
         borderRadius: BorderRadius.circular(16),
@@ -375,13 +369,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 children: [
                   Column(
                     children: [
-                      const Icon(Icons.circle, size: 10, color: Color(0xFF10B981)),
+                      const Icon(
+                        Icons.circle,
+                        size: 10,
+                        color: Color(0xFF10B981),
+                      ),
                       Container(
                         width: 1.5,
                         height: 24,
                         color: Colors.grey.shade300,
                       ),
-                      const Icon(Icons.location_on, size: 14, color: AppColors.accent),
+                      const Icon(
+                        Icons.location_on,
+                        size: 14,
+                        color: AppColors.accent,
+                      ),
                     ],
                   ),
                   const SizedBox(width: 10),
@@ -423,7 +425,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
               // Live Driver / Action Bar
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(10),
@@ -567,9 +572,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: () {
               Navigator.of(ctx).pop();
               Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const OrderTrackingScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const OrderTrackingScreen()),
               );
             },
             style: ElevatedButton.styleFrom(
@@ -657,10 +660,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   hasActiveOrder
                       ? 'Nhấn để theo dõi vị trí và tiến độ giao hàng trực tiếp'
                       : 'Tối ưu tuyến đường thông minh AI • Phí chỉ từ 15.000 đ',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton.icon(
@@ -964,11 +964,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         }
 
                         // Prefill store pickup address into create order form
-                        ref.read(orderFormProvider.notifier).setPickupLocation(
-                          address: tenant.address ?? tenant.businessName,
-                          lat: tenant.pickupLat,
-                          lng: tenant.pickupLng,
-                        );
+                        ref
+                            .read(orderFormProvider.notifier)
+                            .setPickupLocation(
+                              address: tenant.address ?? tenant.businessName,
+                              lat: tenant.pickupLat,
+                              lng: tenant.pickupLng,
+                              tenantId: tenant.id,
+                            );
 
                         Navigator.push(
                           context,

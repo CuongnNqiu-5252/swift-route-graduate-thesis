@@ -175,8 +175,9 @@ class TenantModel {
       pickupLat: (json['pickup_lat'] as num?)?.toDouble() ?? 0.0,
       pickupLng: (json['pickup_lng'] as num?)?.toDouble() ?? 0.0,
       status: TenantStatus.fromString(json['status'] as String?),
-      subscriptionPlan:
-          SubscriptionPlan.fromString(json['subscription_plan'] as String?),
+      subscriptionPlan: SubscriptionPlan.fromString(
+        json['subscription_plan'] as String?,
+      ),
       approvalReason: json['approval_reason'] as String?,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)

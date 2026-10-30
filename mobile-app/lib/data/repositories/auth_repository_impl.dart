@@ -63,8 +63,20 @@ class AuthRepositoryImpl implements AuthRepository {
         refreshToken: loginResponse.refreshToken,
       );
 
-      // Decode user info from the access token payload (JWT)
-      return _decodeUserFromToken(loginResponse.accessToken);
+      // Attempt to load full user profile directly from /auth/me
+      try {
+        final meResponse = await _dio.get('/auth/me');
+        final meData = meResponse.data['data'] as Map<String, dynamic>;
+        return UserModel(
+          id: meData['id'] as String? ?? '',
+          email: meData['email'] as String? ?? identifier,
+          name: meData['full_name'] as String? ?? '',
+          role: (meData['role'] as String? ?? 'CUSTOMER').toUpperCase(),
+        );
+      } catch (_) {
+        // Fallback: decode user info from the access token payload (JWT)
+        return _decodeUserFromToken(loginResponse.accessToken);
+      }
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -79,13 +91,17 @@ class AuthRepositoryImpl implements AuthRepository {
       final payload = parts[1];
       // Base64url decode (pad to multiple of 4)
       final padded = payload.padRight((payload.length + 3) & ~3, '=');
-      final decoded = String.fromCharCodes(base64Url.decode(padded));
+      final decoded = utf8.decode(base64Url.decode(padded));
       final claims = jsonDecode(decoded) as Map<String, dynamic>;
+      final rawRole = claims['_ROLE'] ?? claims['role'] ?? claims['roles'] ?? 'CUSTOMER';
+      final role = (rawRole is List)
+          ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'CUSTOMER')
+          : rawRole.toString();
       return UserModel(
         id: (claims['sub'] ?? '') as String,
         email: (claims['email'] ?? '') as String,
         name: (claims['name'] ?? claims['full_name'] ?? '') as String,
-        role: (claims['role'] ?? 'CUSTOMER') as String,
+        role: role.toUpperCase(),
       );
     } catch (_) {
       // Fallback: return placeholder until /auth/me is called
@@ -116,8 +132,19 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       final token = await _tokenStorage.getAccessToken();
       if (token == null) return null;
-      // Re-decode from the stored token without a network call
-      return _decodeUserFromToken(token);
+
+      try {
+        final response = await _dio.get('/auth/me');
+        final data = response.data['data'] as Map<String, dynamic>;
+        return UserModel(
+          id: data['id'] as String? ?? '',
+          email: data['email'] as String? ?? '',
+          name: data['full_name'] as String? ?? '',
+          role: (data['role'] as String? ?? 'CUSTOMER').toUpperCase(),
+        );
+      } catch (_) {
+        return _decodeUserFromToken(token);
+      }
     } catch (_) {
       return null;
     }

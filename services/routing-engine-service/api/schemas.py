@@ -59,6 +59,30 @@ class BatchOptimizationResponse(BaseModel):
     timestamp: str
 
 
+class WhatIfOptimizationRequest(BatchOptimizationRequest):
+    """A dry-run comparison that never persists or dispatches a route."""
+
+    baseline_driver_count: int = Field(3, ge=1, le=50)
+    scenario_driver_count: int = Field(2, ge=1, le=50)
+    max_shift_minutes: float = Field(150.0, gt=0.0, le=1_440.0)
+
+
+class WhatIfScenario(BaseModel):
+    driver_count: int
+    total_distance_km: float
+    completion_minutes: float
+    late_risk_orders: int
+    algorithm_used: str
+
+
+class WhatIfOptimizationResponse(BaseModel):
+    baseline: WhatIfScenario
+    scenario: WhatIfScenario
+    distance_delta_percent: float
+    completion_delta_percent: float
+    late_risk_delta: int
+
+
 class PendingOrder(BaseModel):
     order_id: str
     tenant_id: str
@@ -116,4 +140,3 @@ class DispatchPlanResponse(BaseModel):
     dispatched_orders_count: int
     assignments: List[dict]
     message: str
-

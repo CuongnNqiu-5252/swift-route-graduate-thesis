@@ -120,7 +120,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       body: Stack(
         children: [
           // ── Top hero section ─────────────────────────────
-          _HeroSection(),
+          _HeroSection(
+            onRoleChanged: (role) {
+              setState(() { 
+                if (role == UserRole.driver) {
+                  _emailController.text = 'driver@gmail.com';
+                } else {
+                  _emailController.text = 'customer@gmail.com';
+                }
+              });
+            },
+          ),
 
           // ── Sliding form card ─────────────────────────────
           SlideTransition(
@@ -159,6 +169,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _HeroSection extends ConsumerWidget {
+  const _HeroSection({this.onRoleChanged});
+
+  final ValueChanged<UserRole>? onRoleChanged;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final screenH = MediaQuery.of(context).size.height;
@@ -223,8 +237,10 @@ class _HeroSection extends ConsumerWidget {
                   // Role toggle pill
                   _RolePillToggle(
                     selected: selectedRole,
-                    onChanged: (role) =>
-                        ref.read(_selectedRoleProvider.notifier).state = role,
+                    onChanged: (role) {
+                      ref.read(_selectedRoleProvider.notifier).state = role;
+                      onRoleChanged?.call(role);
+                    },
                   ),
                 ],
               ),
