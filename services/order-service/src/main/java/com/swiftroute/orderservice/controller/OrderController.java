@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
@@ -43,6 +44,39 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
     private final OrderService orderService;
+
+    /**
+     * GET /api/orders
+     * Danh sách tất cả đơn hàng (hỗ trợ lọc theo status, tenant).
+     * Dùng cho Web Admin và Dispatch console.
+     */
+    @Operation(summary = "Lấy danh sách tất cả đơn hàng (hỗ trợ lọc status, tenant)")
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getAllOrders(
+            @RequestParam(value = "status", required = false) String statusStr,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
+            @RequestParam(value = "tenant_id", required = false) String tenantIdParam,
+            @RequestHeader(value = "X-User-Role", required = false, defaultValue = "ADMIN") String userRole) {
+
+        String effectiveTenant = (tenantIdHeader != null && !tenantIdHeader.isBlank())
+                ? tenantIdHeader
+                : tenantIdParam;
+
+        UUID tenantUuid = (effectiveTenant != null && !effectiveTenant.isBlank())
+                ? UUID.fromString(effectiveTenant)
+                : null;
+
+        OrderStatus status = null;
+        if (statusStr != null && !statusStr.isBlank()) {
+            try {
+                status = OrderStatus.valueOf(statusStr.toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        List<OrderResponse> orders = orderService.getAllOrders(tenantUuid, status, userRole);
+        return ResponseEntity.ok(ApiResponse.success(orders));
+    }
 
     /**
      * POST /api/orders

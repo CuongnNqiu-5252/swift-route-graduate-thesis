@@ -6,23 +6,50 @@ import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/utils/polyline_decoder.dart';
 import 'package:swiftroute_app/features/order/application/order_form_provider.dart';
 import 'package:swiftroute_app/features/order/application/order_tracking_provider.dart';
-import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
-import 'package:swiftroute_app/features/order/data/models/order_model.dart';
-import 'package:swiftroute_app/features/payment/data/datasources/payment_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/order_tracking_screen.dart';
 import 'package:swiftroute_app/features/order/presentation/widgets/address_search_sheet.dart';
 import 'package:swiftroute_app/features/order/presentation/widgets/goong_map_widget.dart';
-import 'package:swiftroute_app/widget/layout/app_header.dart';
+import 'package:swiftroute_app/widget/floating_bottom_bar.dart';
 
 /// Screen allowing customers to select pickup/delivery locations via GPS & Goong,
 /// view real-time motorbike routing, calculate shipping fees, and place orders.
-class CreateOrderScreen extends ConsumerWidget {
+class CreateOrderScreen extends ConsumerStatefulWidget {
   const CreateOrderScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CreateOrderScreen> createState() => _CreateOrderScreenState();
+}
+
+class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = ref.read(orderFormProvider);
+      final notifier = ref.read(orderFormProvider.notifier);
+      // Auto-prefill default pickup & delivery locations if empty for immediate demo ordering
+      if (!state.hasValidPickup) {
+        notifier.setPickupLocation(
+          address: 'Kho Hàng Trung Tâm Quận 1, Bến Nghé, Q1',
+          lat: 10.776889,
+          lng: 106.700806,
+        );
+      }
+      if (!state.hasValidDelivery) {
+        notifier.setDeliveryLocation(
+          address: '120 Hai Bà Trưng, Phường Đa Kao, Quận 1',
+          lat: 10.781800,
+          lng: 106.699400,
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final formState = ref.watch(orderFormProvider);
     final formNotifier = ref.read(orderFormProvider.notifier);
+    final activeTracking = ref.watch(orderTrackingProvider);
 
     // Convert form coordinates to LatLngPoint for map
     final pickupPoint =
@@ -38,9 +65,90 @@ class CreateOrderScreen extends ConsumerWidget {
     final routePoints = formState.direction?.points ?? [];
 
     return Scaffold(
-      appBar: const Header(),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 20,
+            color: AppColors.textPrimary,
+          ),
+          onPressed: () => Navigator.of(context).pop(),
+          tooltip: 'Quay lại',
+        ),
+        title: const Text(
+          'Tạo đơn giao hàng',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.home_outlined,
+              size: 24,
+              color: AppColors.primary,
+            ),
+            onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
+              '/customer/home',
+              (route) => false,
+            ),
+            tooltip: 'Về trang chủ',
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      bottomNavigationBar: const FloatingBottomBar(currentIndex: 2),
       body: Column(
         children: [
+          // ── Active Order Warning Banner (Max 1 active order policy) ───────
+          if (activeTracking.hasActiveOrder)
+            InkWell(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const OrderTrackingScreen(),
+                  ),
+                );
+              },
+              child: Container(
+                width: double.infinity,
+                color: const Color(0xFFFEF3C7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFFD97706),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bạn đang có đơn #${activeTracking.order?.id.substring(0, 8) ?? ""} đang xử lý (tối đa 1 đơn). Nhấn để theo dõi.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF92400E),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Color(0xFFD97706),
+                      size: 18,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // ── Map View (38% screen height) ──────────────────────────────────
           SizedBox(
             height: MediaQuery.of(context).size.height * 0.38,
@@ -408,37 +516,69 @@ class CreateOrderScreen extends ConsumerWidget {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: formState.canSubmit
-                          ? () async {
-                              final createdOrder = await formNotifier
-                                  .submitOrder();
-                              if (createdOrder != null && context.mounted) {
-                                final paidOrder = await _showPaymentSheet(
-                                  context,
-                                  ref,
-                                  createdOrder,
-                                  formState.estimatedFee ?? 0,
-                                );
-                                if (paidOrder == null || !context.mounted) {
-                                  return;
-                                }
-                                // Initialize tracking with order and Goong route points
-                                ref
-                                    .read(orderTrackingProvider.notifier)
-                                    .initTracking(
-                                      order: paidOrder,
-                                      direction: formState.direction,
-                                    );
+                      onPressed: () async {
+                        if (activeTracking.hasActiveOrder) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const OrderTrackingScreen(),
+                            ),
+                          );
+                          return;
+                        }
 
-                                // Navigate to Live Tracking screen
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => const OrderTrackingScreen(),
-                                  ),
-                                );
-                              }
-                            }
-                          : null,
+                        if (!formState.hasValidPickup) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Vui lòng chọn Điểm lấy hàng.'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          return;
+                        }
+                        if (!formState.hasValidDelivery) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Vui lòng chọn Điểm giao hàng.'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          return;
+                        }
+                        if (formState.isSubmitting) return;
+
+                        final createdOrder = await formNotifier.submitOrder();
+                        if (createdOrder != null && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Tạo đơn hàng thành công! Đang mở lộ trình giao...'),
+                              backgroundColor: AppColors.success,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+
+                          // Initialize tracking with order and Goong route points
+                          ref
+                              .read(orderTrackingProvider.notifier)
+                              .initTracking(
+                                order: createdOrder,
+                                direction: formState.direction,
+                              );
+
+                          // Navigate directly to Live Tracking screen (no payment barrier required)
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const OrderTrackingScreen(),
+                            ),
+                          );
+                        } else if (formState.errorMessage != null && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(formState.errorMessage!),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.accent,
                         disabledBackgroundColor: Colors.grey.shade300,
@@ -446,7 +586,7 @@ class CreateOrderScreen extends ConsumerWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        elevation: formState.canSubmit ? 3 : 0,
+                        elevation: 3,
                       ),
                       child: formState.isSubmitting
                           ? const SizedBox(
@@ -458,9 +598,11 @@ class CreateOrderScreen extends ConsumerWidget {
                               ),
                             )
                           : Text(
-                              formState.estimatedFee != null
-                                  ? 'ĐẶT GIAO NGAY • ${_formatCurrency(formState.estimatedFee!)} đ'
-                                  : 'XÁC NHẬN ĐẶT GIAO HÀNG',
+                              activeTracking.hasActiveOrder
+                                  ? 'XEM ĐƠN HÀNG ĐANG GIAO'
+                                  : (formState.estimatedFee != null
+                                      ? 'ĐẶT GIAO NGAY • ${_formatCurrency(formState.estimatedFee!)} đ'
+                                      : 'XÁC NHẬN ĐẶT GIAO HÀNG'),
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
@@ -474,21 +616,6 @@ class CreateOrderScreen extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
-
-  Future<OrderModel?> _showPaymentSheet(
-    BuildContext context,
-    WidgetRef ref,
-    OrderModel order,
-    double amount,
-  ) {
-    return showModalBottomSheet<OrderModel>(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      builder: (sheetContext) =>
-          _MockPaymentSheet(order: order, amount: amount, ref: ref),
     );
   }
 
@@ -546,7 +673,7 @@ class CreateOrderScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            if (trailing != null) trailing,
+            ?trailing,
           ],
         ),
       ),
@@ -581,130 +708,4 @@ class CreateOrderScreen extends ConsumerWidget {
   }
 }
 
-class _MockPaymentSheet extends StatefulWidget {
-  const _MockPaymentSheet({
-    required this.order,
-    required this.amount,
-    required this.ref,
-  });
 
-  final OrderModel order;
-  final double amount;
-  final WidgetRef ref;
-
-  @override
-  State<_MockPaymentSheet> createState() => _MockPaymentSheetState();
-}
-
-class _MockPaymentSheetState extends State<_MockPaymentSheet> {
-  var _isPaying = false;
-  String? _error;
-
-  Future<void> _confirm() async {
-    setState(() {
-      _isPaying = true;
-      _error = null;
-    });
-
-    try {
-      final paymentDataSource = widget.ref.read(paymentRemoteDataSourceProvider);
-      final payment = await paymentDataSource.createMockPayment(
-        orderId: widget.order.id,
-        amount: widget.amount,
-      );
-      final completedPayment = await paymentDataSource.confirmMockPayment(
-        payment.id,
-      );
-      if (completedPayment.status != 'SUCCESS') {
-        throw StateError('Payment was not completed');
-      }
-      if (mounted) {
-        Navigator.of(context).pop(widget.order.copyWith(status: OrderStatus.paid));
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isPaying = false;
-          _error = 'Thanh toán chưa được xác nhận. Vui lòng thử lại.';
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Xác nhận thanh toán',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Chế độ mô phỏng VNPay cho phiên demo.',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.divider),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.receipt_long_outlined),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text('Đơn #${widget.order.id.length > 8 ? widget.order.id.substring(0, 8) : widget.order.id}'),
-                  ),
-                  Text('${widget.amount.toStringAsFixed(0)} đ'),
-                ],
-              ),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: AppColors.error)),
-            ],
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: FilledButton(
-                onPressed: _isPaying ? null : _confirm,
-                style: FilledButton.styleFrom(backgroundColor: AppColors.textPrimary),
-                child: _isPaying
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text('Thanh toán (Mock VNPay)'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

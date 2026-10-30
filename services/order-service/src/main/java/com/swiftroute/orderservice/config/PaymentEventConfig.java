@@ -14,8 +14,14 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 @Configuration
 public class PaymentEventConfig {
     public static final String QUEUE = "order.payment.completed.queue";
-    @Bean Queue paymentCompletedQueue() { return new Queue(QUEUE, true); }
-    @Bean Binding paymentCompletedBinding(Queue paymentCompletedQueue, TopicExchange swiftrouteEventsExchange) {
+
+    @Bean
+    Queue paymentCompletedQueue() {
+        return new Queue(QUEUE, true);
+    }
+
+    @Bean
+    Binding paymentCompletedBinding(Queue paymentCompletedQueue, TopicExchange swiftrouteEventsExchange) {
         return BindingBuilder.bind(paymentCompletedQueue).to(swiftrouteEventsExchange).with("payment.completed");
     }
 

@@ -65,132 +65,217 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
     }
   }
 
+  @override
+  void dispose() {
+    _isStyleLoaded = false;
+    _mapController = null;
+    super.dispose();
+  }
+
   void _onMapCreated(MapLibreMapController controller) {
+    if (!mounted) return;
     _mapController = controller;
   }
 
   void _onStyleLoaded() {
+    if (!mounted) return;
     _isStyleLoaded = true;
     _updateMapOverlays();
   }
 
   Future<void> _updateMapOverlays() async {
     final controller = _mapController;
-    if (controller == null || !_isStyleLoaded) return;
+    if (!mounted || controller == null || !_isStyleLoaded) return;
 
     // 1. Update Route Polyline
-    if (widget.routePoints.isNotEmpty) {
-      final lineGeometry = widget.routePoints
-          .map((p) => LatLng(p.latitude, p.longitude))
-          .toList();
+    // 1. Update Route Polyline
+    try {
+      if (widget.routePoints.length >= 2) {
+        final lineGeometry = widget.routePoints
+            .map((p) => LatLng(p.latitude, p.longitude))
+            .toList();
 
-      if (_routeLine == null) {
-        _routeLine = await controller.addLine(
-          LineOptions(
-            geometry: lineGeometry,
-            lineColor: '#2F3C7E',
-            lineWidth: 5.0,
-            lineOpacity: 0.9,
-          ),
+        debugPrint(
+          '[Map] First point: ${lineGeometry.first.latitude}, '
+          '${lineGeometry.first.longitude}',
         );
-      } else {
-        await controller.updateLine(
-          _routeLine!,
-          LineOptions(geometry: lineGeometry),
+        debugPrint(
+          '[Map] Last point: ${lineGeometry.last.latitude}, '
+          '${lineGeometry.last.longitude}',
         );
+
+        if (_routeLine == null) {
+          _routeLine = await controller.addLine(
+            LineOptions(
+              geometry: lineGeometry,
+              lineColor: '#2F3C7E',
+              lineWidth: 5.0,
+              lineOpacity: 1.0,
+            ),
+          );
+
+          debugPrint('[Map] Added route line: $_routeLine');
+        } else {
+          await controller.updateLine(
+            _routeLine!,
+            LineOptions(
+              geometry: lineGeometry,
+              lineColor: '#2F3C7E',
+              lineWidth: 5.0,
+              lineOpacity: 1.0,
+            ),
+          );
+
+          debugPrint('[Map] Updated route line');
+        }
+
+        _fitRouteBounds(controller, lineGeometry);
+      } else if (_routeLine != null) {
+        await controller.removeLine(_routeLine!);
+        _routeLine = null;
       }
-
-      // Adjust camera to fit the route bounds
-      _fitRouteBounds(lineGeometry);
-    } else if (_routeLine != null) {
-      await controller.removeLine(_routeLine!);
-      _routeLine = null;
+    } catch (e, stackTrace) {
+      debugPrint('[Map] Error drawing route: $e');
+      debugPrintStack(stackTrace: stackTrace);
     }
+    // try {
+    //   if (widget.routePoints.isNotEmpty) {
+    //     final lineGeometry = widget.routePoints
+    //         .map((p) => LatLng(p.latitude, p.longitude))
+    //         .toList();
+
+    //     if (_routeLine == null) {
+    //       _routeLine = await controller.addLine(
+    //         LineOptions(
+    //           geometry: lineGeometry,
+    //           lineColor: '#2F3C7E',
+    //           lineWidth: 5.0,
+    //           lineOpacity: 0.9,
+    //         ),
+    //       );
+    //     } else {
+    //       await controller.updateLine(
+    //         _routeLine!,
+    //         LineOptions(geometry: lineGeometry),
+    //       );
+    //     }
+
+    //     // Adjust camera to fit the route bounds
+    //     _fitRouteBounds(controller, lineGeometry);
+    //   } else if (_routeLine != null) {
+    //     await controller.removeLine(_routeLine!);
+    //     _routeLine = null;
+    //   } else if (widget.pickupLocation != null) {
+    //     controller.moveCamera(
+    //       CameraUpdate.newLatLngZoom(
+    //         LatLng(
+    //           widget.pickupLocation!.latitude,
+    //           widget.pickupLocation!.longitude,
+    //         ),
+    //         15.0,
+    //       ),
+    //     );
+    //   }
+    // } catch (e) {
+    //   debugPrint('[GoongMapWidget] Error updating route line: $e');
+    // }
 
     // 2. Update Pickup Marker (Green)
-    if (widget.pickupLocation != null) {
-      final pos = LatLng(
-        widget.pickupLocation!.latitude,
-        widget.pickupLocation!.longitude,
-      );
-      if (_pickupCircle == null) {
-        _pickupCircle = await controller.addCircle(
-          CircleOptions(
-            geometry: pos,
-            circleColor: '#22C55E', // Green
-            circleRadius: 8.0,
-            circleStrokeColor: '#FFFFFF',
-            circleStrokeWidth: 3.0,
-          ),
+    try {
+      if (widget.pickupLocation != null) {
+        final pos = LatLng(
+          widget.pickupLocation!.latitude,
+          widget.pickupLocation!.longitude,
         );
-      } else {
-        await controller.updateCircle(
-          _pickupCircle!,
-          CircleOptions(geometry: pos),
-        );
+        if (_pickupCircle == null) {
+          _pickupCircle = await controller.addCircle(
+            CircleOptions(
+              geometry: pos,
+              circleColor: '#22C55E', // Green
+              circleRadius: 8.0,
+              circleStrokeColor: '#FFFFFF',
+              circleStrokeWidth: 3.0,
+            ),
+          );
+        } else {
+          await controller.updateCircle(
+            _pickupCircle!,
+            CircleOptions(geometry: pos),
+          );
+        }
+      } else if (_pickupCircle != null) {
+        await controller.removeCircle(_pickupCircle!);
+        _pickupCircle = null;
       }
-    } else if (_pickupCircle != null) {
-      await controller.removeCircle(_pickupCircle!);
-      _pickupCircle = null;
+    } catch (e) {
+      debugPrint('[GoongMapWidget] Error updating pickup marker: $e');
     }
 
     // 3. Update Delivery Marker (Red)
-    if (widget.deliveryLocation != null) {
-      final pos = LatLng(
-        widget.deliveryLocation!.latitude,
-        widget.deliveryLocation!.longitude,
-      );
-      if (_deliveryCircle == null) {
-        _deliveryCircle = await controller.addCircle(
-          CircleOptions(
-            geometry: pos,
-            circleColor: '#EF4444', // Red
-            circleRadius: 8.0,
-            circleStrokeColor: '#FFFFFF',
-            circleStrokeWidth: 3.0,
-          ),
+    try {
+      if (widget.deliveryLocation != null) {
+        final pos = LatLng(
+          widget.deliveryLocation!.latitude,
+          widget.deliveryLocation!.longitude,
         );
-      } else {
-        await controller.updateCircle(
-          _deliveryCircle!,
-          CircleOptions(geometry: pos),
-        );
+        if (_deliveryCircle == null) {
+          _deliveryCircle = await controller.addCircle(
+            CircleOptions(
+              geometry: pos,
+              circleColor: '#EF4444', // Red
+              circleRadius: 8.0,
+              circleStrokeColor: '#FFFFFF',
+              circleStrokeWidth: 3.0,
+            ),
+          );
+        } else {
+          await controller.updateCircle(
+            _deliveryCircle!,
+            CircleOptions(geometry: pos),
+          );
+        }
+      } else if (_deliveryCircle != null) {
+        await controller.removeCircle(_deliveryCircle!);
+        _deliveryCircle = null;
       }
-    } else if (_deliveryCircle != null) {
-      await controller.removeCircle(_deliveryCircle!);
-      _deliveryCircle = null;
+    } catch (e) {
+      debugPrint('[GoongMapWidget] Error updating delivery marker: $e');
     }
 
     // 4. Update Driver Motorbike Marker (Orange accent)
-    if (widget.driverLocation != null) {
-      final pos = LatLng(
-        widget.driverLocation!.latitude,
-        widget.driverLocation!.longitude,
-      );
-      if (_driverCircle == null) {
-        _driverCircle = await controller.addCircle(
-          CircleOptions(
-            geometry: pos,
-            circleColor: '#FF7A45', // Vibrant Orange
-            circleRadius: 10.0,
-            circleStrokeColor: '#FFFFFF',
-            circleStrokeWidth: 3.0,
-          ),
+    try {
+      if (widget.driverLocation != null) {
+        final pos = LatLng(
+          widget.driverLocation!.latitude,
+          widget.driverLocation!.longitude,
         );
-      } else {
-        await controller.updateCircle(
-          _driverCircle!,
-          CircleOptions(geometry: pos),
-        );
+        if (_driverCircle == null) {
+          _driverCircle = await controller.addCircle(
+            CircleOptions(
+              geometry: pos,
+              circleColor: '#FF7A45', // Vibrant Orange
+              circleRadius: 10.0,
+              circleStrokeColor: '#FFFFFF',
+              circleStrokeWidth: 3.0,
+            ),
+          );
+        } else {
+          await controller.updateCircle(
+            _driverCircle!,
+            CircleOptions(geometry: pos),
+          );
+        }
+      } else if (_driverCircle != null) {
+        await controller.removeCircle(_driverCircle!);
+        _driverCircle = null;
       }
-    } else if (_driverCircle != null) {
-      await controller.removeCircle(_driverCircle!);
-      _driverCircle = null;
+    } catch (e) {
+      debugPrint('[GoongMapWidget] Error updating driver marker: $e');
     }
   }
 
-  void _fitRouteBounds(List<LatLng> coords) {
-    if (coords.length < 2 || _mapController == null) return;
+  void _fitRouteBounds(MapLibreMapController controller, List<LatLng> coords) {
+    if (coords.isEmpty) return;
 
     double minLat = coords.first.latitude;
     double maxLat = coords.first.latitude;
@@ -204,17 +289,27 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
       if (c.longitude > maxLng) maxLng = c.longitude;
     }
 
-    _mapController!.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat, minLng),
-          northeast: LatLng(maxLat, maxLng),
-        ),
-        left: 50,
-        right: 50,
-        top: 50,
-        bottom: 50,
-      ),
+    final centerLat = (minLat + maxLat) / 2.0;
+    final centerLng = (minLng + maxLng) / 2.0;
+    final spanLat = (maxLat - minLat).abs();
+    final spanLng = (maxLng - minLng).abs();
+    final maxSpan = max(spanLat, spanLng);
+
+    double zoom;
+    if (maxSpan < 0.005) {
+      zoom = 15.0;
+    } else if (maxSpan < 0.015) {
+      zoom = 14.0;
+    } else if (maxSpan < 0.04) {
+      zoom = 13.0;
+    } else if (maxSpan < 0.1) {
+      zoom = 12.0;
+    } else {
+      zoom = 11.0;
+    }
+
+    controller.moveCamera(
+      CameraUpdate.newLatLngZoom(LatLng(centerLat, centerLng), zoom),
     );
   }
 

@@ -1,29 +1,33 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
+import 'package:swiftroute_app/widget/profile_bottom_sheet.dart';
 
-class AvatarFloatingToolbar extends StatefulWidget {
+class AvatarFloatingToolbar extends ConsumerStatefulWidget {
   const AvatarFloatingToolbar({super.key});
 
   @override
-  State<AvatarFloatingToolbar> createState() => _AvatarFloatingToolbarState();
+  ConsumerState<AvatarFloatingToolbar> createState() => _AvatarFloatingToolbarState();
 }
 
-class _AvatarFloatingToolbarState extends State<AvatarFloatingToolbar>
+class _AvatarFloatingToolbarState extends ConsumerState<AvatarFloatingToolbar>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   bool isOpen = false;
 
   // Cấu hình kích thước
-  static const double _avatarSize = 40; // 38 - 42 là chuẩn cho Header
+  static const double _avatarSize = 40; // 38 - 42 là chuẩn
   static const double _buttonSize = 38; // Kích thước các icon con nhỏ gọn hơn
   static const double _spacing = 10; // Khoảng cách giữa các nút gọn hơn
   static const double _padding = 4;
+
   // Danh sách nút
   static const List<_ItemData> _items = [
-    _ItemData(Icons.flash_on_rounded, 'Hoạt động', 3),
-    _ItemData(Icons.bookmark_rounded, 'Đã lưu', 0),
-    _ItemData(Icons.settings_rounded, 'Cài đặt', 0),
+    _ItemData(Icons.receipt_long_rounded, 'Đơn hàng', 0),
+    _ItemData(Icons.person_rounded, 'Hồ sơ', 0),
+    _ItemData(Icons.logout_rounded, 'Đăng xuất', 0, isDestructive: true),
   ];
 
   @override
@@ -52,6 +56,61 @@ class _AvatarFloatingToolbarState extends State<AvatarFloatingToolbar>
     });
   }
 
+  void _handleItemTap(_ItemData item) {
+    toggle();
+    if (item.tooltip == 'Hồ sơ') {
+      ProfileBottomSheet.show(context);
+    } else if (item.tooltip == 'Đăng xuất') {
+      _showLogoutDialog();
+    } else if (item.tooltip == 'Đơn hàng') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Danh sách đơn hàng của bạn'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Xác nhận đăng xuất'),
+        content: const Text(
+          'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản này không?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () async {
+              Navigator.pop(dialogCtx);
+              await ref.read(authProvider.notifier).logout();
+              if (mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text('Đăng xuất'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Tổng chiều cao cần: avatar + (button + spacing) * số items + padding
@@ -74,7 +133,7 @@ class _AvatarFloatingToolbarState extends State<AvatarFloatingToolbar>
 
             // Stagger animation
             final double staggerStart = index * 0.1;
-            final double staggerEnd = (staggerStart - 0.7).clamp(0.0, 1.0);
+            final double staggerEnd = (staggerStart + 0.7).clamp(0.0, 1.0);
 
             final itemCurve = CurvedAnimation(
               parent: _controller,
@@ -94,7 +153,6 @@ class _AvatarFloatingToolbarState extends State<AvatarFloatingToolbar>
               animation: itemCurve,
               builder: (context, child) {
                 final double t = itemCurve.value;
-                // Trượt từ vị trí avatar lên vị trí đích
                 final double currentBottom = t * targetBottom;
 
                 return Positioned(
@@ -111,10 +169,8 @@ class _AvatarFloatingToolbarState extends State<AvatarFloatingToolbar>
                 tooltip: item.tooltip,
                 badgeCount: item.badgeCount,
                 size: _buttonSize,
-                onTap: () {
-                  toggle();
-                  debugPrint('Tapped: ${item.tooltip}');
-                },
+                isDestructive: item.isDestructive,
+                onTap: () => _handleItemTap(item),
               ),
             );
           }),
@@ -141,14 +197,15 @@ class _ItemData {
   final IconData icon;
   final String tooltip;
   final int badgeCount;
-  const _ItemData(this.icon, this.tooltip, this.badgeCount);
+  final bool isDestructive;
+  const _ItemData(this.icon, this.tooltip, this.badgeCount, {this.isDestructive = false});
 }
 
 // ═══════════════════════════════════════════════════════════════════
 //  Avatar Button
 // ═══════════════════════════════════════════════════════════════════
 
-class _AvatarButton extends StatelessWidget {
+class _AvatarButton extends ConsumerWidget {
   const _AvatarButton({
     required this.isOpen,
     required this.animation,
@@ -162,7 +219,13 @@ class _AvatarButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+    final String initial = (user?.name.isNotEmpty == true)
+        ? user!.name[0].toUpperCase()
+        : 'U';
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedBuilder(
@@ -177,13 +240,16 @@ class _AvatarButton extends StatelessWidget {
               height: size,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF2F3C7E), Color(0xFF1E2756)],
+                ),
                 border: Border.all(
                   color: Color.lerp(
-                    Colors.white38,
+                    Colors.white,
                     const Color(0xFF00E5FF),
                     v,
                   )!,
-                  width: 2.5,
+                  width: 2.0,
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -192,25 +258,19 @@ class _AvatarButton extends StatelessWidget {
                     spreadRadius: 2 * v,
                   ),
                   const BoxShadow(
-                    color: Colors.black45,
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
+                    color: Colors.black26,
+                    blurRadius: 8,
+                    offset: Offset(0, 3),
                   ),
                 ],
               ),
-              child: ClipOval(
-                child: Image.network(
-                  'https://i.pravatar.cc/150?img=3',
-                  fit: BoxFit.cover,
-                  width: size,
-                  height: size,
-                  errorBuilder: (_, e, s) => Container(
-                    color: const Color(0xFF1E1E2E),
-                    child: Icon(
-                      Icons.person,
-                      color: Colors.white38,
-                      size: size * 0.5,
-                    ),
+              child: Center(
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
@@ -232,6 +292,7 @@ class _ToolbarButton extends StatefulWidget {
     required this.tooltip,
     required this.size,
     this.badgeCount = 0,
+    this.isDestructive = false,
     this.onTap,
   });
 
@@ -239,6 +300,7 @@ class _ToolbarButton extends StatefulWidget {
   final String tooltip;
   final double size;
   final int badgeCount;
+  final bool isDestructive;
   final VoidCallback? onTap;
 
   @override
@@ -250,6 +312,10 @@ class _ToolbarButtonState extends State<_ToolbarButton> {
 
   @override
   Widget build(BuildContext context) {
+    final Color activeColor = widget.isDestructive
+        ? const Color(0xFFFF3B5C)
+        : const Color(0xFF2F3C7E);
+
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) {
@@ -280,36 +346,27 @@ class _ToolbarButtonState extends State<_ToolbarButton> {
                       height: widget.size,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _pressed
-                            ? Colors.white.withValues(alpha: 0.18)
-                            : Colors.white.withValues(alpha: 0.08),
+                        color: widget.isDestructive
+                            ? Colors.red.shade50
+                            : Colors.white,
                         border: Border.all(
-                          color: _pressed
-                              ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
-                              : Colors.white.withValues(alpha: 0.12),
+                          color: widget.isDestructive
+                              ? Colors.red.shade200
+                              : Colors.grey.shade300,
                           width: 1.2,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.45),
-                            blurRadius: 10,
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 8,
                             offset: const Offset(0, 3),
                           ),
-                          if (_pressed)
-                            BoxShadow(
-                              color: const Color(
-                                0xFF00E5FF,
-                              ).withValues(alpha: 0.15),
-                              blurRadius: 18,
-                            ),
                         ],
                       ),
                       child: Icon(
                         widget.icon,
-                        color: _pressed
-                            ? const Color(0xFF00E5FF)
-                            : Colors.white.withValues(alpha: 0.9),
-                        size: widget.size * 0.44,
+                        color: activeColor,
+                        size: widget.size * 0.48,
                       ),
                     ),
                   ),
@@ -328,14 +385,6 @@ class _ToolbarButtonState extends State<_ToolbarButton> {
                       decoration: BoxDecoration(
                         color: const Color(0xFFFF3B5C),
                         borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(
-                              0xFFFF3B5C,
-                            ).withValues(alpha: 0.5),
-                            blurRadius: 6,
-                          ),
-                        ],
                       ),
                       constraints: const BoxConstraints(
                         minWidth: 18,

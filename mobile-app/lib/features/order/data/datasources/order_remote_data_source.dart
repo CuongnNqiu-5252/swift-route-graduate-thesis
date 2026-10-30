@@ -38,9 +38,10 @@ class OrderRemoteDataSource {
     };
 
     final headers = <String, dynamic>{};
-    if (tenantId != null && tenantId.isNotEmpty) {
-      headers['X-Tenant-Id'] = tenantId;
-    }
+    final effectiveTenant = (tenantId != null && tenantId.isNotEmpty)
+        ? tenantId
+        : 'a1111111-1111-1111-1111-111111111111';
+    headers['X-Tenant-Id'] = effectiveTenant;
 
     try {
       final response = await _dio.post(
@@ -52,7 +53,9 @@ class OrderRemoteDataSource {
       final data = response.data['data'] as Map<String, dynamic>;
       return OrderModel.fromJson(data);
     } catch (e) {
-      debugPrint('[OrderRemoteDataSource] createOrder network error: $e, using mock fallback.');
+      debugPrint(
+        '[OrderRemoteDataSource] createOrder network error: $e, using mock fallback.',
+      );
       return _mockCreatedOrder(
         pickupLat: pickupLat,
         pickupLng: pickupLng,
@@ -109,7 +112,7 @@ class OrderRemoteDataSource {
   }) async {
     final response = await _dio.patch(
       '/orders/$orderId/status',
-      data: status.toServerString(),
+      data: '"${status.toServerString()}"',
       options: Options(contentType: Headers.jsonContentType),
     );
     final data = response.data['data'] as Map<String, dynamic>;

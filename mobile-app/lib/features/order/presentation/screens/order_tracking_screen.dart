@@ -51,11 +51,21 @@ class OrderTrackingScreen extends ConsumerWidget {
                 CircleAvatar(
                   backgroundColor: Colors.white,
                   child: IconButton(
+                    tooltip: 'Quay lại',
                     icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      } else {
+                        Navigator.of(context).pushNamedAndRemoveUntil(
+                          '/customer/home',
+                          (route) => false,
+                        );
+                      }
+                    },
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
 
                 // Order Code & Status Badge
                 Expanded(
@@ -89,6 +99,22 @@ class OrderTrackingScreen extends ConsumerWidget {
                         _buildStatusBadge(trackingState.status),
                       ],
                     ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Home button to quickly navigate back to home screen
+                CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: IconButton(
+                    tooltip: 'Về trang chủ',
+                    icon: const Icon(Icons.home_rounded, color: AppColors.primary),
+                    onPressed: () {
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        '/customer/home',
+                        (route) => false,
+                      );
+                    },
                   ),
                 ),
               ],

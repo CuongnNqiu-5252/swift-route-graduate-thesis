@@ -4,9 +4,9 @@
 // All responses are wrapped in ApiResponse: { "data": {...}, "error": null, "timestamp": "..." }
 //
 // Endpoints used:
-//   GET    /api/drivers/{driverId}             -> DriverResponse
-//   PATCH  /api/drivers/{driverId}/availability -> DriverResponse
-//   PATCH  /api/drivers/{driverId}/location    -> DriverResponse
+//   GET    /drivers/{driverId}             -> DriverResponse
+//   PATCH  /drivers/{driverId}/availability -> DriverResponse
+//   PATCH  /drivers/{driverId}/location    -> DriverResponse
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,9 +18,39 @@ class DriverRemoteDataSource {
 
   DriverRemoteDataSource(this._dio);
 
+  /// Fetch the current authenticated driver's profile from /drivers/me.
+  Future<DriverModel> getMyProfile() async {
+    final response = await _dio.get('/drivers/me');
+    final data = response.data['data'] as Map<String, dynamic>;
+    return DriverModel.fromJson(data);
+  }
+
+  /// Toggle the authenticated driver's availability status.
+  Future<DriverModel> updateMyAvailability({required bool isAvailable}) async {
+    final response = await _dio.patch(
+      '/drivers/me/availability',
+      data: {'is_available': isAvailable},
+    );
+    final data = response.data['data'] as Map<String, dynamic>;
+    return DriverModel.fromJson(data);
+  }
+
+  /// Report current authenticated driver's GPS coordinates to the backend.
+  Future<DriverModel> updateMyLocation({
+    required double lat,
+    required double lng,
+  }) async {
+    final response = await _dio.patch(
+      '/drivers/me/location',
+      data: {'lat': lat, 'lng': lng},
+    );
+    final data = response.data['data'] as Map<String, dynamic>;
+    return DriverModel.fromJson(data);
+  }
+
   /// Fetch the driver profile by driverId (UUID string).
   Future<DriverModel> getDriverProfile(String driverId) async {
-    final response = await _dio.get('/api/drivers/$driverId');
+    final response = await _dio.get('/drivers/$driverId');
     final data = response.data['data'] as Map<String, dynamic>;
     return DriverModel.fromJson(data);
   }
@@ -32,7 +62,7 @@ class DriverRemoteDataSource {
     required bool isAvailable,
   }) async {
     final response = await _dio.patch(
-      '/api/drivers/$driverId/availability',
+      '/drivers/$driverId/availability',
       data: {'is_available': isAvailable},
     );
     final data = response.data['data'] as Map<String, dynamic>;
@@ -46,7 +76,7 @@ class DriverRemoteDataSource {
     required double lng,
   }) async {
     final response = await _dio.patch(
-      '/api/drivers/$driverId/location',
+      '/drivers/$driverId/location',
       data: {'lat': lat, 'lng': lng},
     );
     final data = response.data['data'] as Map<String, dynamic>;
@@ -56,7 +86,7 @@ class DriverRemoteDataSource {
   /// Fetch public driver profile (for customers tracking an order).
   Future<Map<String, dynamic>> getDriverPublicInfo(String driverId) async {
     try {
-      final response = await _dio.get('/api/drivers/$driverId/public');
+      final response = await _dio.get('/drivers/$driverId/public');
       final data = response.data['data'] as Map<String, dynamic>;
       return data;
     } catch (_) {

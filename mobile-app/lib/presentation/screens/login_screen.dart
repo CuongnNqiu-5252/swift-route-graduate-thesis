@@ -46,6 +46,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   void initState() {
     super.initState();
 
+    _emailController.text = 'customer@gmail.com';
+    _passwordController.text = 'Password123';
+
     _slideController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),

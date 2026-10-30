@@ -18,6 +18,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
      */
     List<Order> findAllByTenantId(UUID tenantId);
 
+    List<Order> findAllByStatus(OrderStatus status);
+
+    List<Order> findAllByTenantIdAndStatus(UUID tenantId, OrderStatus status);
+
     /**
      * Orders created by a specific customer.
      * Used for the customer "My Orders" screen.

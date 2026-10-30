@@ -11,11 +11,9 @@ class AuthRepositoryImpl implements AuthRepository {
   final Dio _dio;
   final TokenStorage _tokenStorage;
 
-  AuthRepositoryImpl({
-    required Dio dio,
-    required TokenStorage tokenStorage,
-  })  : _dio = dio,
-        _tokenStorage = tokenStorage;
+  AuthRepositoryImpl({required Dio dio, required TokenStorage tokenStorage})
+    : _dio = dio,
+      _tokenStorage = tokenStorage;
 
   @override
   Future<void> register(
@@ -81,9 +79,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final payload = parts[1];
       // Base64url decode (pad to multiple of 4)
       final padded = payload.padRight((payload.length + 3) & ~3, '=');
-      final decoded = String.fromCharCodes(
-        base64Url.decode(padded),
-      );
+      final decoded = String.fromCharCodes(base64Url.decode(padded));
       final claims = jsonDecode(decoded) as Map<String, dynamic>;
       return UserModel(
         id: (claims['sub'] ?? '') as String,

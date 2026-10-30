@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.driverservice.dto.request.RegisterDriverRequest;
@@ -39,6 +40,30 @@ import lombok.RequiredArgsConstructor;
 public class DriverController {
 
     private final DriverService driverService;
+
+    /**
+     * GET /api/drivers
+     * List all drivers (or filtered by tenant).
+     * Used by Web Admin and Dispatch console.
+     */
+    @Operation(summary = "List all drivers (or filter by tenant)")
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<DriverResponse>>> getAllDrivers(
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
+            @RequestParam(value = "tenant_id", required = false) String tenantIdParam,
+            @RequestHeader(value = "X-User-Role", required = false, defaultValue = "ADMIN") String userRole) {
+
+        String effectiveTenant = (tenantIdHeader != null && !tenantIdHeader.isBlank())
+                ? tenantIdHeader
+                : tenantIdParam;
+
+        UUID tenantUuid = (effectiveTenant != null && !effectiveTenant.isBlank())
+                ? UUID.fromString(effectiveTenant)
+                : null;
+
+        List<DriverResponse> responses = driverService.getAllDrivers(tenantUuid, userRole);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
 
     /**
      * POST /api/drivers

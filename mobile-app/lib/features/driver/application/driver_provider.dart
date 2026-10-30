@@ -6,68 +6,130 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/features/driver/data/datasources/driver_remote_data_source.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
+import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
+import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 // ---------------------------------------------------------------------------
-// State
+// Driver Profile & Work Status Notifier
 // ---------------------------------------------------------------------------
 
-/// Holds the driver profile loaded from the backend.
-/// AsyncValue<DriverModel?> covers loading / data / error states automatically.
 class DriverNotifier extends AsyncNotifier<DriverModel?> {
   @override
   Future<DriverModel?> build() async {
-    // No auto-fetch on init; call loadProfile() explicitly after login.
-    return null;
+    // Automatically load current driver profile using token in Dio interceptor
+    try {
+      return await ref.read(driverRemoteDataSourceProvider).getMyProfile();
+    } catch (_) {
+      return null;
+    }
   }
 
-  /// Fetch driver profile from the backend using the driver entity UUID.
-  Future<void> loadProfile(String driverId) async {
+  /// Manually refresh current driver profile
+  Future<void> refreshProfile() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-      () => ref.read(driverRemoteDataSourceProvider).getDriverProfile(driverId),
+      () => ref.read(driverRemoteDataSourceProvider).getMyProfile(),
     );
   }
 
-  /// Toggle online / offline status.
+  /// Toggle online / offline status with optimistic local update
   Future<void> toggleAvailability() async {
     final current = state.valueOrNull;
     if (current == null) return;
 
-    // Optimistic update: flip locally before the network call
-    state = AsyncData(current.copyWith(isAvailable: !current.isAvailable));
+    final nextAvailable = !current.isAvailable;
+    // Optimistic update
+    state = AsyncData(current.copyWith(isAvailable: nextAvailable));
 
     final result = await AsyncValue.guard(
-      () => ref.read(driverRemoteDataSourceProvider).updateAvailability(
-            driverId: current.id,
-            isAvailable: !current.isAvailable,
+      () => ref.read(driverRemoteDataSourceProvider).updateMyAvailability(
+            isAvailable: nextAvailable,
           ),
     );
 
-    // On error, roll back to the original state
+    // Rollback if request failed
     if (result is AsyncError) {
       state = AsyncData(current);
-    } else {
+    } else if (result.valueOrNull != null) {
       state = result;
     }
   }
 
-  /// Send GPS coordinates to the backend.
-  Future<void> reportLocation({
+  /// Send GPS coordinates to the backend
+  Future<bool> reportLocation({
     required double lat,
     required double lng,
   }) async {
     final current = state.valueOrNull;
-    if (current == null) return;
-
-    await ref.read(driverRemoteDataSourceProvider).updateLocation(
-          driverId: current.id,
-          lat: lat,
-          lng: lng,
-        );
+    try {
+      final updated = await ref.read(driverRemoteDataSourceProvider).updateMyLocation(
+            lat: lat,
+            lng: lng,
+          );
+      state = AsyncData(updated);
+      return true;
+    } catch (_) {
+      if (current != null) {
+        state = AsyncData(current.copyWith(isAvailable: current.isAvailable));
+      }
+      return false;
+    }
   }
 }
 
-/// Global provider for the driver feature state
+/// Global provider for the driver profile and work status
 final driverProvider = AsyncNotifierProvider<DriverNotifier, DriverModel?>(
   DriverNotifier.new,
+);
+
+// ---------------------------------------------------------------------------
+// Driver Assigned Orders Notifier (D05 Today Route)
+// ---------------------------------------------------------------------------
+
+class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
+  @override
+  Future<List<OrderModel>> build() async {
+    return ref.read(orderRemoteDataSourceProvider).getAssignedDriverOrders();
+  }
+
+  /// Refresh assigned route stops from backend
+  Future<void> refreshOrders() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(orderRemoteDataSourceProvider).getAssignedDriverOrders(),
+    );
+  }
+
+  /// Transition order status (PLANNED -> IN_TRANSIT -> DELIVERED / FAILED)
+  /// with optimistic state updating and rollback on error.
+  Future<void> updateOrderStatus({
+    required String orderId,
+    required OrderStatus nextStatus,
+  }) async {
+    final previousList = state.valueOrNull ?? [];
+    // Optimistically update list
+    final optimisticList = previousList
+        .map((order) => order.id == orderId ? order.copyWith(status: nextStatus) : order)
+        .toList();
+    state = AsyncData(optimisticList);
+
+    try {
+      await ref.read(orderRemoteDataSourceProvider).updateOrderStatus(
+            orderId: orderId,
+            status: nextStatus,
+          );
+      // Fetch fresh list from server to ensure full sync
+      final freshList = await ref.read(orderRemoteDataSourceProvider).getAssignedDriverOrders();
+      state = AsyncData(freshList);
+    } catch (e) {
+      // Rollback on error
+      state = AsyncData(previousList);
+      rethrow;
+    }
+  }
+}
+
+/// Global provider for driver route orders
+final driverOrdersProvider = AsyncNotifierProvider<DriverOrdersNotifier, List<OrderModel>>(
+  DriverOrdersNotifier.new,
 );

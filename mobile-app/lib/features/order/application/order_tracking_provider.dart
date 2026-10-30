@@ -1,10 +1,13 @@
 // features/order/application/order_tracking_provider.dart
 
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/utils/polyline_decoder.dart';
 import 'package:swiftroute_app/features/driver/data/datasources/driver_remote_data_source.dart';
+import 'package:swiftroute_app/features/order/data/datasources/goong_remote_data_source.dart';
+import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/data/models/goong_direction_model.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
@@ -43,6 +46,13 @@ class OrderTrackingState {
 
   bool get isDelivered => status == OrderStatus.delivered;
 
+  /// True when an active delivery is currently underway (not delivered, cancelled, or failed).
+  bool get hasActiveOrder =>
+      order != null &&
+      status != OrderStatus.delivered &&
+      status != OrderStatus.cancelled &&
+      status != OrderStatus.failed;
+
   double get progressPercentage {
     if (routePoints.isEmpty) return 0.0;
     return (currentRouteIndex / (routePoints.length - 1)).clamp(0.0, 1.0);
@@ -74,25 +84,41 @@ class OrderTrackingState {
 /// StateNotifier managing real-time driver tracking and route movement simulation.
 class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
   final DriverRemoteDataSource _driverDataSource;
+  final OrderRemoteDataSource _orderDataSource;
+  final GoongRemoteDataSource _goongDataSource;
   Timer? _simulationTimer;
 
-  OrderTrackingNotifier(this._driverDataSource)
-      : super(const OrderTrackingState());
+  OrderTrackingNotifier({
+    required DriverRemoteDataSource driverDataSource,
+    required OrderRemoteDataSource orderDataSource,
+    required GoongRemoteDataSource goongDataSource,
+  })  : _driverDataSource = driverDataSource,
+        _orderDataSource = orderDataSource,
+        _goongDataSource = goongDataSource,
+        super(const OrderTrackingState());
 
   /// Initializes the tracking state with order data and decoded Goong route.
-  void initTracking({
-    required OrderModel order,
-    GoongDirection? direction,
-  }) {
+  void initTracking({required OrderModel order, GoongDirection? direction}) {
     _simulationTimer?.cancel();
 
     // Default route points from Goong direction, or fallback interpolation
-    List<LatLngPoint> points = direction?.points ?? [];
+    List<LatLngPoint> points = List.from(direction?.points ?? []);
     if (points.isEmpty) {
       points = [
         LatLngPoint(order.pickupLat, order.pickupLng),
         LatLngPoint(order.deliveryLat, order.deliveryLng),
       ];
+      // Fetch street-level polyline in background
+      _fetchDirectionForOrder(order);
+    } else if (points.length >= 2) {
+      // Ensure orientation: points.first must be closest to pickup, not delivery
+      final dStartToPickup = (points.first.latitude - order.pickupLat).abs() +
+          (points.first.longitude - order.pickupLng).abs();
+      final dStartToDelivery = (points.first.latitude - order.deliveryLat).abs() +
+          (points.first.longitude - order.deliveryLng).abs();
+      if (dStartToDelivery < dStartToPickup) {
+        points = points.reversed.toList();
+      }
     }
 
     final initialDriverPos = points.isNotEmpty ? points.first : null;
@@ -109,7 +135,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     state = OrderTrackingState(
       order: order,
       driverInfo: defaultDriverInfo,
-      status: OrderStatus.planned,
+      status: order.status,
       routePoints: points,
       driverPosition: initialDriverPos,
       currentRouteIndex: 0,
@@ -121,6 +147,45 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     if (order.assignedDriverId != null &&
         order.assignedDriverId != 'mock-driver-uuid') {
       _loadLiveDriverInfo(order.assignedDriverId!);
+    }
+  }
+
+  Future<void> _fetchDirectionForOrder(OrderModel order) async {
+    try {
+      final dir = await _goongDataSource.getDirections(
+        originLat: order.pickupLat,
+        originLng: order.pickupLng,
+        destLat: order.deliveryLat,
+        destLng: order.deliveryLng,
+      );
+      if (dir.points.isNotEmpty && state.order?.id == order.id) {
+        state = state.copyWith(
+          routePoints: dir.points,
+          driverPosition: state.driverPosition ?? dir.points.first,
+        );
+      }
+    } catch (e) {
+      debugPrint('[OrderTrackingNotifier] Could not fetch Goong directions: $e');
+    }
+  }
+
+  /// Checks for any active order from the backend and initializes tracking if found.
+  Future<void> fetchActiveOrder() async {
+    try {
+      final orders = await _orderDataSource.getMyOrders();
+      final activeList = orders.where((o) =>
+          o.status != OrderStatus.delivered &&
+          o.status != OrderStatus.cancelled &&
+          o.status != OrderStatus.failed).toList();
+
+      if (activeList.isNotEmpty) {
+        final latest = activeList.first;
+        if (state.order == null || state.order!.id != latest.id) {
+          initTracking(order: latest);
+        }
+      }
+    } catch (e) {
+      debugPrint('[OrderTrackingNotifier] fetchActiveOrder error: $e');
     }
   }
 
@@ -138,14 +203,13 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     if (state.routePoints.isEmpty || state.isDelivered) return;
 
     _simulationTimer?.cancel();
-    state = state.copyWith(
-      isSimulating: true,
-      status: OrderStatus.inTransit,
-    );
+    state = state.copyWith(isSimulating: true, status: OrderStatus.inTransit);
 
     final intervalMs = (1000 ~/ state.simulationSpeed).clamp(200, 1000);
 
-    _simulationTimer = Timer.periodic(Duration(milliseconds: intervalMs), (timer) {
+    _simulationTimer = Timer.periodic(Duration(milliseconds: intervalMs), (
+      timer,
+    ) {
       if (state.currentRouteIndex < state.routePoints.length - 1) {
         final nextIndex = state.currentRouteIndex + 1;
         state = state.copyWith(
@@ -182,9 +246,11 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     _simulationTimer?.cancel();
     state = state.copyWith(
       currentRouteIndex: 0,
-      driverPosition: state.routePoints.isNotEmpty ? state.routePoints.first : null,
+      driverPosition: state.routePoints.isNotEmpty
+          ? state.routePoints.first
+          : null,
       isSimulating: false,
-      status: OrderStatus.planned,
+      status: state.order?.status ?? OrderStatus.planned,
     );
   }
 
@@ -198,5 +264,9 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
 /// Global provider for OrderTrackingNotifier.
 final orderTrackingProvider =
     StateNotifierProvider<OrderTrackingNotifier, OrderTrackingState>((ref) {
-  return OrderTrackingNotifier(ref.read(driverRemoteDataSourceProvider));
-});
+      return OrderTrackingNotifier(
+        driverDataSource: ref.read(driverRemoteDataSourceProvider),
+        orderDataSource: ref.read(orderRemoteDataSourceProvider),
+        goongDataSource: ref.read(goongRemoteDataSourceProvider),
+      );
+    });

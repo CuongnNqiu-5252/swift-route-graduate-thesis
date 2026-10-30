@@ -173,7 +173,26 @@ public class OrderService {
      *
      * @param driverUserId the driver's auth userId from X-User-Id header
      */
+    /**
+     * Lấy danh sách tất cả đơn hàng (cho Web Admin / Operator), có thể lọc theo tenant hoặc status.
+     */
     @Transactional(readOnly = true)
+    public List<OrderResponse> getAllOrders(UUID tenantId, OrderStatus status, String requesterRole) {
+        List<Order> orders;
+        if (tenantId != null && status != null) {
+            orders = orderRepository.findAllByTenantIdAndStatus(tenantId, status);
+        } else if (tenantId != null) {
+            orders = orderRepository.findAllByTenantId(tenantId);
+        } else if (status != null) {
+            orders = orderRepository.findAllByStatus(status);
+        } else {
+            orders = orderRepository.findAll();
+        }
+        return orders.stream()
+                .map(OrderResponse::fromEntity)
+                .toList();
+    }
+
     public List<OrderResponse> getDriverOrders(UUID driverUserId) {
         List<OrderStatus> activeStatuses = List.of(OrderStatus.PLANNED, OrderStatus.IN_TRANSIT);
         return orderRepository.findAssignedDriverOrders(driverUserId, activeStatuses)
@@ -296,7 +315,7 @@ public class OrderService {
         }
 
         List<OrderResponse> results = new ArrayList<>();
-        for (AssignBatchRequest.AssignmentItem item : request.assignments()) {
+        for (AssignBatchRequest.AssignmentItem item : request.getEffectiveAssignments()) {
             Order order = orderRepository.findById(item.orderId())
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 

@@ -8,7 +8,12 @@ class AuthRemoteDataSource {
   Future<Map<String, dynamic>> login(String email, String password) async {
     final res = await dio.post(
       '/auth/login',
-      data: {'identifier': email, 'password': password},
+      data: {
+        'username': email,
+        'email': email,
+        'identifier': email,
+        'password': password,
+      },
     );
     return res.data;
   }
@@ -19,7 +24,7 @@ class AuthRemoteDataSource {
     String name,
   ) async {
     final res = await dio.post(
-      '/users/register',
+      '/auth/register',
       data: {'email': email, 'password': password, 'username': name},
     );
     return res.data;

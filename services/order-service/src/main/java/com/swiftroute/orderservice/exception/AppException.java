@@ -1,7 +1,6 @@
 package com.swiftroute.orderservice.exception;
 
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
 /**
  * Exception gốc cho toàn bộ order-service.
@@ -10,7 +9,16 @@ import lombok.RequiredArgsConstructor;
  * - GlobalExceptionHandler chỉ cần bắt 1 loại AppException là đủ.
  */
 @Getter
-@RequiredArgsConstructor
 public class AppException extends RuntimeException {
     private final ErrorCode errorCode;
+
+    public AppException(ErrorCode errorCode) {
+        super(errorCode != null ? errorCode.getMessage() : "Application Exception");
+        this.errorCode = errorCode;
+    }
+
+    public AppException(ErrorCode errorCode, String message) {
+        super(message);
+        this.errorCode = errorCode;
+    }
 }

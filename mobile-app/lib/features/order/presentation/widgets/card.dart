@@ -1,16 +1,26 @@
 import 'package:flutter/widgets.dart';
-class NearbyTenant{
-  final String _name;
-  final double _rating;
-  final double _distance;
+
+class NearbyTenant {
+  final String name;
+  final double rating;
+  final double distance;
   final double time;
   final String country;
-  NearbyTenant({required String name, required double rating, required double distance, required this.time, required this.country}) : _distance = distance, _name = name, _rating = rating;nat
+
+  NearbyTenant({
+    required this.name,
+    required this.rating,
+    required this.distance,
+    required this.time,
+    required this.country,
+  });
 }
-class Card extends StatelessWidget {
+
+class CardWidget extends StatelessWidget {
+  const CardWidget({super.key});
+
   @override
   Widget build(BuildContext context) {
-    Container
-    throw UnimplementedError();
+    return Container();
   }
 }

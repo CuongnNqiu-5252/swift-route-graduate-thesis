@@ -5,16 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
-import 'package:swiftroute_app/features/driver/presentation/screens/driver_orders_screen.dart';
-import 'package:swiftroute_app/features/order/presentation/screens/create_order_screen.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_main_screen.dart';
 import 'package:swiftroute_app/firebase_options.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
+import 'package:swiftroute_app/presentation/screens/home_screen.dart';
 import 'package:swiftroute_app/presentation/screens/login_screen.dart';
 import 'package:swiftroute_app/presentation/screens/register_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  } catch (e) {
+    debugPrint('Firebase initialization ignored/failed: $e');
+  }
   GoogleFonts.config.allowRuntimeFetching = false;
   runApp(const ProviderScope(child: SwiftRouteApp()));
 }
@@ -46,8 +50,8 @@ class SwiftRouteApp extends ConsumerWidget {
       routes: {
         '/login': (_) => const LoginScreen(),
         '/register': (_) => RegisterScreen(),
-        '/driver/home': (_) => const DriverOrdersScreen(),
-        '/customer/home': (_) => const CreateOrderScreen(),
+        '/driver/home': (_) => const DriverMainScreen(),
+        '/customer/home': (_) => const HomeScreen(),
       },
       // ── Auth gate: decide which screen to show on startup ────────────────────
       home: _AuthGate(authState: authState),
@@ -74,8 +78,8 @@ class _AuthGate extends StatelessWidget {
 
     // Role-based routing
     return switch (authState.user!.role) {
-      'DRIVER' => const DriverOrdersScreen(),
-      _ => const CreateOrderScreen(), // CUSTOMER, OPS_STAFF, SYSTEM_ADMIN
+      'DRIVER' => const DriverMainScreen(),
+      _ => const HomeScreen(), // CUSTOMER, OPS_STAFF, SYSTEM_ADMIN
     };
   }
 }

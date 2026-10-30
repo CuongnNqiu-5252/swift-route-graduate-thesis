@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.response.LoginResponseDTO;
+import com.swiftroute.authservice.dto.response.UserProfileResponseDTO;
 import com.swiftroute.authservice.entity.RefreshToken;
 import com.swiftroute.authservice.entity.User;
 import com.swiftroute.authservice.exception.EmailAlreadyExistsException;
@@ -16,6 +17,7 @@ import com.swiftroute.authservice.exception.InvalidCredentialsException;
 import com.swiftroute.authservice.repository.UserRepository;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 @Service
@@ -74,6 +76,7 @@ public class AuthserviceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public LoginResponseDTO refreshAccessToken(String refreshToken, HttpServletRequest httpRequest) {
         RefreshToken validatedOldToken = jwtService.validateAndRotate(refreshToken, httpRequest);
 
@@ -95,8 +98,24 @@ public class AuthserviceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public void logout(String refreshToken) {
         jwtService.revokeToken(refreshToken);
     }
 
+    @Override
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public UserProfileResponseDTO getProfile(java.util.UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new com.swiftroute.authservice.exception.AppException(ErrorCode.USER_NOT_FOUND));
+        return new UserProfileResponseDTO(
+                user.getId(),
+                user.getEmail(),
+                user.getPhone(),
+                user.getFullName(),
+                user.getRole(),
+                user.getTenantId(),
+                user.getStatus(),
+                user.getCreatedAt());
+    }
 }

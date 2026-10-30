@@ -2,11 +2,37 @@
 """
 SwiftRoute Routing Engine — FastAPI application entry point.
 Runs on port 8084. API Gateway forwards /api/routing/** to this service.
+Includes background RabbitMQ consumer for asynchronous order processing.
 """
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
+from service.rabbitmq_consumer import start_consumer
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Manages application lifecycle:
+      - Starts RabbitMQ consumer in background on startup
+      - Gracefully terminates consumer task on shutdown
+    """
+    stop_event = asyncio.Event()
+    consumer_task = asyncio.create_task(start_consumer(stop_event))
+    yield
+    stop_event.set()
+    consumer_task.cancel()
+    try:
+        await consumer_task
+    except (asyncio.CancelledError, Exception):
+        pass
+
 
 app = FastAPI(
     title="SwiftRoute Routing Engine",
@@ -14,8 +40,10 @@ app = FastAPI(
     description=(
         "TSP/VRP route optimisation engine with Held-Karp Bitmask DP, "
         "Nearest Neighbor heuristic and Genetic Algorithm. "
-        "Accepts depot + delivery stops, returns an optimised route with distances and ETA."
+        "Accepts depot + delivery stops, returns an optimised route with distances and ETA. "
+        "Integrates with RabbitMQ for event-driven shift planning and plan persistence."
     ),
+    lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
 )

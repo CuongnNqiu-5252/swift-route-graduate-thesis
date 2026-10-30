@@ -57,3 +57,63 @@ class BatchOptimizationResponse(BaseModel):
     ordered_stops: List[OrderedStop]
     execution_time_ms: float
     timestamp: str
+
+
+class PendingOrder(BaseModel):
+    order_id: str
+    tenant_id: str
+    customer_id: Optional[str] = None
+    pickup_lat: float
+    pickup_lng: float
+    pickup_address: Optional[str] = None
+    delivery_lat: float
+    delivery_lng: float
+    delivery_address: Optional[str] = None
+    weight_kg: float = 1.0
+    time_window_start: Optional[str] = None
+    time_window_end: Optional[str] = None
+    status: str = "PENDING_PAYMENT"
+    shift: str = "MORNING"  # MORNING | AFTERNOON | EVENING | ALL
+    received_at: str
+
+
+class ShiftOptimizationRequest(BaseModel):
+    tenant_id: str
+    shift: str = Field("ALL", description="MORNING | AFTERNOON | EVENING | ALL")
+    depot: Optional[LocationPoint] = None
+    driver_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of driver UUIDs to partition deliveries across"
+    )
+    algorithm: str = Field("auto", description="held_karp | nearest_neighbor | genetic | auto")
+
+
+class DriverRoutePlan(BaseModel):
+    driver_id: Optional[str] = None
+    driver_name: Optional[str] = None
+    total_distance_km: float
+    total_duration_minutes: float
+    ordered_stops: List[OrderedStop]
+
+
+class RoutingPlan(BaseModel):
+    plan_id: str
+    tenant_id: str
+    shift: str
+    status: str = "DRAFT"  # DRAFT | APPROVED | DISPATCHED
+    algorithm_used: str
+    total_orders: int
+    total_distance_km: float
+    total_duration_minutes: float
+    driver_routes: List[DriverRoutePlan]
+    created_at: str
+    dispatched_at: Optional[str] = None
+
+
+class DispatchPlanResponse(BaseModel):
+    plan_id: str
+    status: str
+    dispatched_orders_count: int
+    assignments: List[dict]
+    message: str
+

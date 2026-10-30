@@ -14,7 +14,14 @@ class AuthInterceptor extends Interceptor {
     RequestInterceptorHandler handler,
   ) async {
     // Bỏ qua các endpoint không cần auth
-    const publicPaths = ['/auth/login', '/auth/register', '/auth/refresh'];
+    const publicPaths = [
+      '/auth/login',
+      '/auth/register',
+      '/auth/refresh',
+      '/auth/login',
+      '/auth/register',
+      '/auth/refresh',
+    ];
     if (publicPaths.any((p) => options.path.contains(p))) {
       return handler.next(options);
     }
@@ -55,15 +62,19 @@ class AuthInterceptor extends Interceptor {
   Future<bool> _refreshToken() async {
     final refreshToken = await storage.read(key: 'refresh_token');
     if (refreshToken == null) return false;
+
     try {
       final response = await dio.post(
         '/auth/refresh',
-        data: {'refreshToken': refreshToken},
+        queryParameters: {'refreshToken': refreshToken},
       );
+
       final newToken = response.data['access_token'] as String;
+
       await storage.write(key: 'access_token', value: newToken);
+
       return true;
-    } catch (_) {
+    } catch (e) {
       return false;
     }
   }

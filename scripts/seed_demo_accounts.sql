@@ -3,9 +3,9 @@ UPDATE users SET role = 'ADMIN' WHERE email = 'admin@gmail.com';
 
 -- 2. Them 7 Tenants da duoc APPROVED
 INSERT INTO tenants (
-    tenant_id, business_name, business_type, address, pickup_lat, pickup_lng, 
+    tenant_id, business_name, business_type, address, pickup_lat, pickup_lng,
     optimization_weights, subscription_plan, status, owner_user_id, created_at, status_updated_at, version
-) VALUES 
+) VALUES
 (
     'a1111111-1111-1111-1111-111111111111',
     'Kho Hàng Trung Tâm Quận 1',
@@ -117,11 +117,11 @@ UPDATE users SET role = 'DRIVER' WHERE email = 'driver@gmail.com';
 
 -- 4. Tao ho so tai xe trong bang drivers
 INSERT INTO drivers (
-    driver_id, tenant_id, user_id, full_name, phone, license_plate, 
-    vehicle_type, driver_type, status, approval_status, 
+    driver_id, tenant_id, user_id, full_name, phone, license_plate,
+    vehicle_type, driver_type, status, approval_status,
     current_latitude, current_longitude, created_at, updated_at, version
-) 
-SELECT 
+)
+SELECT
     u.user_id,
     'a1111111-1111-1111-1111-111111111111',
     u.user_id,
@@ -140,3 +140,4 @@ SELECT
 FROM users u
 WHERE u.email = 'driver@gmail.com'
 ON CONFLICT (driver_id) DO NOTHING;
+

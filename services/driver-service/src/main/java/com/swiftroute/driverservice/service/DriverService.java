@@ -139,6 +139,19 @@ public class DriverService {
     }
 
     @Transactional(readOnly = true)
+    public List<DriverResponse> getAllDrivers(UUID tenantId, String requesterRole) {
+        List<Driver> drivers;
+        if (tenantId != null) {
+            drivers = driverRepository.findAllByTenantId(tenantId);
+        } else {
+            drivers = driverRepository.findAll();
+        }
+        return drivers.stream()
+                .map(DriverResponse::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
     public List<DriverResponse> getAvailableDriversByTenant(UUID tenantId) {
         return driverRepository.findAllByTenantIdAndIsAvailableTrue(tenantId).stream()
                 .map(DriverResponse::fromEntity)
