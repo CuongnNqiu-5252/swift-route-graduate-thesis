@@ -153,11 +153,13 @@ class AuthRepositoryImpl implements AuthRepository {
   /// Extracts a human-readable message from the ApiResponse error envelope.
   String? _extractServerMessage(DioException e) {
     final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      // { "error": { "message": "..." } }
+    if (data is Map) {
       final error = data['error'];
-      if (error is Map) return error['message'] as String?;
-      return data['message'] as String?;
+      if (error is Map && error['message'] != null) {
+        return error['message'].toString();
+      }
+      if (error is String && error.isNotEmpty) return error;
+      if (data['message'] != null) return data['message'].toString();
     }
     return null;
   }
@@ -179,14 +181,19 @@ class AuthRepositoryImpl implements AuthRepository {
         final statusCode = e.response?.statusCode;
         final message = _extractServerMessage(e);
 
+        if (message != null && message.isNotEmpty) {
+          return Exception(message);
+        }
+
         return switch (statusCode) {
-          400 => Exception(message ?? 'Thông tin không hợp lệ.'),
-          401 => Exception(message ?? 'Email hoặc mật khẩu không đúng.'),
-          403 => Exception('Tài khoản của bạn bị hạn chế.'),
-          404 => Exception('Không tìm thấy tài nguyên.'),
-          409 => Exception(message ?? 'Email đã được đăng ký.'),
-          422 => Exception(message ?? 'Dữ liệu không hợp lệ.'),
-          429 => Exception('Quá nhiều yêu cầu. Vui lòng chờ một lúc.'),
+          400 => Exception('Thông tin không hợp lệ (400).'),
+          401 => Exception('Email hoặc mật khẩu không chính xác (401).'),
+          403 => Exception('Tài khoản không có quyền truy cập (403).'),
+          404 => Exception('Không tìm thấy tài nguyên (404).'),
+          409 => Exception('Tài khoản hoặc dữ liệu đã tồn tại (409).'),
+          422 => Exception('Dữ liệu gửi lên không hợp lệ (422).'),
+          429 => Exception('Quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.'),
+          500 => Exception('Lỗi máy chủ nội bộ (500). Vui lòng thử lại sau.'),
           _ => Exception('Đã có lỗi xảy ra (${statusCode ?? 'unknown'}).'),
         };
 

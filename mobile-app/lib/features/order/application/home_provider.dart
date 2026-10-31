@@ -127,8 +127,8 @@ class HomeNotifier extends StateNotifier<HomeState> {
   }
 
   void selectCategory(BusinessType? category) {
-    if (state.selectedCategory == category) {
-      // Toggle off
+    if (category == null || state.selectedCategory == category) {
+      // Clear filter when choosing 'All' (null) or clicking active category again
       state = state.copyWith(clearCategory: true);
     } else {
       state = state.copyWith(selectedCategory: category);

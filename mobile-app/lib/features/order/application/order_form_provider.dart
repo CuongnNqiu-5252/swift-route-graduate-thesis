@@ -16,7 +16,6 @@ class OrderFormState {
   final String? pickupAddress;
   final double? pickupLat;
   final double? pickupLng;
-
   final String? deliveryAddress;
   final double? deliveryLat;
   final double? deliveryLng;
@@ -248,7 +247,8 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
         state = state.copyWith(errorMessage: 'Vui lòng chọn Điểm giao hàng.');
       } else if (state.isCalculatingRoute) {
         state = state.copyWith(
-          errorMessage: 'Đang tính toán tuyến đường, vui lòng đợi trong giây lát...',
+          errorMessage:
+              'Đang tính toán tuyến đường, vui lòng đợi trong giây lát...',
         );
       }
       return null;
@@ -301,16 +301,14 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
             e.type == DioExceptionType.receiveTimeout) {
           msg = 'Hết thời gian kết nối tới máy chủ.';
         } else {
-          msg = 'Lỗi máy chủ (${e.response?.statusCode ?? e.type}): ${e.message}';
+          msg =
+              'Lỗi máy chủ (${e.response?.statusCode ?? e.type}): ${e.message}';
         }
       } else {
         msg = e.toString();
       }
 
-      state = state.copyWith(
-        isSubmitting: false,
-        errorMessage: msg,
-      );
+      state = state.copyWith(isSubmitting: false, errorMessage: msg);
       return null;
     }
   }

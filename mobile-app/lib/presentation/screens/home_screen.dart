@@ -9,6 +9,7 @@ import 'package:swiftroute_app/features/order/application/order_tracking_provide
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/features/order/data/models/tenant_model.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/create_order_screen.dart';
+import 'package:swiftroute_app/features/order/presentation/screens/customer_orders_screen.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/order_tracking_screen.dart';
 import 'package:swiftroute_app/features/order/presentation/widgets/address_search_sheet.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
@@ -478,6 +479,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Đơn hàng gần nhất của bạn',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CustomerOrdersScreen(),
+                        ),
+                      );
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.list_alt_rounded, size: 14, color: AppColors.primary),
+                        SizedBox(width: 4),
+                        Text(
+                          'Xem tất cả đơn hàng',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        SizedBox(width: 2),
+                        Icon(Icons.arrow_forward_ios_rounded, size: 10, color: AppColors.primary),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -663,48 +704,76 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   style: const TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    if (hasActiveOrder) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const OrderTrackingScreen(),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        if (hasActiveOrder) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const OrderTrackingScreen(),
+                            ),
+                          );
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const CreateOrderScreen(),
+                            ),
+                          );
+                        }
+                      },
+                      icon: Icon(
+                        hasActiveOrder
+                            ? Icons.navigation_rounded
+                            : Icons.arrow_forward_rounded,
+                        size: 16,
+                      ),
+                      label: Text(
+                        hasActiveOrder ? 'Xem đơn đang giao' : 'Tạo đơn ngay',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppColors.primary,
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
                         ),
-                      );
-                    } else {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const CreateOrderScreen(),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
                         ),
-                      );
-                    }
-                  },
-                  icon: Icon(
-                    hasActiveOrder
-                        ? Icons.navigation_rounded
-                        : Icons.arrow_forward_rounded,
-                    size: 16,
-                  ),
-                  label: Text(
-                    hasActiveOrder ? 'Xem đơn đang giao' : 'Tạo đơn ngay',
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.primary,
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                     ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const CustomerOrdersScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.receipt_long_rounded, size: 16, color: Colors.white),
+                      label: const Text(
+                        'Tất cả đơn',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white70),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
+                  ],
                 ),
               ],
             ),

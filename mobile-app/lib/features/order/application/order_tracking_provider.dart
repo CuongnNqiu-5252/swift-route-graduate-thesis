@@ -141,19 +141,44 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
        _goongDataSource = goongDataSource,
        super(const OrderTrackingState());
 
+  /// Interpolates [count] evenly spaced waypoints between [start] and [dest].
+  static List<LatLngPoint> _interpolatePoints(
+    LatLngPoint start,
+    LatLngPoint dest,
+    int count,
+  ) {
+    if (count <= 1) return [start];
+    final list = <LatLngPoint>[];
+    for (int i = 0; i < count; i++) {
+      final fraction = i / (count - 1);
+      final lat = start.latitude + (dest.latitude - start.latitude) * fraction;
+      final lng =
+          start.longitude + (dest.longitude - start.longitude) * fraction;
+      list.add(LatLngPoint(lat, lng));
+    }
+    return list;
+  }
+
   /// Initializes the tracking state with order data and decoded Goong route.
   void initTracking({required OrderModel order, GoongDirection? direction}) {
     _simulationTimer?.cancel();
+    _simulationTimer = null;
     _sseSubscription?.cancel();
+
+    final isAlreadyDelivered = order.status == OrderStatus.delivered;
 
     // Default route points from Goong direction, or fallback interpolation
     List<LatLngPoint> points = List.from(direction?.points ?? []);
     if (points.isEmpty) {
-      points = [
+      points = _interpolatePoints(
         LatLngPoint(order.pickupLat, order.pickupLng),
         LatLngPoint(order.deliveryLat, order.deliveryLng),
-      ];
+        24,
+      );
       // Fetch street-level polyline in background
+      _fetchDirectionForOrder(order);
+    } else if (points.length == 2) {
+      points = _interpolatePoints(points[0], points[1], 24);
       _fetchDirectionForOrder(order);
     } else if (points.length >= 2) {
       // Ensure orientation: points.first must be closest to pickup, not delivery
@@ -168,41 +193,40 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
       }
     }
 
-    final initialDriverPos = points.isNotEmpty ? points.first : null;
+    final initialDriverPos = isAlreadyDelivered
+        ? (points.isNotEmpty ? points.last : null)
+        : null;
 
-    final defaultDriverInfo = {
-      'id': order.assignedDriverId ?? 'driver-uuid-001',
-      'full_name': 'Nguyễn Văn Tài (Tài xế Cần Thơ)',
-      'phone_number': '0909 123 456',
-      'license_plate': '65-B1 888.88',
-      'vehicle_type': 'Xe máy (Honda Wave Alpha)',
-      'rating': 4.9,
-    };
+    final hasDriver =
+        order.assignedDriverId != null &&
+        order.assignedDriverId!.isNotEmpty &&
+        order.assignedDriverId != 'mock-driver-uuid';
 
     state = OrderTrackingState(
       order: order,
-      driverInfo: defaultDriverInfo,
+      driverInfo: null,
       status: order.status,
       routePoints: points,
       driverPosition: initialDriverPos,
-      currentRouteIndex: 0,
+      currentRouteIndex: isAlreadyDelivered
+          ? (points.isNotEmpty ? points.length - 1 : 0)
+          : 0,
       isSimulating: false,
       simulationSpeed: 1,
       isSseConnected: false,
       currentBearing: 0.0,
       currentSpeedKmh: 0.0,
-      sseStep: 0,
-      sseTotalSteps: 0,
+      sseStep: isAlreadyDelivered ? points.length : 0,
+      sseTotalSteps: points.length,
     );
 
     // If real backend driverId is available, load live public profile
-    if (order.assignedDriverId != null &&
-        order.assignedDriverId != 'mock-driver-uuid') {
+    if (hasDriver) {
       _loadLiveDriverInfo(order.assignedDriverId!);
     }
 
-    // Automatically connect to real-time location stream
-    if (order.status != OrderStatus.delivered &&
+    // Automatically connect to real-time location stream if order is active
+    if (!isAlreadyDelivered &&
         order.status != OrderStatus.cancelled &&
         order.status != OrderStatus.failed) {
       startSseTracking();
@@ -218,11 +242,14 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         destLng: order.deliveryLng,
       );
       if (dir.points.isNotEmpty && state.order?.id == order.id) {
+        final isRunningLocal = _simulationTimer != null;
         state = state.copyWith(
           routePoints: dir.points,
-          driverPosition: state.driverPosition ?? dir.points.first,
+          driverPosition: isRunningLocal
+              ? state.driverPosition
+              : (state.isDelivered ? dir.points.last : dir.points.first),
         );
-        if (!state.isDelivered && !state.isSimulating) {
+        if (!state.isDelivered && isRunningLocal) {
           startSimulation();
         }
       }
@@ -259,9 +286,42 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     }
   }
 
+  /// Sets a specific order to track directly (e.g. from the customer's order list).
+  void selectOrderForTracking(OrderModel order) {
+    initTracking(order: order);
+  }
+
   Future<void> _loadLiveDriverInfo(String driverId) async {
     try {
       final info = await _driverDataSource.getDriverPublicInfo(driverId);
+      final order = state.order;
+      if (info.isNotEmpty && order != null) {
+        final driverLat = (info['current_lat'] as num?)?.toDouble();
+        final driverLng = (info['current_lng'] as num?)?.toDouble();
+        if (driverLat != null && driverLng != null) {
+          final driverPoint = LatLngPoint(driverLat, driverLng);
+          final leg1 = await _goongDataSource.getDirections(
+            originLat: driverLat,
+            originLng: driverLng,
+            destLat: order.pickupLat,
+            destLng: order.pickupLng,
+          );
+          final leg2 = await _goongDataSource.getDirections(
+            originLat: order.pickupLat,
+            originLng: order.pickupLng,
+            destLat: order.deliveryLat,
+            destLng: order.deliveryLng,
+          );
+          final combinedPoints = [...leg1.points, ...leg2.points];
+          state = state.copyWith(
+            driverInfo: info,
+            driverPosition: driverPoint,
+            routePoints: combinedPoints.isNotEmpty
+                ? combinedPoints
+                : state.routePoints,
+          );
+        }
+      }
       state = state.copyWith(driverInfo: info);
     } catch (e) {
       debugPrint('[OrderTrackingNotifier] Could not load live driver info: $e');
@@ -270,6 +330,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
 
   /// Starts or resumes the driver movement simulation along the Goong route.
   void startSimulation() {
+    debugPrint('[OrderTrackingNotifier] startSimulation');
     if (state.routePoints.isEmpty || state.isDelivered) return;
 
     _simulationTimer?.cancel();
@@ -286,11 +347,14 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         final nextPoint = state.routePoints[nextIndex];
 
         // Calculate heading in degrees
-        final dLng = (nextPoint.longitude - currentPoint.longitude) * math.pi / 180.0;
+        final dLng =
+            (nextPoint.longitude - currentPoint.longitude) * math.pi / 180.0;
         final lat1 = currentPoint.latitude * math.pi / 180.0;
         final lat2 = nextPoint.latitude * math.pi / 180.0;
         final y = math.sin(dLng) * math.cos(lat2);
-        final x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+        final x =
+            math.cos(lat1) * math.sin(lat2) -
+            math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
         final bearing = (math.atan2(y, x) * 180.0 / math.pi + 360.0) % 360.0;
 
         state = state.copyWith(
@@ -298,17 +362,38 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
           driverPosition: nextPoint,
           currentBearing: bearing,
           currentSpeedKmh: 30.0,
-          sseStep: nextIndex,
+          sseStep: nextIndex + 1,
           sseTotalSteps: state.routePoints.length,
           status: OrderStatus.inTransit,
         );
       } else {
         // Reached destination!
         timer.cancel();
+        _simulationTimer = null;
         state = state.copyWith(
           isSimulating: false,
+          currentRouteIndex: state.routePoints.length - 1,
+          sseStep: state.routePoints.length,
           status: OrderStatus.delivered,
         );
+        // Synchronize DELIVERED status to the backend database
+        final currentOrder = state.order;
+        if (currentOrder != null &&
+            currentOrder.status != OrderStatus.delivered) {
+          _orderDataSource
+              .updateOrderStatus(
+                orderId: currentOrder.id,
+                status: OrderStatus.delivered,
+              )
+              .then((updated) {
+                state = state.copyWith(order: updated);
+              })
+              .catchError((err) {
+                debugPrint(
+                  '[OrderTrackingNotifier] updateOrderStatus error: $err',
+                );
+              });
+        }
       }
     });
   }
@@ -316,6 +401,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
   /// Pauses the simulation.
   void pauseSimulation() {
     _simulationTimer?.cancel();
+    _simulationTimer = null;
     state = state.copyWith(isSimulating: false);
   }
 
@@ -330,6 +416,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
   /// Resets the simulation to the beginning of the route.
   void resetSimulation() {
     _simulationTimer?.cancel();
+    _simulationTimer = null;
     _sseSubscription?.cancel();
     state = state.copyWith(
       currentRouteIndex: 0,
@@ -349,7 +436,17 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     final currentOrder = state.order;
     if (currentOrder == null) return;
 
+    if (currentOrder.status == OrderStatus.delivered) {
+      state = state.copyWith(
+        status: OrderStatus.delivered,
+        isSimulating: false,
+        isSseConnected: false,
+      );
+      return;
+    }
+
     _simulationTimer?.cancel();
+    _simulationTimer = null;
     _sseSubscription?.cancel();
 
     state = state.copyWith(
@@ -359,12 +456,12 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     );
 
     // If no SSE event arrives within 2.5s (e.g. streaming buffered on Web),
-    // automatically fallback to local simulation along the Goong polyline
+    // automatically fallback to local simulation along the polyline
     Future.delayed(const Duration(milliseconds: 2500), () {
       if (state.order?.id == currentOrder.id &&
           state.sseStep == 0 &&
           !state.isDelivered &&
-          !state.isSimulating &&
+          _simulationTimer == null &&
           state.routePoints.isNotEmpty) {
         startSimulation();
       }
@@ -387,6 +484,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
             } else if (eventType == 'location_update') {
               // Once SSE pushes real waypoints, cancel any local fallback timer
               _simulationTimer?.cancel();
+              _simulationTimer = null;
               final lat = (data['lat'] as num?)?.toDouble();
               final lng = (data['lng'] as num?)?.toDouble();
               final bearing =
@@ -410,16 +508,23 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
             } else if (eventType == 'status_update') {
               final statusStr = data['status'] as String?;
               if (statusStr == 'DELIVERED') {
+                _simulationTimer?.cancel();
+                _simulationTimer = null;
                 state = state.copyWith(
                   isSimulating: false,
                   isSseConnected: false,
                   status: OrderStatus.delivered,
+                  driverPosition: state.routePoints.isNotEmpty
+                      ? state.routePoints.last
+                      : state.driverPosition,
                 );
               }
             }
           },
           onError: (err) {
-            debugPrint('[OrderTrackingNotifier] SSE Stream error: $err, falling back to local simulation');
+            debugPrint(
+              '[OrderTrackingNotifier] SSE Stream error: $err, falling back to local simulation',
+            );
             state = state.copyWith(isSseConnected: false);
             if (state.routePoints.isNotEmpty && !state.isDelivered) {
               startSimulation();

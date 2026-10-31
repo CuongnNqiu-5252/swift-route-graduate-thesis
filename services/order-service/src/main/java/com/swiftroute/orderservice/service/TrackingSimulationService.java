@@ -146,8 +146,8 @@ public class TrackingSimulationService {
                 int step = currentStep.getAndIncrement();
                 List<SseEmitter> emitters = orderEmitters.get(orderId);
 
-                if (emitters == null || emitters.isEmpty()) {
-                    // No clients listening anymore, cancel simulation
+                if ((emitters == null || emitters.isEmpty()) && step == 0) {
+                    // No clients ever connected, cancel simulation
                     cancelSimulation(orderId);
                     return;
                 }
@@ -183,13 +183,15 @@ public class TrackingSimulationService {
                             "timestamp", Instant.now().toString()
                     );
 
-                    for (SseEmitter emitter : emitters) {
-                        try {
-                            emitter.send(SseEmitter.event()
-                                    .name("location_update")
-                                    .data(payload));
-                        } catch (Exception ex) {
-                            removeEmitter(orderId, emitter);
+                    if (emitters != null && !emitters.isEmpty()) {
+                        for (SseEmitter emitter : new java.util.ArrayList<>(emitters)) {
+                            try {
+                                emitter.send(SseEmitter.event()
+                                        .name("location_update")
+                                        .data(payload));
+                            } catch (Exception ex) {
+                                removeEmitter(orderId, emitter);
+                            }
                         }
                     }
                 } else {
@@ -214,7 +216,7 @@ public class TrackingSimulationService {
                 log.error("Error during SSE simulation for order {}: {}", orderId, e.getMessage());
                 cancelSimulation(orderId);
             }
-        }, 1000, 1800, TimeUnit.MILLISECONDS);
+        }, 500, 1000, TimeUnit.MILLISECONDS);
 
         activeSimulationJobs.put(orderId, future);
         log.info("Started autonomous route SSE simulation for order {} ({} steps)", orderId, totalSteps);
@@ -255,7 +257,6 @@ public class TrackingSimulationService {
             emitters.remove(emitter);
             if (emitters.isEmpty()) {
                 orderEmitters.remove(orderId);
-                cancelSimulation(orderId);
             }
         }
     }

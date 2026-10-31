@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/features/order/presentation/screens/customer_orders_screen.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 
 class ProfileBottomSheet extends ConsumerWidget {
@@ -172,10 +173,8 @@ class ProfileBottomSheet extends ConsumerWidget {
               subtitle: 'Theo dõi các đơn đã đặt và đang giao',
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Xem danh sách đơn hàng trong ứng dụng'),
-                  ),
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
                 );
               },
             ),

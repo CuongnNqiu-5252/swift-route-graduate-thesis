@@ -9,6 +9,7 @@
 //   PATCH  /drivers/{driverId}/location    -> DriverResponse
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
@@ -116,16 +117,9 @@ class DriverRemoteDataSource {
         return Map<String, dynamic>.from(resData['data'] as Map);
       }
       return {};
-    } catch (_) {
-      // Mock fallback if service isn't reachable
-      return {
-        'id': driverId,
-        'full_name': 'Nguyễn Văn Tài (Tài xế Cần Thơ)',
-        'license_plate': '65-B1 888.88',
-        'vehicle_type': 'MOTORBIKE',
-        'current_lat': 10.0371,
-        'current_lng': 105.7828,
-      };
+    } catch (e) {
+      debugPrint('[DriverRemoteDataSource] getDriverPublicInfo error: $e');
+      rethrow;
     }
   }
 }

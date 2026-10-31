@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/features/order/application/order_tracking_provider.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/create_order_screen.dart';
+import 'package:swiftroute_app/features/order/presentation/screens/customer_orders_screen.dart';
 import 'package:swiftroute_app/features/order/presentation/screens/order_tracking_screen.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 import 'package:swiftroute_app/widget/profile_bottom_sheet.dart';
@@ -81,18 +82,11 @@ class FloatingBottomBar extends ConsumerWidget {
             label: 'Đơn hàng',
             isSelected: currentIndex == 1,
             onPressed: () {
-              onTap?.call(1);
-              final trackingState = ref.read(orderTrackingProvider);
-              if (trackingState.hasActiveOrder) {
+              if (onTap != null) {
+                onTap!(1);
+              } else if (currentIndex != 1) {
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const OrderTrackingScreen()),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Không có đơn hàng nào đang hoạt động'),
-                    duration: Duration(seconds: 2),
-                  ),
+                  MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
                 );
               }
             },

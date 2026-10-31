@@ -21,6 +21,7 @@ class OrderRemoteDataSource {
         '/orders/$orderId/tracking/stream',
         options: Options(
           responseType: ResponseType.stream,
+          receiveTimeout: const Duration(hours: 1),
           headers: {
             'Accept': 'text/event-stream',
             'Cache-Control': 'no-cache',

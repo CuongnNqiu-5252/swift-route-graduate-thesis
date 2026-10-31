@@ -12,7 +12,9 @@ import 'package:swiftroute_app/features/order/presentation/widgets/goong_map_wid
 /// timeline status stepper, and driver details.
 /// Automatically connects to the server stream and updates vehicle position in real-time.
 class OrderTrackingScreen extends ConsumerStatefulWidget {
-  const OrderTrackingScreen({super.key});
+  final OrderModel? targetOrder;
+
+  const OrderTrackingScreen({super.key, this.targetOrder});
 
   @override
   ConsumerState<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
@@ -23,6 +25,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.targetOrder != null) {
+        ref.read(orderTrackingProvider.notifier).selectOrderForTracking(widget.targetOrder!);
+      }
       final state = ref.read(orderTrackingProvider);
       if (state.order != null && !state.isDelivered && !state.isSseConnected) {
         ref.read(orderTrackingProvider.notifier).startSseTracking();
@@ -126,6 +131,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                     tooltip: 'Về trang chủ',
                     icon: const Icon(Icons.home_rounded, color: AppColors.primary),
                     onPressed: () {
+                      ref.read(orderTrackingProvider.notifier).fetchActiveOrder();
                       Navigator.of(context).pushNamedAndRemoveUntil(
                         '/customer/home',
                         (route) => false,
@@ -169,11 +175,17 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                       // Driver Avatar
                       CircleAvatar(
                         radius: 24,
-                        backgroundColor: AppColors.primary.withAlpha(30),
-                        child: const Icon(
-                          Icons.person,
-                          color: AppColors.primary,
-                          size: 28,
+                        backgroundColor: trackingState.driverInfo != null
+                            ? AppColors.primary.withAlpha(30)
+                            : Colors.grey.shade200,
+                        child: Icon(
+                          trackingState.driverInfo != null
+                              ? Icons.person
+                              : Icons.person_search_rounded,
+                          color: trackingState.driverInfo != null
+                              ? AppColors.primary
+                              : Colors.grey.shade600,
+                          size: 26,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -184,16 +196,21 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              trackingState.driverInfo?['full_name'] ?? 'Tài xế nhận đơn',
-                              style: const TextStyle(
+                              trackingState.driverInfo?['full_name'] ??
+                                  'Chưa gán tài xế',
+                              style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
+                                color: trackingState.driverInfo != null
+                                    ? AppColors.textPrimary
+                                    : Colors.orange.shade800,
                               ),
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${trackingState.driverInfo?['license_plate'] ?? "59-X1 888.88"} • ${trackingState.driverInfo?['vehicle_type'] ?? "Xe máy"}',
+                              trackingState.driverInfo != null
+                                  ? '${trackingState.driverInfo!['license_plate'] ?? "Chưa rõ"} • ${trackingState.driverInfo!['vehicle_type'] ?? "Xe máy"}'
+                                  : 'Đang chờ điều phối viên phân công',
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppColors.textSecondary,
@@ -203,22 +220,29 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                         ),
                       ),
 
-                      // Call Button
-                      IconButton(
-                        icon: const CircleAvatar(
-                          radius: 18,
-                          backgroundColor: AppColors.success,
-                          child: Icon(Icons.phone, color: Colors.white, size: 18),
-                        ),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Đang kết nối cuộc gọi tới tài xế...'),
-                              duration: Duration(seconds: 2),
+                      // Call Button (only available when driver is assigned)
+                      if (trackingState.driverInfo != null)
+                        IconButton(
+                          icon: const CircleAvatar(
+                            radius: 18,
+                            backgroundColor: AppColors.success,
+                            child: Icon(
+                              Icons.phone,
+                              color: Colors.white,
+                              size: 18,
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Đang kết nối cuộc gọi tới tài xế...',
+                                ),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
 
@@ -305,6 +329,7 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: () {
+                          ref.read(orderTrackingProvider.notifier).fetchActiveOrder();
                           Navigator.of(context).pushNamedAndRemoveUntil(
                             '/customer/home',
                             (route) => false,

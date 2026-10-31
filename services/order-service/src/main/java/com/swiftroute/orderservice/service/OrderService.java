@@ -225,8 +225,12 @@ public class OrderService {
         boolean isTenantOwner = order.getTenant().getOwnerUserId().equals(requesterId);
         boolean isAssignedDriver = "DRIVER".equals(requesterRole)
                 && requesterId.equals(order.getAssignedDriverId());
+        boolean isCustomerCompletingDelivery = "CUSTOMER".equals(requesterRole)
+                && requesterId.equals(order.getCustomerId())
+                && newStatus == OrderStatus.DELIVERED
+                && order.getStatus() == OrderStatus.IN_TRANSIT;
 
-        if (!isPrivilegedRole && !isTenantOwner && !isAssignedDriver) {
+        if (!isPrivilegedRole && !isTenantOwner && !isAssignedDriver && !isCustomerCompletingDelivery) {
             throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
         }
 
