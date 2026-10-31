@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.response.LoginResponseDTO;
+import com.swiftroute.authservice.dto.response.UserProfileResponseDTO;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -18,5 +19,7 @@ public interface AuthService {
     public LoginResponseDTO refreshAccessToken(String refreshToken, HttpServletRequest httpRequest);
 
     public void logout(String refreshToken);
+
+    UserProfileResponseDTO getProfile(java.util.UUID userId);
 
 }

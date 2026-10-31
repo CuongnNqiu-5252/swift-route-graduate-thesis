@@ -26,6 +26,7 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class JwtService {
@@ -71,6 +72,7 @@ public class JwtService {
         }
     }
 
+    @Transactional
     public RefreshToken validateAndRotate(String plainRefreshToken, HttpServletRequest request) {
         String hash = sha256(plainRefreshToken);
         RefreshToken existing = refreshTokenRepository.findByTokenHash(hash)
