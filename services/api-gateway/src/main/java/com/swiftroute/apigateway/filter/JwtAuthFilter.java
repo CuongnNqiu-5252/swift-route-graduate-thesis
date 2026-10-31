@@ -1,5 +1,8 @@
 package com.swiftroute.apigateway.filter;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -13,27 +16,26 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
-import reactor.core.publisher.Mono;
 
 import com.swiftroute.apigateway.security.JwtVerifier;
 
-import java.nio.charset.StandardCharsets;
-import java.util.List;
+import reactor.core.publisher.Mono;
 
 /**
- * Filter chạy trước mọi request (Order = -2, trước CustomGlobalFilter Order=-1).
+ * Filter chạy trước mọi request (Order = -2, trước CustomGlobalFilter
+ * Order=-1).
  *
  * Trách nhiệm:
- *  1. Kiểm tra request có thuộc public path không → bỏ qua JWT check.
- *  2. Trích xuất Bearer token từ Authorization header.
- *  3. Gọi JwtVerifier để verify và parse claims.
- *  4. Inject X-User-Id, X-User-Role, X-Tenant-Id vào request
- *     để các downstream service không cần parse JWT lại.
- *  5. Nếu token thiếu / invalid → trả về 401 JSON ngay tại Gateway.
+ * 1. Kiểm tra request có thuộc public path không → bỏ qua JWT check.
+ * 2. Trích xuất Bearer token từ Authorization header.
+ * 3. Gọi JwtVerifier để verify và parse claims.
+ * 4. Inject X-User-Id, X-User-Role, X-Tenant-Id vào request
+ * để các downstream service không cần parse JWT lại.
+ * 5. Nếu token thiếu / invalid → trả về 401 JSON ngay tại Gateway.
  *
  * Tách riêng filter này khỏi CustomGlobalFilter để đúng Single Responsibility:
- *  - JwtAuthFilter: xác thực & inject headers
- *  - CustomGlobalFilter: logging & tracing (X-Request-ID)
+ * - JwtAuthFilter: xác thực & inject headers
+ * - CustomGlobalFilter: logging & tracing (X-Request-ID)
  */
 @Component
 public class JwtAuthFilter implements GlobalFilter, Ordered {
@@ -47,8 +49,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/refresh",
             "/actuator/health",
             "/api/drivers/*/public",
-            "/api/orders/*/tracking/stream"
-    );
+            "/api/orders/*/tracking/stream");
 
     private final JwtVerifier jwtVerifier;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -90,7 +91,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                                 headers.set("X-User-Role", claims.role());
 
                                 // For tenant: if JWT claims has a tenant (ADMIN/OPERATOR/DRIVER), enforce it.
-                                // If claims has no tenant (CUSTOMER), allow the target tenant requested by client.
+                                // If claims has no tenant (CUSTOMER), allow the target tenant requested by
+                                // client.
                                 if (claims.tenantId() != null && !claims.tenantId().isBlank()) {
                                     headers.set("X-Tenant-Id", claims.tenantId());
                                 } else if (clientTenant != null && !clientTenant.isBlank()) {
@@ -129,12 +131,10 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String body = String.format(
                 "{\"status\":401,\"error\":\"Unauthorized\",\"message\":\"%s\",\"path\":\"%s\"}",
                 message,
-                exchange.getRequest().getPath().value()
-        );
+                exchange.getRequest().getPath().value());
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         return response.writeWith(
-                Mono.just(response.bufferFactory().wrap(bytes))
-        );
+                Mono.just(response.bufferFactory().wrap(bytes)));
     }
 
     @Override

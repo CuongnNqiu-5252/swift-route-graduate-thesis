@@ -122,7 +122,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           // ── Top hero section ─────────────────────────────
           _HeroSection(
             onRoleChanged: (role) {
-              setState(() { 
+              setState(() {
                 if (role == UserRole.driver) {
                   _emailController.text = 'driver@gmail.com';
                 } else {

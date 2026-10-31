@@ -51,21 +51,21 @@ class DeliveryScenario:
         return dist_mat, time_mat
 
 
-# Realistic urban cluster centers (Hanoi Metropolitan area)
-DEFAULT_HANOI_ZONES = [
-    {"name": "Hoan_Kiem", "center": (21.0285, 105.8542), "radius_km": 1.5},
-    {"name": "Cau_Giay", "center": (21.0360, 105.7890), "radius_km": 2.5},
-    {"name": "Dong_Da", "center": (21.0180, 105.8280), "radius_km": 2.0},
-    {"name": "Hai_Ba_Trung", "center": (21.0060, 105.8550), "radius_km": 2.0},
-    {"name": "Ba_Dinh", "center": (21.0350, 105.8240), "radius_km": 2.0},
-    {"name": "Thanh_Xuan", "center": (20.9930, 105.8050), "radius_km": 2.5},
+# Realistic urban cluster centers (Can Tho City area)
+DEFAULT_CANTHO_ZONES = [
+    {"name": "Ninh_Kieu", "center": (10.0371, 105.7828), "radius_km": 2.0},
+    {"name": "Cai_Rang", "center": (10.0020, 105.7510), "radius_km": 2.5},
+    {"name": "Binh_Thuy", "center": (10.0650, 105.7350), "radius_km": 2.5},
+    {"name": "O_Mon", "center": (10.1180, 105.6290), "radius_km": 3.0},
+    {"name": "Phong_Dien", "center": (9.9950, 105.6980), "radius_km": 3.0},
 ]
+DEFAULT_HANOI_ZONES = DEFAULT_CANTHO_ZONES
 
 
 def generate_scenario(
     num_orders: int,
     scenario_id: str = "sim_001",
-    depot_coord: Tuple[float, float] = (21.0285, 105.8542),  # Hoan Kiem Central Depot
+    depot_coord: Tuple[float, float] = (10.0371, 105.7828),  # Ninh Kieu, Can Tho Central Depot
     zones: Optional[List[dict]] = None,
     clustering_factor: float = 0.8,
     seed: Optional[int] = None,

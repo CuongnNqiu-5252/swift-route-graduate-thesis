@@ -6,6 +6,7 @@ import 'package:swiftroute_app/features/driver/presentation/screens/driver_home_
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_profile_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_route_tab.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
+import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 
 /// The master shell screen for drivers after logging in.
 /// Hosts Tab 0 (Trang chủ / D02), Tab 1 (Lộ trình / D05), and Tab 2 (Hồ sơ & Ca / D09).
@@ -31,6 +32,13 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Automatically redirect back to login if user becomes unauthenticated
+    ref.listen(authProvider, (previous, next) {
+      if (!next.isAuthenticated) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+      }
+    });
+
     final ordersState = ref.watch(driverOrdersProvider);
     final activeOrdersCount = ordersState.valueOrNull
             ?.where((o) => o.status == OrderStatus.planned || o.status == OrderStatus.inTransit)

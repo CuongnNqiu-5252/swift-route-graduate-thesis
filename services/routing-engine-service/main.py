@@ -57,7 +57,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include router with both /api/v1 prefix and root prefix for Gateway compatibility
 app.include_router(router, prefix="/api/v1")
+app.include_router(router)
 
 
 @app.get("/health", tags=["Health"])

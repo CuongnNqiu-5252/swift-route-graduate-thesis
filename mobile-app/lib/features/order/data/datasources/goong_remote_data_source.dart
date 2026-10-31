@@ -143,30 +143,30 @@ class GoongRemoteDataSource {
       const GoongPrediction(
         placeId: 'mock_1',
         description:
-            'Chợ Bến Thành, Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh',
-        mainText: 'Chợ Bến Thành',
-        secondaryText: 'Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh',
+            'Bến Ninh Kiều, Đường Hai Bà Trưng, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
+        mainText: 'Bến Ninh Kiều',
+        secondaryText: 'Hai Bà Trưng, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
       ),
       const GoongPrediction(
         placeId: 'mock_2',
         description:
-            'Landmark 81, 720A Điện Biên Phủ, Phường 22, Bình Thạnh, TP. Hồ Chí Minh',
-        mainText: 'Landmark 81',
-        secondaryText:
-            '720A Điện Biên Phủ, Phường 22, Bình Thạnh, TP. Hồ Chí Minh',
+            'Đại học Cần Thơ, Đường 3 Tháng 2, Phường Xuân Khánh, Quận Ninh Kiều, Cần Thơ',
+        mainText: 'Đại học Cần Thơ (Khu II)',
+        secondaryText: 'Đường 3 Tháng 2, Phường Xuân Khánh, Quận Ninh Kiều, Cần Thơ',
       ),
       const GoongPrediction(
         placeId: 'mock_3',
         description:
-            'Đại học Bách Khoa TP.HCM, 268 Lý Thường Kiệt, Phường 14, Quận 10',
-        mainText: 'Đại học Bách Khoa TP.HCM',
-        secondaryText: '268 Lý Thường Kiệt, Phường 14, Quận 10',
+            'Vincom Plaza Xuân Khánh, 209 Đường 30 Tháng 4, Phường Xuân Khánh, Ninh Kiều, Cần Thơ',
+        mainText: 'Vincom Plaza Xuân Khánh',
+        secondaryText: '209 Đường 30 Tháng 4, Xuân Khánh, Ninh Kiều, Cần Thơ',
       ),
       const GoongPrediction(
         placeId: 'mock_4',
-        description: 'Hồ Hoàn Kiếm, Hàng Trống, Hoàn Kiếm, Hà Nội',
-        mainText: 'Hồ Hoàn Kiếm',
-        secondaryText: 'Hàng Trống, Hoàn Kiếm, Hà Nội',
+        description:
+            'Chợ nổi Cái Răng, Phường Lê Bình, Quận Cái Răng, TP. Cần Thơ',
+        mainText: 'Chợ nổi Cái Răng',
+        secondaryText: 'Phường Lê Bình, Quận Cái Răng, TP. Cần Thơ',
       ),
     ];
 
@@ -184,35 +184,43 @@ class GoongRemoteDataSource {
       case 'mock_1':
         return const GoongPlaceDetail(
           placeId: 'mock_1',
-          name: 'Chợ Bến Thành',
-          formattedAddress: 'Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh',
-          lat: 10.7725,
-          lng: 106.6980,
+          name: 'Bến Ninh Kiều',
+          formattedAddress: 'Đường Hai Bà Trưng, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
+          lat: 10.0341,
+          lng: 105.7876,
         );
       case 'mock_2':
         return const GoongPlaceDetail(
           placeId: 'mock_2',
-          name: 'Landmark 81',
+          name: 'Đại học Cần Thơ (Khu II)',
           formattedAddress:
-              '720A Điện Biên Phủ, Phường 22, Bình Thạnh, TP. Hồ Chí Minh',
-          lat: 10.7950,
-          lng: 106.7219,
+              'Đường 3 Tháng 2, Phường Xuân Khánh, Quận Ninh Kiều, Cần Thơ',
+          lat: 10.0299,
+          lng: 105.7706,
         );
       case 'mock_3':
         return const GoongPlaceDetail(
           placeId: 'mock_3',
-          name: 'Đại học Bách Khoa TP.HCM',
-          formattedAddress: '268 Lý Thường Kiệt, Phường 14, Quận 10',
-          lat: 10.7721,
-          lng: 106.6579,
+          name: 'Vincom Plaza Xuân Khánh',
+          formattedAddress: '209 Đường 30 Tháng 4, Phường Xuân Khánh, Ninh Kiều, Cần Thơ',
+          lat: 10.0279,
+          lng: 105.7766,
+        );
+      case 'mock_4':
+        return const GoongPlaceDetail(
+          placeId: 'mock_4',
+          name: 'Chợ nổi Cái Răng',
+          formattedAddress: 'Phường Lê Bình, Quận Cái Răng, TP. Cần Thơ',
+          lat: 9.9982,
+          lng: 105.7465,
         );
       default:
         return const GoongPlaceDetail(
           placeId: 'mock_default',
-          name: 'Điểm giao hàng mẫu',
-          formattedAddress: 'Quận 1, TP. Hồ Chí Minh',
-          lat: 10.7769,
-          lng: 106.7009,
+          name: 'Điểm giao hàng mẫu Cần Thơ',
+          formattedAddress: 'Đại lộ Hoà Bình, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
+          lat: 10.0371,
+          lng: 105.7828,
         );
     }
   }

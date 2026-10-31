@@ -172,9 +172,9 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
 
     final defaultDriverInfo = {
       'id': order.assignedDriverId ?? 'driver-uuid-001',
-      'full_name': 'Nguyễn Văn Tài (Tài xế)',
+      'full_name': 'Nguyễn Văn Tài (Tài xế Cần Thơ)',
       'phone_number': '0909 123 456',
-      'license_plate': '59-X1 888.88',
+      'license_plate': '65-B1 888.88',
       'vehicle_type': 'Xe máy (Honda Wave Alpha)',
       'rating': 4.9,
     };

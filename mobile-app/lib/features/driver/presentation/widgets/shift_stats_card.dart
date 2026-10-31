@@ -17,6 +17,8 @@ class ShiftStatsCard extends StatelessWidget {
     final failed = orders.where((o) => o.status == OrderStatus.failed).length;
 
     final completionRate = total > 0 ? (delivered / total) : 0.0;
+    // Estimated earnings: 15,000 VND base + 16,000 VND estimated 3.2km distance = 31,000 VND / order
+    final estimatedEarnings = delivered * 31000;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -99,6 +101,60 @@ class ShiftStatsCard extends StatelessWidget {
               ),
             ],
           ),
+          // Estimated shift earnings (Feature 2)
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary.withValues(alpha: 0.05),
+                  AppColors.success.withValues(alpha: 0.08),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: AppColors.success,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.payments_outlined, color: Colors.white, size: 16),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Ước tính thù lao ca',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                        ),
+                        Text(
+                          '$delivered đơn hoàn tất (15k/đơn + 5k/km)',
+                          style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                Text(
+                  _formatCurrency(estimatedEarnings),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.success,
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (failed > 0) ...[
             const SizedBox(height: 10),
             Container(
@@ -122,6 +178,21 @@ class ShiftStatsCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatCurrency(int amount) {
+    if (amount <= 0) return '0 đ';
+    final s = amount.toString();
+    final buffer = StringBuffer();
+    var count = 0;
+    for (var i = s.length - 1; i >= 0; i--) {
+      buffer.write(s[i]);
+      count++;
+      if (count % 3 == 0 && i != 0) {
+        buffer.write('.');
+      }
+    }
+    return '${buffer.toString().split('').reversed.join()} đ';
   }
 }
 

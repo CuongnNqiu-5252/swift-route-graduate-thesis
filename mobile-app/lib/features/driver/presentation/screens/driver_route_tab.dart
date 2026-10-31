@@ -4,8 +4,6 @@ import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_card.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
-import 'package:swiftroute_app/features/routing/data/models/optimization_result_model.dart';
-import 'package:swiftroute_app/features/routing/presentation/screens/multi_stop_route_screen.dart';
 
 enum _RouteFilter { all, planned, inTransit, delivered }
 
@@ -108,33 +106,59 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
                 ),
                 const SizedBox(height: 14),
 
-                // AI Optimization Button
-                ElevatedButton.icon(
-                  onPressed: () {
-                    final depot = LocationPointModel(
-                      lat: allStops.first.pickupLat,
-                      lng: allStops.first.pickupLng,
-                      address: allStops.first.pickupAddress,
-                    );
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => MultiStopRouteScreen(
-                          orders: allStops,
-                          depot: depot,
+                // Shift Delivery Progress Card
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.divider),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.check_circle_outline_rounded, size: 16, color: AppColors.success),
+                              SizedBox(width: 6),
+                              Text(
+                                'Tiến độ hoàn thành ca',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '$deliveredCount/${allStops.length} đơn',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.primary),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: allStops.isNotEmpty ? deliveredCount / allStops.length : 0.0,
+                          backgroundColor: AppColors.divider,
+                          color: AppColors.success,
+                          minHeight: 6,
                         ),
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.route_rounded, color: Colors.white, size: 20),
-                  label: const Text(
-                    'TỐI ƯU TOÀN BỘ TUYẾN ĐƯỜNG (AI / DP)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Thứ tự các điểm giao đã được tự động sắp xếp tối ưu theo lộ trình.',
+                        style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),

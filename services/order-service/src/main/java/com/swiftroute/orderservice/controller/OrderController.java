@@ -1,6 +1,7 @@
 package com.swiftroute.orderservice.controller;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -18,7 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
+import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
+import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
@@ -173,14 +176,24 @@ public class OrderController {
     /**
      * PATCH /api/orders/{orderId}/status
      * Cập nhật trạng thái đơn hàng.
+     * Hỗ trợ cả payload dạng chuỗi ("PLANNED") lẫn object ({ "status": "PLANNED" }).
      * Role được phép: ADMIN, OPERATOR, DRIVER (qua routing engine sau này)
      */
     @PatchMapping("/{orderId}/status")
     public ResponseEntity<ApiResponse<OrderResponse>> updateOrderStatus(
             @PathVariable UUID orderId,
-            @RequestBody OrderStatus newStatus,
+            @RequestBody Object rawBody,
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {
+
+        OrderStatus newStatus;
+        if (rawBody instanceof Map<?, ?> map && map.containsKey("status")) {
+            newStatus = OrderStatus.valueOf(map.get("status").toString().trim());
+        } else if (rawBody instanceof String str) {
+            newStatus = OrderStatus.valueOf(str.replace("\"", "").trim());
+        } else {
+            newStatus = OrderStatus.valueOf(rawBody.toString().replace("\"", "").trim());
+        }
 
         OrderResponse response = orderService.updateOrderStatus(orderId, newStatus, UUID.fromString(userId), userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
@@ -199,6 +212,37 @@ public class OrderController {
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {
         OrderResponse response = orderService.confirmPayment(orderId, UUID.fromString(userId), userRole);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * PATCH /api/orders/{orderId}/incident
+     * Driver reports an unexpected delivery incident (traffic, broken vehicle, customer absent).
+     * Transitions order to FAILED with reason logged.
+     */
+    @Operation(summary = "Report delivery incident — transitions order to FAILED")
+    @PatchMapping("/{orderId}/incident")
+    public ResponseEntity<ApiResponse<OrderResponse>> reportIncident(
+            @PathVariable UUID orderId,
+            @Valid @RequestBody ReportIncidentRequest request,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        OrderResponse response = orderService.reportIncident(orderId, request, UUID.fromString(userId), userRole);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * PATCH /api/orders/{orderId}/cancel
+     * Cancels an order before it is dispatched or delivered.
+     */
+    @Operation(summary = "Cancel order — transitions order to CANCELLED")
+    @PatchMapping("/{orderId}/cancel")
+    public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
+            @PathVariable UUID orderId,
+            @RequestBody(required = false) CancelOrderRequest request,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        OrderResponse response = orderService.cancelOrder(orderId, request != null ? request : new CancelOrderRequest(null), UUID.fromString(userId), userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

@@ -159,23 +159,23 @@ def seed_demo_orders(
     count: int = 6,
 ) -> List[PendingOrder]:
     """
-    Seeds sample delivery stops around Ho Chi Minh City District 1 & 3
+    Seeds sample delivery stops around Can Tho City (Ninh Kieu, Cai Rang, Binh Thuy)
     for rapid end-to-end testing of shift optimization.
     """
     demo_stops = [
-        {"name": "Vincom Đồng Khởi", "lat": 10.7780, "lng": 106.7020, "addr": "72 Lê Thánh Tôn, Bến Nghé, Q.1"},
-        {"name": "Nhà thờ Đức Bà", "lat": 10.7797, "lng": 106.6990, "addr": "01 Công xã Paris, Bến Nghé, Q.1"},
-        {"name": "Dinh Độc Lập", "lat": 10.7770, "lng": 106.6953, "addr": "135 Nam Kỳ Khởi Nghĩa, Bến Thành, Q.1"},
-        {"name": "Chợ Bến Thành", "lat": 10.7725, "lng": 106.6980, "addr": "Chợ Bến Thành, Bến Thành, Q.1"},
-        {"name": "Hồ Con Rùa", "lat": 10.7828, "lng": 106.6958, "addr": "Vòng xoay Công trường Quốc Tế, Q.3"},
-        {"name": "Công viên Tao Đàn", "lat": 10.7742, "lng": 106.6922, "addr": "Trương Định, Bến Thành, Q.1"},
-        {"name": "Bitexco Financial Tower", "lat": 10.7716, "lng": 106.7044, "addr": "02 Hải Triều, Bến Nghé, Q.1"},
-        {"name": "Bảo tàng Chứng tích Chiến tranh", "lat": 10.7795, "lng": 106.6921, "addr": "28 Võ Văn Tần, P.6, Q.3"},
+        {"name": "Bến Ninh Kiều", "lat": 10.0341, "lng": 105.7876, "addr": "Đường Hai Bà Trưng, P. Tân An, Q. Ninh Kiều, Cần Thơ"},
+        {"name": "Đại học Cần Thơ (Khu II)", "lat": 10.0299, "lng": 105.7706, "addr": "Đường 3 Tháng 2, P. Xuân Khánh, Q. Ninh Kiều, Cần Thơ"},
+        {"name": "Vincom Plaza Xuân Khánh", "lat": 10.0279, "lng": 105.7766, "addr": "209 Đường 30 Tháng 4, P. Xuân Khánh, Q. Ninh Kiều, Cần Thơ"},
+        {"name": "Vincom Plaza Hùng Vương", "lat": 10.0442, "lng": 105.7820, "addr": "02 Hùng Vương, P. Thới Bình, Q. Ninh Kiều, Cần Thơ"},
+        {"name": "Chợ nổi Cái Răng", "lat": 9.9982, "lng": 105.7465, "addr": "Phường Lê Bình, Q. Cái Răng, TP. Cần Thơ"},
+        {"name": "Lotte Mart Cần Thơ", "lat": 10.0423, "lng": 105.7681, "addr": "84 Mậu Thân, P. An Hòa, Q. Ninh Kiều, Cần Thơ"},
+        {"name": "Bệnh viện ĐK Trung ương Cần Thơ", "lat": 10.0235, "lng": 105.7538, "addr": "315 Nguyễn Văn Linh, P. An Khánh, Q. Ninh Kiều, Cần Thơ"},
+        {"name": "Sân bay Quốc tế Cần Thơ", "lat": 10.0847, "lng": 105.7118, "addr": "179B Lê Hồng Phong, P. Trà An, Q. Bình Thủy, Cần Thơ"},
     ]
 
     seeded: List[PendingOrder] = []
-    depot_lat, depot_lng = 10.7769, 106.7009
-    depot_addr = "Kho Hàng Tổng Quận 1, 120 Nguyễn Huệ, Q.1, TP.HCM"
+    depot_lat, depot_lng = 10.0371, 105.7828
+    depot_addr = "Kho Hàng Tổng Cần Thơ, 01 Đại lộ Hoà Bình, Q. Ninh Kiều, TP. Cần Thơ"
 
     for i in range(min(count, len(demo_stops))):
         s = demo_stops[i]

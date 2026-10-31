@@ -174,6 +174,31 @@ class DriverProfileTab extends ConsumerWidget {
                     _StatBox(label: 'Thất bại', value: '$failed', color: AppColors.error),
                   ],
                 ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.monetization_on_outlined, color: AppColors.success, size: 18),
+                          SizedBox(width: 8),
+                          Text('Thù lao ca ước tính', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        ],
+                      ),
+                      Text(
+                        _formatCurrency(delivered * 31000),
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.success, fontSize: 15),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -217,9 +242,15 @@ class DriverProfileTab extends ConsumerWidget {
             child: const Text('Ở lại', style: TextStyle(color: AppColors.textSecondary)),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(ctx).pop();
-              ref.read(authProvider.notifier).logout();
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              }
             },
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('Đăng xuất'),
@@ -227,6 +258,21 @@ class DriverProfileTab extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _formatCurrency(int amount) {
+    if (amount <= 0) return '0 đ';
+    final s = amount.toString();
+    final buffer = StringBuffer();
+    var count = 0;
+    for (var i = s.length - 1; i >= 0; i--) {
+      buffer.write(s[i]);
+      count++;
+      if (count % 3 == 0 && i != 0) {
+        buffer.write('.');
+      }
+    }
+    return '${buffer.toString().split('').reversed.join()} đ';
   }
 }
 

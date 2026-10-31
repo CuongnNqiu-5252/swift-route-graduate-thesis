@@ -99,22 +99,22 @@ async def process_order_message(message: aio_pika.IncomingMessage) -> None:
         if pickup_lat is None or delivery_lat is None:
             details = await fetch_order_details(order_id)
             if details:
-                pickup_lat = details.get("pickup_lat", 10.7769)
-                pickup_lng = details.get("pickup_lng", 106.7009)
+                pickup_lat = details.get("pickup_lat", 10.0371)
+                pickup_lng = details.get("pickup_lng", 105.7828)
                 pickup_address = details.get("pickup_address", pickup_address)
-                delivery_lat = details.get("delivery_lat", 10.7890)
-                delivery_lng = details.get("delivery_lng", 106.6920)
+                delivery_lat = details.get("delivery_lat", 10.0299)
+                delivery_lng = details.get("delivery_lng", 105.7706)
                 delivery_address = details.get("delivery_address", delivery_address)
                 weight_kg = float(details.get("weight_kg") or 1.0)
                 time_window_start = details.get("time_window_start", time_window_start)
                 time_window_end = details.get("time_window_end", time_window_end)
                 current_status = details.get("status", current_status)
             else:
-                # Fallback to sensible Saigon defaults for demo resilience
-                pickup_lat = pickup_lat or 10.7769
-                pickup_lng = pickup_lng or 106.7009
-                delivery_lat = delivery_lat or 10.7890
-                delivery_lng = delivery_lng or 106.6920
+                # Fallback to sensible Can Tho defaults for demo resilience
+                pickup_lat = pickup_lat or 10.0371
+                pickup_lng = pickup_lng or 105.7828
+                delivery_lat = delivery_lat or 10.0299
+                delivery_lng = delivery_lng or 105.7706
 
         shift = classify_shift(time_window_start)
 

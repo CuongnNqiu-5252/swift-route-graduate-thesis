@@ -43,6 +43,10 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
       _errorMessage = null;
     });
 
+    debugPrint('🚀 [MultiStopRoute] Bắt đầu tối ưu hóa tuyến đường cho ${widget.orders.length} điểm dừng');
+    debugPrint('📍 [MultiStopRoute] Kho xuất phát: (${widget.depot.lat}, ${widget.depot.lng})');
+    debugPrint('🧠 [MultiStopRoute] Thuật toán: $_selectedAlgorithm');
+
     try {
       final routingSource = ref.read(routingRemoteDataSourceProvider);
       final stops = widget.orders.map((o) {
@@ -64,6 +68,8 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
         algorithm: _selectedAlgorithm,
       );
 
+      debugPrint('✅ [MultiStopRoute] Nhận kết quả: ${res.algorithmUsed} | Quãng đường: ${res.totalDistanceKm} km | Thời gian: ${res.totalDurationMinutes} phút');
+
       // Fetch street polyline via Goong for consecutive optimized stops
       final combinedPoints = await _buildMultiStopPolyline(res);
 
@@ -75,6 +81,7 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
         });
       }
     } catch (e) {
+      debugPrint('❌ [MultiStopRoute] Lỗi tối ưu hóa lộ trình: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;

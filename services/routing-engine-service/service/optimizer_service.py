@@ -8,10 +8,14 @@ Orchestrates the route optimisation pipeline:
 """
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import List, Tuple
+
+# Use uvicorn logger so logs stream directly to docker container stdout
+logger = logging.getLogger("uvicorn.error")
 
 from api.schemas import (
     BatchOptimizationRequest,
@@ -43,6 +47,12 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     Returns:
         BatchOptimizationResponse with the optimised ordered stop sequence.
     """
+    n_stops = len(request.stops)
+    logger.info(
+        "🚀 [RoutingEngine] Bắt đầu giải bài toán TSP cho %d điểm giao | Kho xuất phát (Depot): (%.4f, %.4f)",
+        n_stops, request.depot.lat, request.depot.lng
+    )
+
     # Build location list: index 0 = depot, indices 1..N = delivery stops
     all_locations: List[Tuple[float, float]] = [
         (request.depot.lat, request.depot.lng)
@@ -55,12 +65,15 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     # Build distance and time matrices
     dist_matrix = build_distance_matrix(all_locations)
     time_matrix = build_time_matrix(dist_matrix, avg_speed_kmh=28.0)
+    logger.info("📐 [RoutingEngine] Đã xây dựng ma trận khoảng cách %dx%d theo công thức Haversine", n_total, n_total)
 
     # Algorithm selection
-    n_stops = len(request.stops)
     algorithm = request.algorithm
     if algorithm == "auto":
         algorithm = "held_karp" if n_stops <= HELD_KARP_MAX_N else "nearest_neighbor"
+        logger.info("🧠 [RoutingEngine] Tự động chọn thuật toán: %s (do n=%d %s %d)", algorithm, n_stops, "<=" if n_stops <= HELD_KARP_MAX_N else ">", HELD_KARP_MAX_N)
+    else:
+        logger.info("🧠 [RoutingEngine] Sử dụng thuật toán chỉ định: %s", algorithm)
 
     # Run solver and measure wall-clock CPU time
     start_ns = time.perf_counter_ns()
@@ -82,6 +95,11 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
         time_matrix[route[i]][route[i + 1]]
         for i in range(len(route) - 1)
     ) if len(route) > 1 else 0.0
+
+    logger.info(
+        "✅ [RoutingEngine] Hoàn thành giải TSP bằng '%s' trong %.2f ms | Tổng quãng đường: %.3f km | Thời gian dự kiến: %.1f phút",
+        algorithm_used, elapsed_ms, total_dist, total_minutes
+    )
 
     # Map route (list of matrix indices) back to OrderedStop objects.
     # Skip index 0 (depot) at start and end of route.

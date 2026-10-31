@@ -30,16 +30,16 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       // Auto-prefill default pickup & delivery locations if empty for immediate demo ordering
       if (!state.hasValidPickup) {
         notifier.setPickupLocation(
-          address: 'Kho Hàng Trung Tâm Quận 1, Bến Nghé, Q1',
-          lat: 10.776889,
-          lng: 106.700806,
+          address: 'Kho Tổng Ninh Kiều, 01 Đại lộ Hoà Bình, Cần Thơ',
+          lat: 10.0371,
+          lng: 105.7828,
         );
       }
       if (!state.hasValidDelivery) {
         notifier.setDeliveryLocation(
-          address: '120 Hai Bà Trưng, Phường Đa Kao, Quận 1',
-          lat: 10.781800,
-          lng: 106.699400,
+          address: 'Đại học Cần Thơ, Đường 3 Tháng 2, P. Xuân Khánh, Q. Ninh Kiều',
+          lat: 10.0299,
+          lng: 105.7706,
         );
       }
     });

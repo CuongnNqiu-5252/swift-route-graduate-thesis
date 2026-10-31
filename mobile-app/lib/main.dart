@@ -19,7 +19,8 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase initialization ignored/failed: $e');
   }
-  GoogleFonts.config.allowRuntimeFetching = false;
+  // Enable runtime fetching so GoogleFonts can safely retrieve full Vietnamese glyph sets
+  GoogleFonts.config.allowRuntimeFetching = true;
   runApp(const ProviderScope(child: SwiftRouteApp()));
 }
 
@@ -35,7 +36,7 @@ class SwiftRouteApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        fontFamily: 'Inter',
+        textTheme: GoogleFonts.robotoTextTheme(ThemeData.light().textTheme),
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.primary,
           brightness: Brightness.light,

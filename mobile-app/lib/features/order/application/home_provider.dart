@@ -16,9 +16,9 @@ class HomeState {
   final String? errorMessage;
 
   const HomeState({
-    this.currentAddress = 'Dinh Độc Lập, 135 Nam Kỳ Khởi Nghĩa, Quận 1',
-    this.currentLat = 10.7769,
-    this.currentLng = 106.7009,
+    this.currentAddress = 'Bến Ninh Kiều, Đường Hai Bà Trưng, Quận Ninh Kiều, Cần Thơ',
+    this.currentLat = 10.0341,
+    this.currentLng = 105.7876,
     this.allTenants = const [],
     this.selectedCategory,
     this.searchQuery = '',

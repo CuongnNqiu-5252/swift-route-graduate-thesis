@@ -23,8 +23,8 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
     setState(() => _isSyncingLocation = true);
     try {
       final position = await LocationHelper.getCurrentPosition();
-      final lat = position?.latitude ?? widget.driver?.currentLat ?? 10.776889;
-      final lng = position?.longitude ?? widget.driver?.currentLng ?? 106.700806;
+      final lat = position?.latitude ?? widget.driver?.currentLat ?? 10.0371;
+      final lng = position?.longitude ?? widget.driver?.currentLng ?? 105.7828;
 
       final success = await ref.read(driverProvider.notifier).reportLocation(lat: lat, lng: lng);
       if (mounted) {

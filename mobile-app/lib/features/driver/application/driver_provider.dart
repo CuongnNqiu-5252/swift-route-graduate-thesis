@@ -127,6 +127,34 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
       rethrow;
     }
   }
+
+  /// Reports a delivery incident (traffic, customer unreachable, breakdown, etc.)
+  /// Marks order as FAILED and refreshes list.
+  Future<void> reportIncident({
+    required String orderId,
+    required String incidentType,
+    String? notes,
+  }) async {
+    final previousList = state.valueOrNull ?? [];
+    // Optimistically update status to FAILED
+    final optimisticList = previousList
+        .map((order) => order.id == orderId ? order.copyWith(status: OrderStatus.failed) : order)
+        .toList();
+    state = AsyncData(optimisticList);
+
+    try {
+      await ref.read(orderRemoteDataSourceProvider).reportIncident(
+            orderId: orderId,
+            incidentType: incidentType,
+            notes: notes,
+          );
+      final freshList = await ref.read(orderRemoteDataSourceProvider).getAssignedDriverOrders();
+      state = AsyncData(freshList);
+    } catch (e) {
+      state = AsyncData(previousList);
+      rethrow;
+    }
+  }
 }
 
 /// Global provider for driver route orders

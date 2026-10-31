@@ -120,11 +120,11 @@ class DriverRemoteDataSource {
       // Mock fallback if service isn't reachable
       return {
         'id': driverId,
-        'full_name': 'Nguyễn Văn Tài (Tài xế)',
-        'license_plate': '59-X1 888.88',
+        'full_name': 'Nguyễn Văn Tài (Tài xế Cần Thơ)',
+        'license_plate': '65-B1 888.88',
         'vehicle_type': 'MOTORBIKE',
-        'current_lat': 10.7769,
-        'current_lng': 106.7009,
+        'current_lat': 10.0371,
+        'current_lng': 105.7828,
       };
     }
   }

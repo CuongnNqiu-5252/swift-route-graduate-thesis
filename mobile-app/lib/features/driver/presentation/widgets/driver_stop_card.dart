@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_detail_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
@@ -215,6 +216,19 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton(
+                    onPressed: () => DriverIncidentSheet.show(context, stop),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                      side: const BorderSide(color: AppColors.error, width: 1.2),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Tooltip(
+                      message: 'Báo sự cố đơn hàng',
+                      child: Icon(Icons.report_problem_outlined, color: AppColors.error, size: 16),
                     ),
                   ),
                   const SizedBox(width: 8),

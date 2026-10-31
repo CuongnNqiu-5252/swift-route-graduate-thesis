@@ -143,14 +143,16 @@ class OrderRemoteDataSource {
       final rawList = (resData is Map && resData['data'] is List)
           ? resData['data'] as List
           : (resData is List ? resData : null);
-      if (rawList == null) return [];
+      if (rawList == null || rawList.isEmpty) {
+        return [];
+      }
       return rawList
           .whereType<Map>()
           .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
           .toList();
     } catch (e, stack) {
       debugPrint('[OrderRemoteDataSource] getAssignedDriverOrders error: $e\n$stack');
-      rethrow;
+      return [];
     }
   }
 
@@ -187,6 +189,46 @@ class OrderRemoteDataSource {
       // If payment auto-confirmation fails, still return order with current status
       return order;
     }
+  }
+
+  /// Reports a delivery incident, transitioning the order to FAILED.
+  Future<OrderModel> reportIncident({
+    required String orderId,
+    required String incidentType,
+    String? notes,
+  }) async {
+    final response = await _dio.patch(
+      '/orders/$orderId/incident',
+      data: {
+        'incident_type': incidentType,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
+    );
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to report delivery incident');
+    return OrderModel.fromJson(Map<String, dynamic>.from(map));
+  }
+
+  /// Cancels an active order before delivery.
+  Future<OrderModel> cancelOrder({
+    required String orderId,
+    String? reason,
+  }) async {
+    final response = await _dio.patch(
+      '/orders/$orderId/cancel',
+      data: {
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      },
+    );
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) throw Exception('Failed to cancel order');
+    return OrderModel.fromJson(Map<String, dynamic>.from(map));
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 /// Spotlight card featuring the driver's current or immediate next stop (D02 / D06)
@@ -228,7 +229,21 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
+                    // Incident Report Button
+                    OutlinedButton(
+                      onPressed: () => DriverIncidentSheet.show(context, targetOrder),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                        side: const BorderSide(color: AppColors.error, width: 1.2),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Tooltip(
+                        message: 'Báo sự cố giao hàng',
+                        child: Icon(Icons.report_problem_outlined, color: AppColors.error, size: 18),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     // Advance status button
                     Expanded(
                       flex: 6,

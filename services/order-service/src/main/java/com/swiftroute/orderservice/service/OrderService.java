@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
+import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
+import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.entity.Order;
@@ -194,7 +196,7 @@ public class OrderService {
     }
 
     public List<OrderResponse> getDriverOrders(UUID driverUserId) {
-        List<OrderStatus> activeStatuses = List.of(OrderStatus.PLANNED, OrderStatus.IN_TRANSIT);
+        List<OrderStatus> activeStatuses = List.of(OrderStatus.PLANNED, OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED);
         return orderRepository.findAssignedDriverOrders(driverUserId, activeStatuses)
                 .stream()
                 .map(OrderResponse::fromEntity)
@@ -319,7 +321,10 @@ public class OrderService {
             Order order = orderRepository.findById(item.orderId())
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-            validateStatusTransition(order.getStatus(), OrderStatus.PLANNED);
+            // Allow re-assignment if order is already PLANNED; validate if transitioning from PAID
+            if (order.getStatus() != OrderStatus.PLANNED) {
+                validateStatusTransition(order.getStatus(), OrderStatus.PLANNED);
+            }
             OrderStatus previous = order.getStatus();
             order.setAssignedDriverId(item.driverId());
             if (item.planId() != null) {
@@ -371,13 +376,74 @@ public class OrderService {
      * State Machine: Định nghĩa các chuyển trạng thái hợp lệ.
      * Không thể nhảy từ PENDING_PAYMENT thẳng sang DELIVERED.
      */
+    @Transactional
+    public OrderResponse reportIncident(UUID orderId, ReportIncidentRequest request, UUID requesterId, String requesterRole) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+
+        boolean isPrivileged = List.of("ADMIN", "SYSTEM_ADMIN", "OPS_STAFF").contains(requesterRole);
+        boolean isAssignedDriver = "DRIVER".equals(requesterRole)
+                && requesterId.equals(order.getAssignedDriverId());
+
+        if (!isPrivileged && !isAssignedDriver) {
+            throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+
+        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+
+        OrderStatus previous = order.getStatus();
+        order.setStatus(OrderStatus.FAILED);
+        String incidentNote = "[SỰ CỐ: " + request.incidentType() + "] " + (request.notes() != null ? request.notes() : "");
+        order.setNotes(incidentNote);
+        order.setUpdatedAt(Instant.now());
+
+        Order saved = orderRepository.save(order);
+        emitOrderStatusEvent(saved, previous, OrderStatus.FAILED);
+        log.warn("Driver reported incident for order {}: type={}, notes={}", orderId, request.incidentType(), request.notes());
+        return OrderResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public OrderResponse cancelOrder(UUID orderId, CancelOrderRequest request, UUID requesterId, String requesterRole) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+
+        boolean isPrivileged = List.of("ADMIN", "SYSTEM_ADMIN", "OPS_STAFF").contains(requesterRole);
+        boolean isOwner = order.getCustomerId().equals(requesterId);
+
+        if (!isPrivileged && !isOwner) {
+            throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+
+        if (order.getStatus() == OrderStatus.IN_TRANSIT || order.getStatus() == OrderStatus.DELIVERED) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
+        }
+
+        OrderStatus previous = order.getStatus();
+        order.setStatus(OrderStatus.CANCELLED);
+        String cancelNote = "[HUỶ ĐƠN]: " + (request != null && request.reason() != null ? request.reason() : "Khách hàng huỷ đơn");
+        order.setNotes(cancelNote);
+        order.setUpdatedAt(Instant.now());
+
+        Order saved = orderRepository.save(order);
+        emitOrderStatusEvent(saved, previous, OrderStatus.CANCELLED);
+        log.info("Order cancelled: orderId={}, reason={}", orderId, cancelNote);
+        return OrderResponse.fromEntity(saved);
+    }
+
     private void validateStatusTransition(OrderStatus current, OrderStatus next) {
         boolean valid = switch (current) {
             case PENDING_PAYMENT ->
                 next == OrderStatus.PAID || next == OrderStatus.PAYMENT_FAILED || next == OrderStatus.CANCELLED;
             case PAYMENT_FAILED -> next == OrderStatus.PENDING_PAYMENT || next == OrderStatus.CANCELLED;
             case PAID -> next == OrderStatus.PLANNED || next == OrderStatus.CANCELLED;
-            case PLANNED -> next == OrderStatus.IN_TRANSIT || next == OrderStatus.CANCELLED;
+            case PLANNED -> next == OrderStatus.IN_TRANSIT || next == OrderStatus.FAILED || next == OrderStatus.CANCELLED;
             case IN_TRANSIT -> next == OrderStatus.DELIVERED || next == OrderStatus.FAILED;
             default -> false;
         };

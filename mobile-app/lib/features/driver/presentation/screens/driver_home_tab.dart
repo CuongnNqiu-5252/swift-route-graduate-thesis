@@ -68,7 +68,15 @@ class DriverHomeTab extends ConsumerWidget {
           ),
           IconButton(
             tooltip: 'Đăng xuất',
-            onPressed: () => ref.read(authProvider.notifier).logout(),
+            onPressed: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (context.mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              }
+            },
             icon: const Icon(Icons.logout_rounded, color: AppColors.textSecondary),
           ),
         ],

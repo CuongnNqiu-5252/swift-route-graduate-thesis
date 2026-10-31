@@ -130,10 +130,11 @@ public class TrackingSimulationService {
             return;
         }
 
-        double startLat = order.getPickupLat() != null ? order.getPickupLat() : 10.7769;
-        double startLng = order.getPickupLng() != null ? order.getPickupLng() : 106.7009;
-        double destLat = order.getDeliveryLat() != null ? order.getDeliveryLat() : 10.7770;
-        double destLng = order.getDeliveryLng() != null ? order.getDeliveryLng() : 106.6953;
+        // Fallback default coordinates centered in Ninh Kieu, Can Tho
+        double startLat = order.getPickupLat() != null ? order.getPickupLat() : 10.0371;
+        double startLng = order.getPickupLng() != null ? order.getPickupLng() : 105.7828;
+        double destLat = order.getDeliveryLat() != null ? order.getDeliveryLat() : 10.0299;
+        double destLng = order.getDeliveryLng() != null ? order.getDeliveryLng() : 105.7706;
 
         final int totalSteps = 24;
         List<Waypoint> waypoints = generateWaypoints(startLat, startLng, destLat, destLng, totalSteps);
@@ -152,6 +153,20 @@ public class TrackingSimulationService {
                 }
 
                 if (step < waypoints.size()) {
+                    if (step == 0) {
+                        try {
+                            Order currentOrder = orderRepository.findById(orderId).orElse(null);
+                            if (currentOrder != null && currentOrder.getStatus() != OrderStatus.IN_TRANSIT) {
+                                currentOrder.setStatus(OrderStatus.IN_TRANSIT);
+                                currentOrder.setUpdatedAt(Instant.now());
+                                orderRepository.save(currentOrder);
+                                log.info("Order {} status updated to IN_TRANSIT in database", orderId);
+                            }
+                        } catch (Exception ex) {
+                            log.warn("Could not update order {} to IN_TRANSIT in database: {}", orderId, ex.getMessage());
+                        }
+                    }
+
                     Waypoint wp = waypoints.get(step);
                     double progressPercent = Math.round((step * 100.0 / (totalSteps - 1)) * 10.0) / 10.0;
 
@@ -178,7 +193,20 @@ public class TrackingSimulationService {
                         }
                     }
                 } else {
-                    // Reached destination! Send DELIVERED event
+                    // Reached destination! Update database status to DELIVERED
+                    try {
+                        Order currentOrder = orderRepository.findById(orderId).orElse(null);
+                        if (currentOrder != null && currentOrder.getStatus() != OrderStatus.DELIVERED) {
+                            currentOrder.setStatus(OrderStatus.DELIVERED);
+                            currentOrder.setUpdatedAt(Instant.now());
+                            orderRepository.save(currentOrder);
+                            log.info("Order {} status successfully synchronized to DELIVERED in database", orderId);
+                        }
+                    } catch (Exception ex) {
+                        log.error("Failed to update order {} status to DELIVERED in database: {}", orderId, ex.getMessage());
+                    }
+
+                    // Send DELIVERED event to all connected clients
                     broadcastStatus(orderId, "DELIVERED", "Tài xế đã giao hàng thành công!");
                     cancelSimulation(orderId);
                 }
