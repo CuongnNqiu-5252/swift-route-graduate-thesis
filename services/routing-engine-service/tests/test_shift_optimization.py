@@ -113,7 +113,7 @@ def test_api_routes_end_to_end():
         "tenant_id": tenant_id,
         "shift": "MORNING",
         "driver_ids": ["driver-1", "driver-2"],
-        "algorithm": "held_karp",
+        "algorithm": "ortools",
     }
     res = client.post("/api/v1/plans/optimize-shift", json=opt_payload)
     assert res.status_code == 200

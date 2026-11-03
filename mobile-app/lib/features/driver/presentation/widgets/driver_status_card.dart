@@ -23,10 +23,21 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
     setState(() => _isSyncingLocation = true);
     try {
       final position = await LocationHelper.getCurrentPosition();
-      final lat = position?.latitude ?? widget.driver?.currentLat ?? 10.0371;
-      final lng = position?.longitude ?? widget.driver?.currentLng ?? 105.7828;
+      if (position == null) throw StateError('Không lấy được vị trí GPS');
+      final lat = position.latitude;
+      final lng = position.longitude;
 
-      final success = await ref.read(driverProvider.notifier).reportLocation(lat: lat, lng: lng);
+      final success = await ref
+          .read(driverProvider.notifier)
+          .reportLocation(
+            lat: lat,
+            lng: lng,
+            accuracyM: position.accuracy < 0 ? 0 : position.accuracy,
+            speedMps: position.speed < 0 ? 0 : position.speed,
+            bearing: position.heading < 0 ? 0 : position.heading,
+            recordedAt: position.timestamp,
+            sequence: DateTime.now().millisecondsSinceEpoch,
+          );
       if (mounted) {
         setState(() => _lastSyncTime = DateTime.now());
         ScaffoldMessenger.of(context).showSnackBar(
@@ -50,7 +61,9 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
   Widget build(BuildContext context) {
     final driver = widget.driver;
     final isAvailable = driver?.isAvailable ?? false;
-    final statusColor = isAvailable ? AppColors.success : AppColors.textSecondary;
+    final statusColor = isAvailable
+        ? AppColors.success
+        : AppColors.textSecondary;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -107,7 +120,10 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
                       isAvailable
                           ? 'Đang trực tuyến trên hệ thống điều phối'
                           : 'Bật để nhận điều phối tuyến đường hôm nay',
-                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -138,7 +154,11 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
                         color: AppColors.surface,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.two_wheeler_rounded, size: 20, color: AppColors.primary),
+                      child: const Icon(
+                        Icons.two_wheeler_rounded,
+                        size: 20,
+                        color: AppColors.primary,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -146,12 +166,20 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            driver?.licensePlate.isNotEmpty == true ? driver!.licensePlate : '59-X1 111.11',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                            driver?.licensePlate.isNotEmpty == true
+                                ? driver!.licensePlate
+                                : '59-X1 111.11',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                           Text(
                             '${driver?.vehicleTypeLabel ?? "Xe máy"} · ${driver?.driverTypeLabel ?? "Toàn thời gian"}',
-                            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -167,17 +195,28 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
                     ? const SizedBox(
                         width: 14,
                         height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primary,
+                        ),
                       )
                     : const Icon(Icons.my_location_rounded, size: 16),
                 label: Text(
                   _lastSyncTime != null ? 'Đã sync GPS' : 'Gửi GPS',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   side: const BorderSide(color: AppColors.divider),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ],

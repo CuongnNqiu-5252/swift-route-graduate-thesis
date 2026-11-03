@@ -1,0 +1,4 @@
+package com.swiftroute.orderservice.entity;
+import java.time.Instant; import java.util.UUID; import jakarta.persistence.*; import lombok.*;
+@Entity @Table(name="return_requests") @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+public class ReturnRequest { @Id @GeneratedValue(strategy=GenerationType.UUID) @Column(name="return_request_id") private UUID id; @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="order_id") private Order order; private UUID tenantId; private String requestType; private String reason; @Builder.Default private String status="REQUESTED"; private UUID requestedBy; private UUID approvedBy; @OneToOne(fetch=FetchType.LAZY) @JoinColumn(name="return_task_id") private DeliveryTask returnTask; private UUID receivedBy; private Instant receivedAt; private String completionNotes; @Version private Long version; @Builder.Default private Instant createdAt=Instant.now(); @Builder.Default private Instant updatedAt=Instant.now(); }

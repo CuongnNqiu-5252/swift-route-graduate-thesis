@@ -72,7 +72,7 @@ public class DriverController {
      */
     @Operation(summary = "Register a new driver for a tenant")
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPS_STAFF', 'OWNER')")
     public ResponseEntity<ApiResponse<DriverResponse>> registerDriver(
             @Valid @RequestBody RegisterDriverRequest request,
             @RequestHeader("X-User-Id") String userId,
@@ -174,6 +174,12 @@ public class DriverController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @Operation(summary = "Get public driver info by authentication user ID")
+    @GetMapping("/user/{userId}/public")
+    public ResponseEntity<ApiResponse<DriverPublicResponse>> getDriverPublicInfoByUserId(@PathVariable UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success(driverService.getDriverPublicInfoByUserId(userId)));
+    }
+
     /**
      * GET /api/drivers/{driverId}
      * Get full driver details by driver ID.
@@ -198,7 +204,7 @@ public class DriverController {
      */
     @Operation(summary = "List all drivers in a tenant")
     @GetMapping("/tenant/{tenantId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPS_STAFF', 'OWNER')")
     public ResponseEntity<ApiResponse<List<DriverResponse>>> getDriversByTenant(
             @PathVariable UUID tenantId,
             @RequestHeader("X-User-Id") String userId,
@@ -227,7 +233,7 @@ public class DriverController {
      */
     @Operation(summary = "Update driver details")
     @PutMapping("/{driverId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPS_STAFF', 'OWNER')")
     public ResponseEntity<ApiResponse<DriverResponse>> updateDriver(
             @PathVariable UUID driverId,
             @Valid @RequestBody UpdateDriverRequest request,

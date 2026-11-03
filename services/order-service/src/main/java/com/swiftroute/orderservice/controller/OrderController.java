@@ -24,6 +24,7 @@ import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
+import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
@@ -86,24 +87,54 @@ public class OrderController {
     }
 
     /**
-     * POST /api/orders
-     * Tạo đơn hàng mới.
-     * Role được phép: CUSTOMER, ADMIN, OPERATOR (Doanh nghiệp tạo hộ khách)
+     * GET /api/orders/operations/queue
+     * Tenant-scoped dispatcher queues: ready to assign, active execution, and intervention.
      */
+    @Operation(summary = "Get tenant-scoped dispatch operations queues")
+    @GetMapping("/operations/queue")
+    public ResponseEntity<ApiResponse<OperationsQueueResponse>> getOperationsQueue(
+            @RequestHeader("X-Tenant-Id") String tenantId,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+        OperationsQueueResponse queue = orderService.getOperationsQueue(
+                UUID.fromString(tenantId), UUID.fromString(userId), userRole);
+        return ResponseEntity.ok(ApiResponse.success(queue));
+    }
+
+    /**
+     * POST /api/orders
+     * Tạo vận đơn giao hàng mới (Delivery Waybill).
+     * Không yêu cầu tài khoản người nhận; nhận thông tin người gửi, người nhận, kiện hàng và COD.
+     */
+    @Operation(summary = "Create a delivery waybill / order")
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
             @Valid @RequestBody CreateOrderRequest request,
-            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader(value = "X-User-Id", required = false) String userId,
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
 
-        UUID customerId = UUID.fromString(userId);
+        UUID creatorUserId = (userId != null && !userId.isBlank()) ? UUID.fromString(userId) : null;
         UUID tenantIdUUID = (tenantId != null && !tenantId.isBlank())
                 ? UUID.fromString(tenantId)
-                : UUID.fromString("a1111111-1111-1111-1111-111111111111");
+                : null;
 
-        OrderResponse response = orderService.createOrder(request, customerId, tenantIdUUID);
+        OrderResponse response = orderService.createOrder(request, creatorUserId, tenantIdUUID);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response));
+    }
+
+    /**
+     * GET /api/orders/track/{trackingToken}
+     * Tra cứu vận đơn công khai cho người nhận qua mã trackingToken.
+     * Không yêu cầu JWT đăng nhập.
+     */
+    @Operation(summary = "Track delivery order publicly by tracking token")
+    @GetMapping("/track/{trackingToken}")
+    public ResponseEntity<ApiResponse<OrderResponse>> trackOrderByToken(
+            @PathVariable String trackingToken) {
+
+        OrderResponse response = orderService.getOrderByTrackingToken(trackingToken);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     /**
@@ -151,10 +182,13 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> getOrderById(
             @PathVariable UUID orderId,
             @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
+            @RequestHeader("X-User-Role") String userRole,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
 
+        UUID tenantId = (tenantIdHeader != null && !tenantIdHeader.isBlank())
+                ? UUID.fromString(tenantIdHeader) : null;
         OrderResponse response = orderService.getOrderById(
-                orderId, UUID.fromString(userId), userRole);
+                orderId, UUID.fromString(userId), userRole, tenantId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -265,13 +299,17 @@ public class OrderController {
     /**
      * GET /api/orders/{orderId}/tracking/stream
      * Server-Sent Events (SSE) live real-time location stream.
-     * Streams autonomous simulated waypoints towards destination or real GPS updates.
+     * Streams real GPS updates for an order after tenant/order authorization.
      */
     @Operation(summary = "Subscribe to live real-time SSE tracking stream for an order")
     @GetMapping(value = "/{orderId}/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamOrderTracking(
             @PathVariable UUID orderId,
-            @RequestHeader(value = "X-User-Id", required = false) String userId) {
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
+        UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
+        orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
         return trackingSimulationService.subscribe(orderId);
     }
 }

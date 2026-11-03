@@ -34,7 +34,25 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
     }
 
-    // 3. Lưới vét cuối cùng (Bắt các lỗi vặt như NullPointer, đứt cáp...)
+    // 3. Bắt lỗi Malformed JSON
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadable(
+            org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        log.warn("Malformed JSON request: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
+    }
+
+    // 4. Bắt lỗi Không tìm thấy endpoint/resource tĩnh (404 thay vì 500)
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.warn("Resource not found: {}", ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ErrorCode.USER_NOT_FOUND));
+    }
+
+    // 5. Lưới vét cuối cùng (Bắt các lỗi vặt như NullPointer, đứt cáp...)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex) {
         log.error("Lỗi hệ thống bất ngờ: ", ex); // Ghi log để DEV đọc

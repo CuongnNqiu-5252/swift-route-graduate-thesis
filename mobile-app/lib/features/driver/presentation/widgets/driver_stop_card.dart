@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_detail_sheet.dart';
@@ -23,59 +22,20 @@ class DriverStopCard extends ConsumerStatefulWidget {
 }
 
 class _DriverStopCardState extends ConsumerState<DriverStopCard> {
-  var _isUpdating = false;
-
-  Future<void> _advance() async {
-    final nextStatus = widget.stop.status == OrderStatus.planned
-        ? OrderStatus.inTransit
-        : OrderStatus.delivered;
-
-    setState(() => _isUpdating = true);
-    try {
-      await ref.read(driverOrdersProvider.notifier).updateOrderStatus(
-            orderId: widget.stop.id,
-            nextStatus: nextStatus,
-          );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              nextStatus == OrderStatus.inTransit
-                  ? 'Bắt đầu giao đơn #${widget.stop.id.substring(0, 8)}'
-                  : 'Đã hoàn thành điểm giao #${widget.stop.id.substring(0, 8)}',
-            ),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không thể cập nhật đơn. Hãy thử lại.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
-    }
-  }
+  Future<void> _advance() => DriverStopDetailSheet.show(context, order: widget.stop, sequenceNumber: widget.sequence);
 
   @override
   Widget build(BuildContext context) {
     final stop = widget.stop;
-    final isInTransit = stop.status == OrderStatus.inTransit;
-    final isDelivered = stop.status == OrderStatus.delivered;
-    final isFailed = stop.status == OrderStatus.failed;
+    final isInTransit = stop.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery;
+    final isDelivered = stop.deliveryTaskStatus == DeliveryTaskStatus.completed;
+    final isFailed = stop.deliveryTaskStatus == DeliveryTaskStatus.failed;
+    final isReturn = stop.deliveryTaskType == 'RETURN';
 
-    final statusColor = switch (stop.status) {
-      OrderStatus.planned => Colors.blue.shade700,
-      OrderStatus.inTransit => AppColors.accent,
-      OrderStatus.delivered => AppColors.success,
-      OrderStatus.failed => AppColors.error,
-      _ => AppColors.textSecondary,
-    };
+    final statusColor = isInTransit ? AppColors.accent : Colors.blue.shade700;
 
-    final actionLabel = isInTransit ? 'Đã giao xong' : 'Bắt đầu giao';
-    final actionIcon = isInTransit ? Icons.check_circle_rounded : Icons.two_wheeler_rounded;
+    const actionLabel = 'Mở thao tác';
+    const actionIcon = Icons.arrow_forward_rounded;
 
     return InkWell(
       onTap: () => DriverStopDetailSheet.show(
@@ -133,7 +93,7 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Đơn #${stop.id.length > 8 ? stop.id.substring(0, 8) : stop.id}',
+                    '${isReturn ? 'Hoàn' : 'Đơn'} #${stop.id.length > 8 ? stop.id.substring(0, 8) : stop.id}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -149,7 +109,7 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    stop.status.displayName,
+                    (stop.deliveryTaskStatus ?? DeliveryTaskStatus.assigned).displayName,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -168,7 +128,7 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    stop.deliveryAddress,
+                    isReturn ? stop.pickupAddress : stop.deliveryAddress,
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -192,7 +152,7 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
                 const Icon(Icons.scale_rounded, size: 13, color: AppColors.textSecondary),
                 const SizedBox(width: 4),
                 Text(
-                  '${stop.weightKg.toStringAsFixed(1)} kg',
+                  '${stop.packageCount} kiện · ${stop.weightKg.toStringAsFixed(1)} kg',
                   style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                 ),
               ],
@@ -235,14 +195,8 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
                   Expanded(
                     flex: 6,
                     child: FilledButton.icon(
-                      onPressed: _isUpdating ? null : _advance,
-                      icon: _isUpdating
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : Icon(actionIcon, size: 16),
+                      onPressed: _advance,
+                      icon: const Icon(actionIcon, size: 16),
                       label: Text(actionLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                       style: FilledButton.styleFrom(
                         backgroundColor: isInTransit ? AppColors.success : AppColors.primary,
@@ -267,4 +221,3 @@ class _DriverStopCardState extends ConsumerState<DriverStopCard> {
     return '$h:$m';
   }
 }
-

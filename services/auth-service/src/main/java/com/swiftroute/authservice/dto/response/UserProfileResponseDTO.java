@@ -9,13 +9,12 @@ import com.swiftroute.authservice.entity.enums.Role;
  * User profile response DTO for GET /api/auth/me.
  */
 public record UserProfileResponseDTO(
-        UUID id,
-        String email,
-        String phone,
-        String fullName,
-        Role role,
-        UUID tenantId,
-        String status,
-        LocalDateTime createdAt) {
+                UUID id,
+                String email,
+                String phone,
+                String fullName,
+                Role role,
+                UUID tenantId,
+                String status,
+                LocalDateTime createdAt, boolean emailVerified) {
 }
-

@@ -66,6 +66,11 @@ public class Tenant {
     @Builder.Default
     private OptimizationWeights optimizationWeights = new OptimizationWeights(0.5, 0.5);
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "dispatch_config", columnDefinition = "jsonb")
+    @Builder.Default
+    private TenantDispatchConfig dispatchConfig = new TenantDispatchConfig();
+
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", nullable = false, length = 50)
     @Builder.Default
@@ -95,6 +100,28 @@ public class Tenant {
     @UpdateTimestamp
     @Column(name = "status_updated_at", nullable = false)
     private LocalDateTime statusUpdatedAt;
+
+    @Column(name="contact_phone", length=20)
+    private String contactPhone;
+    @Column(name="contact_email")
+    private String contactEmail;
+    @Column(name="country_code", length=2)
+    @Builder.Default
+    private String countryCode = "VN";
+    @Enumerated(EnumType.STRING)
+    @Column(name="delivery_mode", length=20)
+    @Builder.Default
+    private com.swiftroute.orderservice.entity.enums.DeliveryMode deliveryMode = com.swiftroute.orderservice.entity.enums.DeliveryMode.OWN_FLEET;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name="delivery_settings", columnDefinition="jsonb")
+    @Builder.Default
+    private java.util.Map<String,Object> deliverySettings = new java.util.LinkedHashMap<>();
+    @Column(name="settings_confirmed", nullable=false)
+    @Builder.Default
+    private boolean settingsConfirmed = false;
+    @Column(name="mode_confirmed", nullable=false)
+    @Builder.Default
+    private boolean modeConfirmed = false;
 
     @Version
     @Column(nullable = false)

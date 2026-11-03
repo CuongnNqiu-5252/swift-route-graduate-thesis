@@ -5,7 +5,7 @@ import 'package:swiftroute_app/features/driver/application/driver_provider.dart'
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_card.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-enum _RouteFilter { all, planned, inTransit, delivered }
+enum _RouteFilter { all, planned, inTransit, returns, delivered }
 
 /// Today's Route Stops List Screen (D05)
 class DriverRouteTab extends ConsumerStatefulWidget {
@@ -57,12 +57,14 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
             _RouteFilter.all => allStops,
             _RouteFilter.planned => allStops.where((o) => o.status == OrderStatus.planned).toList(),
             _RouteFilter.inTransit => allStops.where((o) => o.status == OrderStatus.inTransit).toList(),
-            _RouteFilter.delivered => allStops.where((o) => o.status == OrderStatus.delivered).toList(),
+            _RouteFilter.returns => allStops.where((o) => o.deliveryTaskType == 'RETURN').toList(),
+            _RouteFilter.delivered => allStops.where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.completed).toList(),
           };
 
           final inTransitCount = allStops.where((o) => o.status == OrderStatus.inTransit).length;
           final plannedCount = allStops.where((o) => o.status == OrderStatus.planned).length;
           final deliveredCount = allStops.where((o) => o.status == OrderStatus.delivered).length;
+          final returnCount = allStops.where((o) => o.deliveryTaskType == 'RETURN').length;
 
           return RefreshIndicator(
             onRefresh: () => ref.read(driverOrdersProvider.notifier).refreshOrders(),
@@ -75,6 +77,13 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
+                      _FilterChip(
+                        label: 'Hoàn hàng ($returnCount)',
+                        isSelected: _filter == _RouteFilter.returns,
+                        activeColor: Colors.deepOrange,
+                        onTap: () => setState(() => _filter = _RouteFilter.returns),
+                      ),
+                      const SizedBox(width: 8),
                       _FilterChip(
                         label: 'Tất cả (${allStops.length})',
                         isSelected: _filter == _RouteFilter.all,
@@ -327,4 +336,3 @@ class _RouteErrorView extends StatelessWidget {
     );
   }
 }
-

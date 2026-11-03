@@ -28,9 +28,18 @@ import jakarta.validation.Valid;
 public class AuthController {
 
     private final AuthService authService;
+    private final com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService) {
         this.authService = authService;
+        this.tenantEmployeeService = tenantEmployeeService;
+    }
+
+    @PostMapping("/invitations/accept")
+    public ResponseEntity<ApiResponse<com.swiftroute.authservice.dto.response.TenantMemberResponse>> acceptInvitation(
+            @Valid @RequestBody com.swiftroute.authservice.dto.request.AcceptInvitationRequest request) {
+        com.swiftroute.authservice.dto.response.TenantMemberResponse response = tenantEmployeeService.acceptInvitation(request);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @PostMapping("/register")
@@ -64,13 +73,7 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserProfileResponseDTO>> getProfile(
             @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
-        UUID userId;
-        if (headerUserId != null && !headerUserId.isBlank()) {
-            userId = UUID.fromString(headerUserId);
-        } else {
-            String principal = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-            userId = UUID.fromString(principal);
-        }
+        UUID userId = UUID.fromString(SecurityContextHolder.getContext().getAuthentication().getName());
         UserProfileResponseDTO profile = authService.getProfile(userId);
         return ResponseEntity.ok(ApiResponse.success(profile));
     }

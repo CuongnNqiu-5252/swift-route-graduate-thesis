@@ -27,34 +27,41 @@ public class AuthserviceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.swiftroute.authservice.repository.TenantMembershipRepository tenantMembershipRepository;
 
     // SỬA Ở ĐÂY: Dùng JwtService của bạn thay vì TokenService của Spring
     private final JwtService jwtService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private EmailVerificationService emailVerificationService;
+
     @Override
+    @Transactional
     public void register(RegisterRequestDTO request) {
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+        if (userRepository.findByEmail(request.getEmail().trim().toLowerCase(java.util.Locale.ROOT)).isPresent()) {
             throw new EmailAlreadyExistsException(ErrorCode.USER_EXISTED);
         }
 
         User user = User.builder()
-                .email(request.getEmail())
+                .email(request.getEmail().trim().toLowerCase(java.util.Locale.ROOT))
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName())
                 .phone(request.getPhoneNumber())
                 .build();
 
-        userRepository.save(user);
+        User saved = userRepository.save(user);
+        userRepository.flush();
+        if (emailVerificationService != null) emailVerificationService.resend(saved.getId());
     }
 
     @Override
     public LoginResponseDTO login(LoginRequestDTO request, HttpServletRequest httpRequest) {
         // 1. Dùng orElseThrow để lấy thẳng object User ra, khỏi check null dài dòng
-        User user = userRepository.findByEmail(request.getUsername())
+        User user = userRepository.findByEmail(request.getUsername().trim().toLowerCase(java.util.Locale.ROOT))
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
 
         // 2. Check trạng thái
-        if ("INACTIVE".equals(user.getStatus())) {
+        if (!"ACTIVE".equals(user.getStatus())) {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
         }
 
@@ -64,7 +71,18 @@ public class AuthserviceImpl implements AuthService {
         }
 
         // 4. Tạo token (Access Token hạn 15 phút, Refresh Token hạn 7 ngày)
-        String accessToken = jwtService.generateAccessToken(user, 15);
+        // 4. Tạo token: nếu user có membership ACTIVE trong tenant thì cấp token với role và tenant_id của membership đó
+        java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
+                .findByUser_IdAndStatus(user.getId(), com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
+
+        String accessToken;
+        if (!activeMemberships.isEmpty()) {
+            com.swiftroute.authservice.entity.TenantMembership primary = activeMemberships.get(0);
+            String tenantRole = primary.getMembershipRole().name();
+            accessToken = jwtService.generateTenantAccessToken(user, primary.getTenantId(), tenantRole, 15);
+        } else {
+            accessToken = jwtService.generateAccessToken(user, 15);
+        }
         String refreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest); // Mượn tạm hàm tạo token để
                                                                                           // làm refresh
 
@@ -86,7 +104,17 @@ public class AuthserviceImpl implements AuthService {
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
 
         // Pass the unwrapped 'user' and use 60 (long) instead of 60.00 (double)
-        String newAccessToken = jwtService.generateAccessToken(user, 60);
+        java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
+                .findByUser_IdAndStatus(user.getId(), com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
+
+        String newAccessToken;
+        if (!activeMemberships.isEmpty()) {
+            com.swiftroute.authservice.entity.TenantMembership primary = activeMemberships.get(0);
+            String tenantRole = primary.getMembershipRole().name();
+            newAccessToken = jwtService.generateTenantAccessToken(user, primary.getTenantId(), tenantRole, 60);
+        } else {
+            newAccessToken = jwtService.generateAccessToken(user, 60);
+        }
         String newRefreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest);
 
         // Return the actual response instead of throwing an
@@ -114,8 +142,8 @@ public class AuthserviceImpl implements AuthService {
                 user.getPhone(),
                 user.getFullName(),
                 user.getRole(),
-                user.getTenantId(),
+                tenantMembershipRepository.findByUser_IdAndStatus(userId, com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE).stream().findFirst().map(com.swiftroute.authservice.entity.TenantMembership::getTenantId).orElse(null),
                 user.getStatus(),
-                user.getCreatedAt());
+                user.getCreatedAt(), user.isEmailVerified());
     }
 }

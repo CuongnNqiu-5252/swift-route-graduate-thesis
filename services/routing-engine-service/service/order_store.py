@@ -36,9 +36,7 @@ def classify_shift(time_window_start: Optional[str]) -> str:
             return "EVENING"
 
     try:
-        # Try parsing ISO format (e.g. 2026-10-30T09:00:00Z)
         dt = datetime.fromisoformat(time_window_start.replace("Z", "+00:00"))
-        # Convert to local VN time (+7) if timezone aware
         if dt.tzinfo:
             hour = (dt.hour + 7) % 24
         else:
@@ -97,10 +95,16 @@ class OrderStore:
                     time_window_end TEXT,
                     status TEXT NOT NULL,
                     shift TEXT NOT NULL,
-                    received_at TEXT NOT NULL
+                    received_at TEXT NOT NULL,
+                    priority TEXT DEFAULT 'NORMAL'
                 )
                 """
             )
+            # Migration check: add priority column if table existed without it
+            try:
+                cursor.execute("ALTER TABLE pending_orders ADD COLUMN priority TEXT DEFAULT 'NORMAL'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             conn.commit()
 
     def _load_from_db(self) -> None:
@@ -111,7 +115,15 @@ class OrderStore:
             for row in cursor.fetchall():
                 self._processed_events.add(row[0])
 
-            cursor.execute("SELECT * FROM pending_orders")
+            cursor.execute(
+                """
+                SELECT order_id, tenant_id, customer_id, pickup_lat, pickup_lng,
+                       pickup_address, delivery_lat, delivery_lng, delivery_address,
+                       weight_kg, time_window_start, time_window_end, status, shift,
+                       received_at, COALESCE(priority, 'NORMAL')
+                FROM pending_orders
+                """
+            )
             for row in cursor.fetchall():
                 order = PendingOrder(
                     order_id=row[0],
@@ -129,6 +141,7 @@ class OrderStore:
                     status=row[12],
                     shift=row[13],
                     received_at=row[14],
+                    priority=row[15] if len(row) > 15 else "NORMAL",
                 )
                 self._orders[order.order_id] = order
         logger.info(
@@ -136,6 +149,63 @@ class OrderStore:
             len(self._processed_events),
             len(self._orders),
         )
+
+    def save_order_with_event(self, order: PendingOrder, event_id: str) -> bool:
+        """
+        Atomically records event_id in processed_events and saves order in pending_orders
+        within a single database transaction.
+        Returns True if newly inserted, False if event_id has already been processed (duplicate).
+        """
+        with self._lock:
+            if event_id in self._processed_events:
+                return False
+
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("BEGIN IMMEDIATE")
+                    cursor.execute(
+                        "INSERT INTO processed_events (event_id, processed_at) VALUES (?, ?)",
+                        (event_id, datetime.now(timezone.utc).isoformat()),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO pending_orders (
+                            order_id, tenant_id, customer_id, pickup_lat, pickup_lng,
+                            pickup_address, delivery_lat, delivery_lng, delivery_address,
+                            weight_kg, time_window_start, time_window_end, status, shift,
+                            received_at, priority
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            order.order_id,
+                            order.tenant_id,
+                            order.customer_id,
+                            order.pickup_lat,
+                            order.pickup_lng,
+                            order.pickup_address,
+                            order.delivery_lat,
+                            order.delivery_lng,
+                            order.delivery_address,
+                            order.weight_kg,
+                            order.time_window_start,
+                            order.time_window_end,
+                            order.status,
+                            order.shift,
+                            order.received_at,
+                            order.priority,
+                        ),
+                    )
+                    conn.commit()
+                self._processed_events.add(event_id)
+                self._orders[order.order_id] = order
+                return True
+            except sqlite3.IntegrityError:
+                self._processed_events.add(event_id)
+                return False
+            except Exception as e:
+                logger.error("Failed transactional save for order %s event %s: %s", order.order_id, event_id, e)
+                raise
 
     def is_event_processed(self, event_id: str) -> bool:
         """Idempotency check: returns True if event has already been handled."""
@@ -167,8 +237,9 @@ class OrderStore:
                         INSERT OR REPLACE INTO pending_orders (
                             order_id, tenant_id, customer_id, pickup_lat, pickup_lng,
                             pickup_address, delivery_lat, delivery_lng, delivery_address,
-                            weight_kg, time_window_start, time_window_end, status, shift, received_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            weight_kg, time_window_start, time_window_end, status, shift,
+                            received_at, priority
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             order.order_id,
@@ -186,6 +257,7 @@ class OrderStore:
                             order.status,
                             order.shift,
                             order.received_at,
+                            order.priority,
                         ),
                     )
                     conn.commit()
@@ -214,6 +286,23 @@ class OrderStore:
                 orders = [o for o in orders if o.status == status]
             return orders
 
+    def get_pending_paid_orders(self, tenant_id: Optional[str] = None) -> List[PendingOrder]:
+        """
+        Retrieves pending orders eligible for dispatch (status == 'PAID'),
+        sorted by received_at ascending (FIFO: oldest orders first).
+        """
+        with self._lock:
+            orders = [o for o in self._orders.values() if o.status == "PAID"]
+            if tenant_id:
+                orders = [o for o in orders if o.tenant_id == tenant_id]
+            orders.sort(key=lambda o: o.received_at)
+            return orders
+
+    def get_distinct_tenants_with_paid_orders(self) -> List[str]:
+        """Returns distinct tenant IDs that currently have PAID orders waiting."""
+        with self._lock:
+            return list({o.tenant_id for o in self._orders.values() if o.status == "PAID"})
+
     def update_order_status(self, order_id: str, new_status: str) -> None:
         """Updates the status of an existing order."""
         with self._lock:
@@ -234,4 +323,3 @@ class OrderStore:
 
 # Global singleton instance
 order_store = OrderStore()
-

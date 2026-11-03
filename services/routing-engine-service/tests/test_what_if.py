@@ -19,7 +19,7 @@ def test_what_if_is_in_memory_and_compares_two_driver_counts():
 
     assert result.baseline.driver_count == 3
     assert result.scenario.driver_count == 2
-    assert result.baseline.algorithm_used == "held_karp"
+    assert result.baseline.algorithm_used == "ortools"
     assert result.baseline.total_distance_km > 0
     assert result.scenario.completion_minutes > 0
     assert isinstance(result.completion_delta_percent, float)

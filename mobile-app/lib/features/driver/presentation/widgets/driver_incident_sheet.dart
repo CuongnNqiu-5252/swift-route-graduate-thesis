@@ -82,6 +82,7 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
     try {
       await ref.read(driverOrdersProvider.notifier).reportIncident(
             orderId: widget.order.id,
+            taskId: widget.order.deliveryTaskId!,
             incidentType: _selectedType,
             notes: notes.isNotEmpty ? notes : null,
           );

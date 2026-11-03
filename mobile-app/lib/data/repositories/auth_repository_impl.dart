@@ -32,12 +32,12 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
         password: password,
         fullName: username,
-        phoneNumber: phoneNumber,
-        address: address,
-        city: city,
-        state: state,
-        zipCode: zipCode,
-        country: country,
+        phoneNumber: phoneNumber.trim().isNotEmpty ? phoneNumber.trim() : '0901234567',
+        address: address.trim().isNotEmpty ? address.trim() : 'Default Address',
+        city: city.trim().isNotEmpty ? city.trim() : 'Ho Chi Minh',
+        state: state.trim().isNotEmpty ? state.trim() : 'VN',
+        zipCode: zipCode.trim().isNotEmpty ? zipCode.trim() : '70000',
+        country: country.trim().isNotEmpty ? country.trim() : 'VN',
       );
       // POST /api/auth/register → 201 { data: null }
       await _dio.post('/auth/register', data: request.toJson());

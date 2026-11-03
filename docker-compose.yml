@@ -84,13 +84,19 @@ services:
     ports:
       - "8081:8081"
     environment:
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
+      - AUTH_FLYWAY_BASELINE_VERSION=${AUTH_FLYWAY_BASELINE_VERSION:-1}
+      - WEB_APP_URL=${WEB_APP_URL:-http://localhost:3000}
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-postgres}
+      - DB_NAME=${AUTH_DB_NAME:-auth_db}
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
@@ -108,14 +114,19 @@ services:
     ports:
       - "8082:8082"
     environment:
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
+      - ORDER_FLYWAY_BASELINE_VERSION=${ORDER_FLYWAY_BASELINE_VERSION:-1}
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-postgres}
+      - DB_NAME=${ORDER_DB_NAME:-order_db}
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - AUTH_SERVICE_URL=http://auth-service:8081
+      - DRIVER_SERVICE_URL=http://driver-service:8083
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
     depends_on:
@@ -134,19 +145,25 @@ services:
     ports:
       - "8083:8083"
     environment:
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - AUTH_SERVICE_URL=http://auth-service:8081
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-postgres}
+      - DB_NAME=${DRIVER_DB_NAME:-driver_db}
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     networks:
       - swiftroute-net
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   routing-engine:
@@ -157,8 +174,12 @@ services:
     ports:
       - "8084:8084"
     environment:
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
       - ORDER_SERVICE_URL=${ORDER_SERVICE_URL:-http://order-service:8082}
+      - DRIVER_SERVICE_URL=${DRIVER_SERVICE_URL:-http://driver-service:8083}
+      - ROUTING_DATABASE_URL=postgresql://${DB_USER:-openpg}:${DB_PASSWORD:-openpgpwd}@postgres:5432/routing_db
     networks:
       - swiftroute-net
     depends_on:
@@ -188,9 +209,36 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  notification-service:
+    build: ./services/notification-service
+    container_name: swiftroute-notification-service
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-openpg}
+      - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
+      - NOTIFICATION_DB_NAME=notification_db
+      - RABBITMQ_HOST=rabbitmq
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
+      - SMTP_HOST=${SMTP_HOST:-host.docker.internal}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_AUTH=${SMTP_AUTH:-false}
+      - SMTP_STARTTLS=${SMTP_STARTTLS:-false}
+      - SMTP_FROM=${SMTP_FROM:-no-reply@swiftroute.local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - swiftroute-net
+
 networks:
   swiftroute-net:
     driver: bridge
+
 
 volumes:
   pgdata:

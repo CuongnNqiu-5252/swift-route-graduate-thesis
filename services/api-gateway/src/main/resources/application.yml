@@ -31,17 +31,46 @@ spring:
               predicates:
                 - Path=/api/orders/**
 
+            - id: delivery-tasks-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/delivery-tasks/**
+
+            # --- Exception, return and COD operations ---
+            - id: operations-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/operations/**
+
+            # --- Package custody and dual-confirmation handovers ---
+            - id: custody-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/custody/**
+
             # --- Payment Service ---
             - id: payment-service
               uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
               predicates:
                 - Path=/api/payments/**
 
-            # --- Tenant onboarding (owned by Order Service) ---
+            # --- Tenant Memberships & Invitations (owned by Auth Service) ---
+            - id: tenant-members-service
+              uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/tenants/*/members/**
+
+            # --- Tenant onboarding & Settings (owned by Order Service) ---
             - id: tenant-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}
               predicates:
-                - Path=/api/tenants/**
+                - Path=/api/tenants/**,/api/v1/tenants/**
+
+            # --- Pickup Locations (owned by Order Service) ---
+            - id: pickup-locations-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/pickup-locations/**
 
             # --- Driver Service ---
             # /api/drivers/** → driver-service:8083
@@ -49,7 +78,7 @@ spring:
             - id: driver-service
               uri: ${DRIVER_SERVICE_URL:http://localhost:8083}
               predicates:
-                - Path=/api/drivers/**
+                - Path=/api/drivers/**,/api/vehicles/**,/api/earnings/**,/api/settlements/**
 
             # --- Routing Engine Service (FastAPI) ---
             # /api/routing/** → routing-engine:8084

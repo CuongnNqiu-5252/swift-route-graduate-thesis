@@ -6,6 +6,7 @@ partitions deliveries across available drivers, and persists resulting routing p
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -13,6 +14,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
+try:
+    import aio_pika
+except ImportError:
+    aio_pika = None
 import httpx
 
 from api.schemas import (
@@ -32,6 +37,33 @@ from service.plan_store import plan_store
 logger = logging.getLogger("routing-engine.shift_optimizer")
 
 ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://order-service:8082")
+DRIVER_SERVICE_URL = os.getenv("DRIVER_SERVICE_URL", "http://driver-service:8083")
+
+
+def fetch_real_driver_ids(tenant_id: str) -> List[str]:
+    """
+    Queries driver-service for real active and available driver UUIDs for the given tenant.
+    Never uses hardcoded IDs or mocks.
+    """
+    url = f"{DRIVER_SERVICE_URL}/api/drivers"
+    try:
+        with httpx.Client(timeout=4.0) as client:
+            resp = client.get(url, params={"tenant_id": tenant_id}, headers={"X-Service-Key": os.getenv("TENANT_INTERNAL_KEY", "")})
+            if resp.status_code == 200:
+                data = resp.json().get("data", [])
+                if isinstance(data, list):
+                    # Filter for active and available drivers
+                    active = [
+                        str(d.get("driverId") or d.get("driver_id") or d.get("userId") or d.get("user_id"))
+                        for d in data
+                        if (d.get("status") == "ACTIVE" or d.get("status") is None)
+                    ]
+                    valid_ids = [d_id for d_id in active if d_id and d_id != "None"]
+                    if valid_ids:
+                        return valid_ids
+    except Exception as exc:
+        logger.error("Could not fetch real drivers from driver-service for tenant %s: %s", tenant_id, exc)
+    return []
 
 
 def _partition_stops_for_drivers(
@@ -78,7 +110,7 @@ def optimize_shift(request: ShiftOptimizationRequest) -> RoutingPlan:
       2. Converts pending orders into StopItem objects.
       3. Determines depot location (from request, or first order's pickup).
       4. Partitions deliveries across available drivers.
-      5. Runs solver (Held-Karp, Nearest Neighbor, Genetic) for each partition.
+      5. Runs solver (Google OR-Tools) for each partition.
       6. Aggregates results into a durable RoutingPlan (status: DRAFT).
       7. Persists plan into PlanStore.
     """
@@ -130,8 +162,17 @@ def optimize_shift(request: ShiftOptimizationRequest) -> RoutingPlan:
         for order in orders
     ]
 
-    # 4. Partition stops across drivers
-    partitions = _partition_stops_for_drivers(stops, depot, request.driver_ids)
+    # 4. Resolve real drivers if not explicitly specified
+    driver_ids = request.driver_ids
+    if not driver_ids:
+        driver_ids = fetch_real_driver_ids(request.tenant_id)
+        if driver_ids:
+            logger.info("Dynamically resolved %d active drivers from driver-service for tenant %s", len(driver_ids), request.tenant_id)
+        else:
+            logger.warning("No active drivers found from driver-service for tenant %s. Routes will be created unassigned.", request.tenant_id)
+
+    # Partition stops across drivers
+    partitions = _partition_stops_for_drivers(stops, depot, driver_ids)
 
     # 5. Solve routes for each driver
     driver_routes: List[DriverRoutePlan] = []
@@ -197,12 +238,22 @@ async def dispatch_plan(plan_id: str) -> DispatchPlanResponse:
     if not plan:
         raise ValueError(f"Routing plan {plan_id} not found.")
 
-    # Build assignments payload
+    # Build assignments payload using real assigned drivers
     assignments: List[dict] = []
-    default_driver = "a3333333-3333-3333-3333-333333333333"  # driver@gmail.com seed ID
+    available_drivers_pool: Optional[List[str]] = None
 
     for route in plan.driver_routes:
-        effective_driver = route.driver_id or default_driver
+        effective_driver = route.driver_id
+        if not effective_driver:
+            if available_drivers_pool is None:
+                available_drivers_pool = fetch_real_driver_ids(plan.tenant_id)
+            if available_drivers_pool:
+                effective_driver = available_drivers_pool.pop(0)
+                route.driver_id = effective_driver
+            else:
+                raise ValueError(
+                    f"Cannot dispatch plan {plan.plan_id}: Route has no assigned driver and no active drivers available from driver-service for tenant {plan.tenant_id}"
+                )
         for stop in route.ordered_stops:
             assignments.append(
                 {
@@ -212,29 +263,38 @@ async def dispatch_plan(plan_id: str) -> DispatchPlanResponse:
                 }
             )
 
-    payload = {"assignments": assignments}
+    if not assignments:
+        raise ValueError(f"Cannot dispatch plan {plan.plan_id}: Plan contains no stop assignments")
 
-    url = f"{ORDER_SERVICE_URL}/api/orders/assign-batch"
-    headers = {
-        "X-User-Id": "a0000000-0000-0000-0000-000000000001",
-        "X-User-Role": "ADMIN",
-        "Content-Type": "application/json",
-    }
-
+    # Publish batch dispatch event to RabbitMQ topic exchange
+    rabbit_url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            if resp.status_code not in (200, 201):
-                logger.error("Order service returned %d: %s", resp.status_code, resp.text)
-                raise RuntimeError(
-                    f"Failed to assign orders in Order Service: HTTP {resp.status_code}"
-                )
-    except httpx.RequestError as exc:
-        logger.warning(
-            "Could not reach order-service at %s (%s). Marking plan dispatched locally for demo.",
-            url,
-            exc,
-        )
+        connection = await aio_pika.connect_robust(rabbit_url)
+        async with connection:
+            channel = await connection.channel()
+            exchange = await channel.declare_exchange(
+                "swiftroute.events",
+                aio_pika.ExchangeType.TOPIC,
+                durable=True,
+            )
+            batch_event = {
+                "eventId": str(uuid.uuid4()),
+                "planId": plan.plan_id,
+                "assignments": assignments,
+                "dispatchedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            await exchange.publish(
+                aio_pika.Message(
+                    body=json.dumps(batch_event).encode("utf-8"),
+                    content_type="application/json",
+                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                ),
+                routing_key="order.batch.dispatched",
+            )
+            logger.info("Published batch dispatch event to RabbitMQ for plan %s (%d assignments)", plan_id, len(assignments))
+    except Exception as exc:
+        logger.error("Failed to publish batch dispatch event to RabbitMQ: %s", exc)
+        raise RuntimeError(f"Failed to publish batch dispatch event to RabbitMQ: {exc}") from exc
 
     # Update local states
     dispatched_time = datetime.now(timezone.utc).isoformat()

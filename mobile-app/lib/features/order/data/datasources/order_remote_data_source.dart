@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/driver_cod_collection_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/package_handover_model.dart';
 
 class OrderRemoteDataSource {
   final Dio _dio;
@@ -139,34 +141,70 @@ class OrderRemoteDataSource {
   /// The gateway derives the driver's identity from the bearer token.
   Future<List<OrderModel>> getAssignedDriverOrders() async {
     try {
-      final response = await _dio.get('/orders/driver/assigned');
-      final resData = response.data;
-      final rawList = (resData is Map && resData['data'] is List)
-          ? resData['data'] as List
-          : (resData is List ? resData : null);
-      if (rawList == null || rawList.isEmpty) {
-        return [];
-      }
-      return rawList
-          .whereType<Map>()
-          .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
-          .toList();
+      final tasksResponse = await _dio.get('/delivery-tasks/mine');
+      final tasksData = tasksResponse.data;
+      final taskList = tasksData is List
+          ? tasksData
+          : (tasksData is Map && tasksData['data'] is List ? tasksData['data'] as List : <dynamic>[]);
+      return taskList.whereType<Map>().map((rawTask) {
+        final task = Map<String, dynamic>.from(rawTask);
+        final rawOrder = task['order'];
+        if (rawOrder is! Map) return null;
+        return OrderModel.fromJson(Map<String, dynamic>.from(rawOrder)).copyWith(
+          deliveryTaskId: task['task_id'] as String? ?? task['taskId'] as String?,
+          deliveryTaskType: task['task_type'] as String? ?? task['taskType'] as String? ?? 'DELIVERY',
+          deliveryTaskStatus: DeliveryTaskStatus.fromString(task['status'] as String?),
+        );
+      }).whereType<OrderModel>().toList();
     } catch (e, stack) {
       debugPrint('[OrderRemoteDataSource] getAssignedDriverOrders error: $e\n$stack');
       return [];
     }
   }
 
+  Future<void> updateDeliveryTaskStatus({
+    required String taskId,
+    required DeliveryTaskStatus status,
+    String? failureReason,
+    String? notes,
+    String? proofUrl,
+  }) async {
+    await _dio.patch(
+      '/delivery-tasks/$taskId',
+      data: {
+        'status': status.serverValue,
+        if (failureReason != null && failureReason.isNotEmpty) 'failure_reason': failureReason,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (proofUrl != null && proofUrl.isNotEmpty) 'proof_url': proofUrl,
+      },
+    );
+  }
+
   /// Advances a driver's assigned order through the delivery state machine.
   Future<OrderModel> updateOrderStatus({
     required String orderId,
     required OrderStatus status,
+    String? failureReason,
+    String? notes,
+    String? proofUrl,
   }) async {
-    final response = await _dio.patch(
-      '/orders/$orderId/status',
-      data: '"${status.toServerString()}"',
-      options: Options(contentType: Headers.jsonContentType),
+    final taskStatus = switch (status) {
+      OrderStatus.planned => 'ACCEPTED',
+      OrderStatus.inTransit => 'OUT_FOR_DELIVERY',
+      OrderStatus.delivered => 'COMPLETED',
+      OrderStatus.failed => 'FAILED',
+      _ => throw Exception('Trạng thái này không phải thao tác thực thi của tài xế'),
+    };
+    await _dio.patch(
+      '/delivery-tasks/order/$orderId',
+      data: {
+        'status': taskStatus,
+        if (failureReason != null && failureReason.isNotEmpty) 'failure_reason': failureReason,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (proofUrl != null && proofUrl.isNotEmpty) 'proof_url': proofUrl,
+      },
     );
+    final response = await _dio.get('/orders/$orderId');
     final resData = response.data;
     final map = (resData is Map && resData['data'] is Map)
         ? resData['data'] as Map
@@ -175,21 +213,82 @@ class OrderRemoteDataSource {
     return OrderModel.fromJson(Map<String, dynamic>.from(map));
   }
 
+  /// Records the exact COD amount collected for a delivered assigned order.
+  Future<void> collectCod({
+    required String orderId,
+    required double amount,
+    String? notes,
+  }) async {
+    await _dio.post(
+      '/operations/orders/$orderId/cod-collections',
+      data: {
+        'amount': amount,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
+    );
+  }
+
+  /// Creates the auditable incident record used by the operations queue.
+  Future<void> createOperationalIncident({
+    required String orderId,
+    required String incidentType,
+    String? notes,
+  }) async {
+    await _dio.post(
+      '/operations/orders/$orderId/incidents',
+      data: {
+        'incident_type': incidentType,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
+    );
+  }
+
+  Future<List<DriverCodCollectionModel>> getPendingCodHandover() async {
+    final response = await _dio.get('/operations/cod-collections/mine');
+    final data = response.data;
+    final raw = data is Map && data['data'] is List ? data['data'] as List : <dynamic>[];
+    return raw.whereType<Map>().map((item) => DriverCodCollectionModel.fromJson(Map<String, dynamic>.from(item))).toList();
+  }
+
+  Future<void> declareCodHandover({required String collectionId, required double amount}) async {
+    await _dio.patch('/operations/cod-collections/$collectionId/declare', data: {'amount': amount});
+  }
+
+  Future<List<PackageHandoverModel>> getMyPackageHandovers() async {
+    final response = await _dio.get('/custody/handovers/mine');
+    final data = response.data;
+    final raw = data is Map && data['data'] is List ? data['data'] as List : (data is List ? data : <dynamic>[]);
+    return raw.whereType<Map>().map((item) => PackageHandoverModel.fromJson(Map<String, dynamic>.from(item))).toList();
+  }
+
+  Future<void> createPackageHandover({required String orderId, required String toDriverId}) async {
+    final response = await _dio.get('/custody/orders/$orderId/packages');
+    final data = response.data;
+    final raw = data is Map && data['data'] is List ? data['data'] as List : <dynamic>[];
+    final packageIds = raw.whereType<Map>().map((item) => item['package_id'] ?? item['packageId']).whereType<String>().toList();
+    if (packageIds.isEmpty) throw StateError('Đơn chưa có kiện hàng đang được quản lý');
+    await _dio.post('/custody/handovers', data: {
+      'to_driver_id': toDriverId,
+      'package_ids': packageIds,
+      'reason': 'Tài xế bàn giao toàn bộ kiện của đơn',
+    });
+  }
+
+  Future<void> actOnPackageHandover({required String handoverId, required String action}) async {
+    await _dio.patch('/custody/handovers/$handoverId/$action', data: {'notes': 'Xác nhận trên ứng dụng tài xế'});
+  }
+
   /// Confirms the payment and moves an owned order to PAID.
   Future<OrderModel> confirmPayment(OrderModel order) async {
-    try {
-      final response = await _dio.patch('/orders/${order.id}/pay');
-      final resData = response.data;
-      final map = (resData is Map && resData['data'] is Map)
-          ? resData['data'] as Map
-          : (resData is Map ? resData : null);
-      if (map == null) return order;
-      return OrderModel.fromJson(Map<String, dynamic>.from(map));
-    } catch (error) {
-      debugPrint('[OrderRemoteDataSource] confirmPayment warning: $error');
-      // If payment auto-confirmation fails, still return order with current status
-      return order;
+    final response = await _dio.patch('/orders/${order.id}/pay');
+    final resData = response.data;
+    final map = (resData is Map && resData['data'] is Map)
+        ? resData['data'] as Map
+        : (resData is Map ? resData : null);
+    if (map == null) {
+      throw Exception('Máy chủ không trả về thông tin đơn sau khi thanh toán');
     }
+    return OrderModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Reports a delivery incident, transitioning the order to FAILED.

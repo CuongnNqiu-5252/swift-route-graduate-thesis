@@ -14,7 +14,7 @@ public interface AuthService {
 
     public LoginResponseDTO login(LoginRequestDTO request, HttpServletRequest httpRequest);
 
-    void register(RegisterRequestDTO request);
+    public void register(RegisterRequestDTO request);
 
     public LoginResponseDTO refreshAccessToken(String refreshToken, HttpServletRequest httpRequest);
 

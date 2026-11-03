@@ -40,8 +40,11 @@ public class SecurityConfig {
                         // Endpoint public - không cần token
                         .requestMatchers(
                                 "/api/auth/register",
+                                "/api/auth/email/verify",
+                                "/internal/tenant-memberships/provision",
                                 "/api/auth/login",
                                 "/api/auth/refresh",
+                                "/api/auth/invitations/accept",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/actuator/health")

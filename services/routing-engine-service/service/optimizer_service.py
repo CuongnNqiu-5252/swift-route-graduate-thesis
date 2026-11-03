@@ -26,15 +26,8 @@ from api.schemas import (
     WhatIfOptimizationResponse,
     WhatIfScenario,
 )
-from core.distance import build_distance_matrix, build_time_matrix
-from core.tsp_held_karp import held_karp_tsp
-from core.tsp_nearest_neighbor import nearest_neighbor_tsp
-from core.tsp_genetic import genetic_tsp
-
-
-# Auto-select threshold: use Held-Karp exact solver for n <= this value.
-# Beyond this, exponential memory requirements make it impractical.
-HELD_KARP_MAX_N = 14
+from core.distance import build_distance_matrix, build_time_matrix, build_multi_objective_matrix
+from core.tsp_ortools import ortools_tsp
 
 
 def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
@@ -62,31 +55,27 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
 
     n_total = len(all_locations)  # depot + stops
 
-    # Build distance and time matrices
+    # Build distance, time, and multi-objective cost matrices
     dist_matrix = build_distance_matrix(all_locations)
     time_matrix = build_time_matrix(dist_matrix, avg_speed_kmh=28.0)
-    logger.info("📐 [RoutingEngine] Đã xây dựng ma trận khoảng cách %dx%d theo công thức Haversine", n_total, n_total)
+    time_w = request.time_weight if request.time_weight is not None else 0.5
+    cost_w = request.cost_weight if request.cost_weight is not None else 0.5
+    cost_matrix = build_multi_objective_matrix(dist_matrix, time_matrix, time_w, cost_w)
+    logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (W_time=%.2f, W_cost=%.2f)", n_total, n_total, time_w, cost_w)
 
-    # Algorithm selection
-    algorithm = request.algorithm
-    if algorithm == "auto":
-        algorithm = "held_karp" if n_stops <= HELD_KARP_MAX_N else "nearest_neighbor"
-        logger.info("🧠 [RoutingEngine] Tự động chọn thuật toán: %s (do n=%d %s %d)", algorithm, n_stops, "<=" if n_stops <= HELD_KARP_MAX_N else ">", HELD_KARP_MAX_N)
-    else:
-        logger.info("🧠 [RoutingEngine] Sử dụng thuật toán chỉ định: %s", algorithm)
+    # Algorithm execution: Google OR-Tools is the sole production routing solver
+    algorithm_used = "ortools"
+    logger.info("🧠 [RoutingEngine] Giải bài toán lộ trình bằng Google OR-Tools")
 
-    # Run solver and measure wall-clock CPU time
+    # Run solver on multi-objective cost matrix and measure wall-clock CPU time
     start_ns = time.perf_counter_ns()
+    route, _ = ortools_tsp(cost_matrix, start=0)
 
-    if algorithm == "held_karp":
-        route, total_dist = held_karp_tsp(dist_matrix, start=0)
-        algorithm_used = "held_karp"
-    elif algorithm == "genetic":
-        route, total_dist = genetic_tsp(dist_matrix)
-        algorithm_used = "genetic"
-    else:
-        route, total_dist = nearest_neighbor_tsp(dist_matrix, start=0)
-        algorithm_used = "nearest_neighbor"
+    # Evaluate exact ground-truth distance using dist_matrix
+    total_dist = sum(
+        dist_matrix[route[i]][route[i + 1]]
+        for i in range(len(route) - 1)
+    ) if len(route) > 1 else 0.0
 
     elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 

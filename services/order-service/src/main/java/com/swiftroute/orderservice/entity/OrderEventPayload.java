@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.entity;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -16,7 +17,10 @@ public record OrderEventPayload(
         String eventType,
         UUID orderId,
         UUID tenantId,
-        UUID customerId,
+        String externalOrderCode,
+        String trackingToken,
+        String recipientName,
+        String recipientPhone,
         UUID assignedDriverId,   // nullable — set when order is PLANNED
         String previousStatus,
         String currentStatus,
@@ -27,6 +31,8 @@ public record OrderEventPayload(
         Double deliveryLng,
         String deliveryAddress,
         Double weightKg,
+        String priority,         // NORMAL | HIGH | URGENT
+        BigDecimal codAmount,
         OffsetDateTime timeWindowStart,
         OffsetDateTime timeWindowEnd,
         Instant occurredAt) {
@@ -36,12 +42,11 @@ public record OrderEventPayload(
             String eventType,
             UUID orderId,
             UUID tenantId,
-            UUID customerId,
             UUID assignedDriverId,
             String previousStatus,
             String currentStatus,
             Instant occurredAt) {
-        this(eventId, eventType, orderId, tenantId, customerId, assignedDriverId,
-                previousStatus, currentStatus, null, null, null, null, null, null, null, null, null, occurredAt);
+        this(eventId, eventType, orderId, tenantId, null, null, null, null, assignedDriverId,
+                previousStatus, currentStatus, null, null, null, null, null, null, null, "NORMAL", BigDecimal.ZERO, null, null, occurredAt);
     }
 }

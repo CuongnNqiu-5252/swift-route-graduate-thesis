@@ -28,7 +28,6 @@ import lombok.Setter;
 @AllArgsConstructor
 @Builder
 public class DriverEarning {
-
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "driver_earning_id", updatable = false, nullable = false)
@@ -37,30 +36,55 @@ public class DriverEarning {
     @Column(name = "tenant_id", nullable = false)
     private UUID tenantId;
 
-    /** Logical reference to order_service.orders — no physical FK */
-    @Column(name = "order_id", nullable = false)
+    @Column(name = "order_id", nullable = false, unique = true)
     private UUID orderId;
+
+    @Column(name = "delivery_task_id", unique = true)
+    private UUID deliveryTaskId;
 
     @Column(name = "driver_id", nullable = false)
     private UUID driverId;
 
-    /** Total amount paid by customer for the order */
-    @Column(name = "gross_amount", nullable = false, precision = 12, scale = 2)
-    private BigDecimal grossAmount;
+    @Column(name = "earning_type", nullable = false, length = 20)
+    @Builder.Default
+    private String earningType = "DELIVERY";
 
-    /** Platform commission deducted from gross amount */
-    @Column(name = "platform_fee", nullable = false, precision = 12, scale = 2)
-    private BigDecimal platformFee;
+    @Column(name = "delivery_fee", nullable = false, precision = 12, scale = 0)
+    @Builder.Default
+    private BigDecimal deliveryFee = BigDecimal.ZERO;
 
-    /** Net amount received by the driver (gross_amount - platform_fee) */
-    @Column(name = "net_amount", nullable = false, precision = 12, scale = 2)
+    @Column(name = "payable_distance_km", nullable = false, precision = 8, scale = 2)
+    private BigDecimal payableDistanceKm;
+
+    @Column(name = "base_amount", nullable = false, precision = 12, scale = 0)
+    private BigDecimal baseAmount;
+
+    @Column(name = "distance_amount", nullable = false, precision = 12, scale = 0)
+    private BigDecimal distanceAmount;
+
+    @Column(name = "bonus_amount", nullable = false, precision = 12, scale = 0)
+    private BigDecimal bonusAmount;
+
+    @Column(name = "adjustment_amount", nullable = false, precision = 12, scale = 0)
+    @Builder.Default
+    private BigDecimal adjustmentAmount = BigDecimal.ZERO;
+
+    @Column(name = "net_amount", nullable = false, precision = 12, scale = 0)
     private BigDecimal netAmount;
 
-    /** Payment/settlement status of this earning record */
-    @Column(name = "payment_status", nullable = false, length = 30)
+    @Column(name = "calculation_snapshot", nullable = false, columnDefinition = "TEXT")
+    private String calculationSnapshot;
+
+    @Column(name = "status", nullable = false, length = 20)
     @Enumerated(EnumType.STRING)
     @Builder.Default
-    private EarningStatus paymentStatus = EarningStatus.PENDING;
+    private EarningStatus status = EarningStatus.PENDING;
+
+    @Column(name = "settlement_id")
+    private UUID settlementId;
+
+    @Column(name = "completed_at", nullable = false)
+    private Instant completedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default

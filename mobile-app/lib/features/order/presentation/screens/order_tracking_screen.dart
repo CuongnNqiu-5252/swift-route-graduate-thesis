@@ -57,7 +57,8 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
               pickupLocation: pickupPoint,
               deliveryLocation: deliveryPoint,
               driverLocation: trackingState.driverPosition,
-              routePoints: trackingState.routePoints,
+              routePoints: trackingState.isDelivered ? const [] : trackingState.routePoints,
+              isDelivered: trackingState.isDelivered,
             ),
           ),
 

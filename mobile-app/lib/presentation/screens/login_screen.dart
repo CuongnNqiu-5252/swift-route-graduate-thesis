@@ -85,8 +85,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
     if (success && mounted) {
       final user = ref.read(currentUserProvider);
-      final route = user?.role == 'DRIVER' ? '/driver/home' : '/customer/home';
-      Navigator.of(context).pushReplacementNamed(route);
+      if (user?.role == 'DRIVER') {
+        Navigator.of(context).pushReplacementNamed('/driver/home');
+      }
     }
   }
 
@@ -154,6 +155,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   onForgotPassword: () =>
                       Navigator.pushNamed(context, '/forgot-password'),
                   onRegister: () => Navigator.pushNamed(context, '/register'),
+                  onActivateDriver: () => Navigator.pushNamed(context, '/driver/activate'),
                 ),
               ),
             ),
@@ -506,6 +508,7 @@ class _FormCard extends StatelessWidget {
     required this.onLogin,
     required this.onForgotPassword,
     required this.onRegister,
+    required this.onActivateDriver,
   });
 
   final GlobalKey<FormState> formKey;
@@ -519,6 +522,7 @@ class _FormCard extends StatelessWidget {
   final VoidCallback onLogin;
   final VoidCallback onForgotPassword;
   final VoidCallback onRegister;
+  final VoidCallback onActivateDriver;
 
   @override
   Widget build(BuildContext context) {
@@ -654,7 +658,16 @@ class _FormCard extends StatelessWidget {
                 isLoading: isLoading,
                 onTap: onLogin,
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 12),
+
+              Center(
+                child: TextButton.icon(
+                  onPressed: isLoading ? null : onActivateDriver,
+                  icon: const Icon(Icons.badge_outlined, size: 18),
+                  label: const Text('Kích hoạt tài khoản tài xế bằng token'),
+                ),
+              ),
+              const SizedBox(height: 10),
 
               // OR divider
               const _OrDivider(),

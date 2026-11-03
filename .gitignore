@@ -30,3 +30,10 @@
 # Tooling
 .taste-skill/
 skills-lock.json
+
+
+# Local agent skills & tooling
+.agents/
+tasks/
+data/
+*.db

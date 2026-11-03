@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_detail_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 /// Spotlight card featuring the driver's current or immediate next stop (D02 / D06)
@@ -17,51 +17,14 @@ class NextStopSpotlightCard extends ConsumerStatefulWidget {
 }
 
 class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
-  var _isUpdating = false;
-
-  Future<void> _advanceOrder(OrderModel order) async {
-    final nextStatus = order.status == OrderStatus.planned
-        ? OrderStatus.inTransit
-        : OrderStatus.delivered;
-
-    setState(() => _isUpdating = true);
-    try {
-      await ref.read(driverOrdersProvider.notifier).updateOrderStatus(
-            orderId: order.id,
-            nextStatus: nextStatus,
-          );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              nextStatus == OrderStatus.inTransit
-                  ? 'Bắt đầu di chuyển tới điểm giao #${order.id.substring(0, 8)}'
-                  : 'Đã hoàn thành giao đơn #${order.id.substring(0, 8)}',
-            ),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể cập nhật trạng thái đơn. Vui lòng thử lại.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
-    }
-  }
+  Future<void> _advanceOrder(OrderModel order) => DriverStopDetailSheet.show(context, order: order, sequenceNumber: 1);
 
   @override
   Widget build(BuildContext context) {
     // 1. Prioritize active IN_TRANSIT order
-    final inTransit = widget.orders.where((o) => o.status == OrderStatus.inTransit).firstOrNull;
+    final inTransit = widget.orders.where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery).firstOrNull;
     // 2. Otherwise next PLANNED order
-    final nextPlanned = widget.orders.where((o) => o.status == OrderStatus.planned).firstOrNull;
+    final nextPlanned = widget.orders.where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.assigned || o.deliveryTaskStatus == DeliveryTaskStatus.accepted || o.deliveryTaskStatus == DeliveryTaskStatus.arrived || o.deliveryTaskStatus == DeliveryTaskStatus.pickedUp).firstOrNull;
 
     final targetOrder = inTransit ?? nextPlanned;
 
@@ -96,11 +59,11 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
       );
     }
 
-    final isInTransit = targetOrder.status == OrderStatus.inTransit;
+    final isInTransit = targetOrder.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery;
     final badgeColor = isInTransit ? AppColors.accent : AppColors.primary;
-    final badgeText = isInTransit ? 'ĐANG GIAO ĐƠN NÀY' : 'ĐIỂM GIAO KẾ TIẾP';
-    final actionLabel = isInTransit ? 'Xác nhận Đã giao' : 'Bắt đầu giao đơn';
-    final actionIcon = isInTransit ? Icons.check_circle_rounded : Icons.two_wheeler_rounded;
+    final badgeText = (targetOrder.deliveryTaskStatus ?? DeliveryTaskStatus.assigned).displayName.toUpperCase();
+    const actionLabel = 'Mở thao tác';
+    const actionIcon = Icons.arrow_forward_rounded;
 
     return Container(
       decoration: BoxDecoration(
@@ -248,14 +211,8 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
                     Expanded(
                       flex: 6,
                       child: FilledButton.icon(
-                        onPressed: _isUpdating ? null : () => _advanceOrder(targetOrder),
-                        icon: _isUpdating
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : Icon(actionIcon, size: 16),
+                        onPressed: () => _advanceOrder(targetOrder),
+                        icon: const Icon(actionIcon, size: 16),
                         label: Text(actionLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
                         style: FilledButton.styleFrom(
                           backgroundColor: badgeColor,
@@ -306,4 +263,3 @@ class _InfoChip extends StatelessWidget {
     );
   }
 }
-

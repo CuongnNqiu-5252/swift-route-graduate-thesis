@@ -9,9 +9,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from api.tenant_security import require_tenant_access
 
 from api.schemas import (
+    AutoDispatchEvaluationResult,
+    AutoDispatchStatusResponse,
     BatchOptimizationRequest,
     BatchOptimizationResponse,
     DispatchPlanResponse,
@@ -21,12 +24,13 @@ from api.schemas import (
     WhatIfOptimizationRequest,
     WhatIfOptimizationResponse,
 )
+from service.auto_dispatcher import auto_dispatcher
 from service.optimizer_service import simulate_what_if, solve_batch
 from service.order_store import order_store
 from service.plan_store import plan_store
 from service.shift_optimizer import dispatch_plan as run_dispatch, optimize_shift
 
-router = APIRouter(tags=["Optimization & Planning"])
+router = APIRouter(tags=["Optimization & Planning"], dependencies=[Depends(require_tenant_access)])
 
 
 @router.get("/health", summary="Health check")
@@ -35,7 +39,7 @@ def health():
     return {
         "status": "ok",
         "service": "SwiftRoute Routing Engine",
-        "algorithms": ["held_karp", "nearest_neighbor", "genetic", "auto"],
+        "algorithms": ["ortools", "auto"],
     }
 
 
@@ -50,10 +54,7 @@ def optimize_batch(request: BatchOptimizationRequest) -> BatchOptimizationRespon
     Returns the optimised visitation order with cumulative distances and ETA.
 
     Algorithm selection:
-    - auto: uses Held-Karp for n <= 14 stops, Nearest Neighbor for larger sets.
-    - held_karp: exact O(n² · 2^n) DP solver — best for n <= 14.
-    - nearest_neighbor: O(n²) greedy heuristic — fast approximation.
-    - genetic: evolutionary algorithm — good approximation for large n.
+    - auto / ortools: Google OR-Tools exact/metaheuristic solver (Path Cheapest Arc + Guided Local Search).
     """
     return solve_batch(request)
 
@@ -203,3 +204,34 @@ def seed_demo_orders(
         seeded.append(p_order)
 
     return seeded
+
+
+@router.get(
+    "/dispatch/auto/status",
+    response_model=AutoDispatchStatusResponse,
+    summary="Get status of automated dispatch queues and tenant locks",
+)
+async def get_auto_dispatch_status() -> AutoDispatchStatusResponse:
+    """Returns diagnostic information on pending order queues, age, and lock states."""
+    return await auto_dispatcher.get_system_status()
+
+
+@router.post(
+    "/dispatch/auto/trigger/{tenant_id}",
+    response_model=AutoDispatchEvaluationResult,
+    summary="Force-trigger automated dispatch evaluation for a specific tenant",
+)
+async def force_trigger_auto_dispatch(tenant_id: str) -> AutoDispatchEvaluationResult:
+    """Manually forces an evaluation of dispatch rules for the tenant."""
+    return await auto_dispatcher.evaluate_tenant(tenant_id, trigger_reason="MANUAL_API_TRIGGER", force=True)
+
+
+@router.post(
+    "/dispatch/auto/evaluate",
+    response_model=List[AutoDispatchEvaluationResult],
+    summary="Trigger periodic automated dispatch check across all tenants",
+)
+async def trigger_periodic_evaluation() -> List[AutoDispatchEvaluationResult]:
+    """Runs rule evaluation on all tenants with pending paid orders."""
+    return await auto_dispatcher.evaluate_all_tenants()
+
