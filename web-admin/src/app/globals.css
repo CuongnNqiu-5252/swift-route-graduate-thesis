@@ -22,3 +22,16 @@ body {
 .num {
   font-variant-numeric: tabular-nums;
 }
+
+::selection { background: #dbeafe; color: #172554; }
+:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+* { scrollbar-width: thin; scrollbar-color: #b8c1cc transparent; }
+.workspace-sheet { scrollbar-gutter: stable; }
+.workspace-sheet h1 { letter-spacing: -0.025em; text-wrap: balance; }
+.workspace-sheet table { font-variant-numeric: tabular-nums; }
+.workspace-sheet thead { background: transparent; }
+.workspace-sheet th { text-transform: none; letter-spacing: normal; font-weight: 500; }
+.workspace-sheet input:not([type="checkbox"]):not([type="radio"]), .workspace-sheet select, .workspace-sheet textarea { min-height: 44px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

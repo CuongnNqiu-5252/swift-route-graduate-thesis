@@ -92,9 +92,8 @@ export function DispatchPanel({
             const isSelected = selectedOrders.some((o) => o.id === order.id);
             const isAssigned = order.status === 'PLANNED';
             return (
-              <div
+              <label
                 key={order.id}
-                onClick={() => onToggleOrder(order)}
                 className={`group flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-all ${
                   isSelected
                     ? 'border-blue-500 bg-blue-50/50 shadow-sm'
@@ -104,7 +103,8 @@ export function DispatchPanel({
                 <input
                   type="checkbox"
                   checked={isSelected}
-                  onChange={() => {}} // handled by parent onClick
+                  onChange={() => onToggleOrder(order)}
+                  aria-label={`Chọn đơn ${order.order_code}`}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <div className="flex-1 min-w-0">
@@ -142,7 +142,7 @@ export function DispatchPanel({
                     )}
                   </div>
                 </div>
-              </div>
+              </label>
             );
           })
         )}

@@ -7,7 +7,7 @@ import { OrderStatus } from '@/domain/entities/order.entity';
 import { OrderTable } from '@/components/orders/order-table';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { RefreshCw, Route, Package, Clock, Truck, CheckCircle2, Plus } from 'lucide-react';
+import { RefreshCw, Route, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { OrderCreatePanel } from '@/components/orders/order-create-panel';
 import OrderTrackingMap from '@/components/orders/order-tracking-map';
@@ -15,8 +15,8 @@ import { useOrderLiveTracking } from '@/application/hooks/use-order-live-trackin
 
 const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
   { label: 'Tất cả' },
-  { label: 'Chờ điều phối (PAID)', value: 'PAID' },
-  { label: 'Đang giao (IN_TRANSIT)', value: 'IN_TRANSIT' },
+  { label: 'Chờ điều phối', value: 'PAID' },
+  { label: 'Đang giao', value: 'IN_TRANSIT' },
   { label: 'Đã hoàn thành', value: 'DELIVERED' },
   { label: 'Sự cố / Thất bại', value: 'FAILED' },
   { label: 'Đã hủy', value: 'CANCELLED' },
@@ -47,9 +47,6 @@ export default function OrdersPage() {
     }
   };
 
-  const paidCount = orders.filter((o) => o.status === 'PAID').length;
-  const inTransitCount = orders.filter((o) => o.status === 'IN_TRANSIT').length;
-  const deliveredCount = orders.filter((o) => o.status === 'DELIVERED').length;
 
   return (
     <div className="space-y-6">
@@ -61,14 +58,14 @@ export default function OrdersPage() {
             Theo dõi, cập nhật trạng thái và điều phối các đơn hàng vận chuyển trong hệ thống
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={()=>setShowCreate(value=>!value)}><Plus size={15}/>Tạo đơn</Button>
           <Button variant="outline" size="sm" onClick={() => refetch()} isLoading={isLoading}>
             <RefreshCw size={14} /> Làm mới
           </Button>
           <Link href="/dispatch">
-            <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
-              <Route size={15} /> Sang Màn hình Điều phối
+            <Button size="sm" variant="outline">
+              <Route size={15} /> Điều phối
             </Button>
           </Link>
         </div>
@@ -78,61 +75,13 @@ export default function OrdersPage() {
       )}
 
       {selected && <section className="grid overflow-hidden border-y border-slate-200 lg:grid-cols-[0.65fr_1.35fr]">
-        <div className="space-y-4 bg-slate-50 p-5"><div><h2 className="font-bold text-slate-950">Theo dõi vận hành</h2><p className="text-sm text-slate-600">GPS được đẩy trực tiếp từ thiết bị tài xế qua luồng sự kiện.</p></div><select value={selected.id} onChange={e=>setSelectedId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">{orders.map(o=><option key={o.id} value={o.id}>{o.order_code} · {o.status}</option>)}</select><div className="text-sm"><p className="font-semibold text-slate-900">{selected.customer_name || 'Người nhận'}</p><p className="mt-1 text-slate-600">{selected.pickup_address}</p><p className="my-1 text-slate-400">↓</p><p className="text-slate-600">{selected.delivery_address}</p></div><TrackingSignal signal={tracking.signal} lastUpdate={tracking.lastUpdate} accuracy={tracking.accuracy} assigned={Boolean(selected.assigned_driver_id)} /></div>
+        <div className="space-y-4 bg-slate-50 p-5"><div><h2 className="font-bold text-slate-950">Theo dõi vận hành</h2><p className="text-sm text-slate-600">Vị trí cập nhật khi tài xế đang chia sẻ GPS.</p></div><select aria-label="Đơn hàng cần theo dõi" value={selected.id} onChange={e=>setSelectedId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">{orders.map(o=><option key={o.id} value={o.id}>{o.order_code} · {o.status}</option>)}</select><div className="text-sm"><p className="font-semibold text-slate-900">{selected.customer_name || 'Người nhận'}</p><p className="mt-1 text-slate-600">{selected.pickup_address}</p><p className="my-1 text-slate-400">↓</p><p className="text-slate-600">{selected.delivery_address}</p></div><TrackingSignal signal={tracking.signal} lastUpdate={tracking.lastUpdate} accuracy={tracking.accuracy} assigned={Boolean(selected.assigned_driver_id)} /></div>
         <OrderTrackingMap pickup={[selected.pickup_lat,selected.pickup_lng]} delivery={[selected.delivery_lat,selected.delivery_lng]} driver={tracking.position}/>
       </section>}
 
-      {/* Mini Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
-              <Package size={20} />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Tổng số đơn</p>
-              <p className="text-xl font-bold text-gray-900">{orders.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
-              <Clock size={20} />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Chờ điều phối</p>
-              <p className="text-xl font-bold text-amber-600">{paidCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
-              <Truck size={20} />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Đang vận chuyển</p>
-              <p className="text-xl font-bold text-indigo-600">{inTransitCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
-              <CheckCircle2 size={20} />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Đã giao thành công</p>
-              <p className="text-xl font-bold text-emerald-600">{deliveredCount}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
+      <p role="status" className="text-sm text-slate-600">
+        {isLoading ? 'Đang tải đơn hàng…' : `Hiển thị ${orders.length} đơn trong bộ lọc hiện tại`}
+      </p>
       {/* Filter Tabs */}
       <div className="flex items-center gap-2 border-b border-gray-200 pb-2 overflow-x-auto">
         {STATUS_TABS.map((tab) => {
@@ -141,10 +90,10 @@ export default function OrdersPage() {
             <button
               key={tab.label}
               onClick={() => setActiveTab(tab.value)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+              className={`min-h-11 shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  ? 'border-slate-900 text-slate-950'
+                  : 'border-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900'
               }`}
             >
               {tab.label}

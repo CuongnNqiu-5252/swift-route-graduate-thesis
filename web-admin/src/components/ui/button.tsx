@@ -8,7 +8,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles = {
-  default: 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300',
+  default: 'bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-400',
   outline: 'border border-gray-300 text-gray-700 hover:bg-gray-50',
   ghost: 'text-gray-700 hover:bg-gray-100',
   destructive: 'bg-red-600 text-white hover:bg-red-700',
@@ -26,6 +26,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         disabled={disabled || isLoading}
+        aria-busy={isLoading || undefined}
         className={cn(
           'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50',
           variantStyles[variant],

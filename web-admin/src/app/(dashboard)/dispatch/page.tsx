@@ -10,7 +10,7 @@ import { AlgorithmMetricsBar } from '@/components/dispatch/algorithm-metrics-bar
 import { DriverAssignmentModal } from '@/components/dispatch/driver-assignment-modal';
 import { WhatIfComparison } from '@/components/dispatch/what-if-comparison';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, Sparkles, AlertCircle, CheckCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { routingRepository } from '@/infrastructure/repositories/routing.repository';
 
@@ -113,14 +113,11 @@ export default function DispatchPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-              Trung tâm Điều phối Tuyến đường
+              Điều phối & bản đồ
             </h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
-              <Sparkles size={12} /> Held-Karp DP
-            </span>
           </div>
           <p className="text-sm text-gray-500">
-            Tối ưu hoá hành trình giao hàng đa điểm dừng và gán lộ trình tự động cho tài xế
+            Chọn đơn, tính tuyến đường và phân công tài xế.
           </p>
         </div>
 
@@ -174,7 +171,7 @@ export default function DispatchPage() {
       {/* Main Two-Column Dispatch Workspace */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 min-h-[600px]">
         {/* Left Column: Order Selection & Algorithm Controls (5 cols) */}
-        <div className="lg:col-span-5 h-[620px]">
+        <div className="lg:col-span-4 h-[520px] lg:h-[660px]">
           <DispatchPanel
             orders={dispatchableOrders}
             selectedOrders={selectedOrders}
@@ -191,7 +188,7 @@ export default function DispatchPage() {
         </div>
 
         {/* Right Column: Interactive Map Visualization (7 cols) */}
-        <div className="lg:col-span-7 h-[620px] flex flex-col">
+        <div className="lg:col-span-8 h-[420px] lg:h-[660px] flex flex-col">
           <div className="flex-1 overflow-hidden rounded-lg border border-gray-200 bg-white">
             <RouteMap
               depot={depot}

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { MetricStrip } from '@/components/ui/metric-strip';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useOperationsQueue } from '@/application/hooks/use-operations-queue';
@@ -11,13 +12,8 @@ import { Modal } from '@/components/ui/modal';
 import { OrderStatusBadge } from '@/components/orders/order-status-badge';
 import { formatVNDate } from '@/lib/utils';
 import {
-  Package,
   Route,
-  Truck,
-  CheckCircle2,
-  Clock,
   ArrowRight,
-  TrendingUp,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -58,86 +54,27 @@ export default function DashboardOverviewPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Tổng quan Vận hành SwiftRoute
+            Tổng quan vận hành
           </h1>
           <p className="text-sm text-gray-500">
-            Hệ thống giám sát thời gian thực & trung tâm điều phối chặng cuối (Last-mile Delivery)
+            Theo dõi đơn đang chạy và xử lý công việc cần ưu tiên.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <Link href="/dispatch">
-            <Button className="bg-blue-600 hover:bg-blue-700 font-semibold shadow-sm">
-              <Route size={16} /> Bắt đầu Điều phối Ngay
+            <Button>
+              <Route size={16} /> Mở điều phối
             </Button>
           </Link>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Đơn trong luồng vận hành
-              </p>
-              <p className="mt-1 text-2xl font-bold text-gray-900">{operationalOrderCount}</p>
-              <p className="mt-1 flex items-center text-xs text-gray-500">
-                <TrendingUp size={12} className="mr-1" /> Theo tenant hiện tại
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-              <Package size={24} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Chờ gom & điều phối
-              </p>
-              <p className="mt-1 text-2xl font-bold text-amber-600">{paidOrders.length}</p>
-              <p className="mt-1 text-xs text-gray-500">Sẵn sàng phân công tài xế</p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-              <Clock size={24} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Đang trên đường giao
-              </p>
-              <p className="mt-1 text-2xl font-bold text-indigo-600">{inTransitOrders.length}</p>
-              <p className="mt-1 text-xs text-gray-500">Theo dõi định vị GPS</p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-              <Truck size={24} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardContent className="flex items-center justify-between p-5">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Tài xế sẵn sàng
-              </p>
-              <p className="mt-1 text-2xl font-bold text-emerald-600">{availableDrivers.length}</p>
-              <p className="mt-1 text-xs text-gray-500">Sẵn sàng nhận tuyến</p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-              <CheckCircle2 size={24} />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
+      <MetricStrip loading={isLoadingOrders} metrics={[
+        { label: 'Đơn trong vận hành', value: operationalOrderCount, href: '/orders' },
+        { label: 'Chờ điều phối', value: paidOrders.length, href: '/dispatch' },
+        { label: 'Đang giao', value: inTransitOrders.length, href: '/orders' },
+        { label: 'Tài xế sẵn sàng', value: availableDrivers.length, href: '/drivers' },
+      ]} />
       {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
 
       <Card className="shadow-sm">
