@@ -57,7 +57,8 @@ import lombok.extern.slf4j.Slf4j;
 public class ExceptionOperationsService {
 
     private static final Set<String> OPERATOR_ROLES = Set.of(
-            "ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "SYSTEM_ADMIN", "WAREHOUSE_STAFF");
+            "ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "SYSTEM_ADMIN", "WAREHOUSE_STAFF",
+            "OWNER", "TENANT_OWNER", "MANAGER", "STAFF");
 
     private static final List<String> ACTIVE_RETURN_STATUSES = List.of(
             "REQUESTED", "APPROVED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT");
