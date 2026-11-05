@@ -211,14 +211,16 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
           children: [
             Row(
               children: [
-                StatusPill(
-                  label:
-                      'Trạm lấy hàng · ${depotGroup.length} đơn ($totalPackages kiện)',
-                  foreground: AppColors.warning,
-                  background: AppColors.warningSoft,
-                  icon: Icons.warehouse_rounded,
+                Expanded(
+                  child: StatusPill(
+                    label:
+                        'Trạm lấy hàng · ${depotGroup.length} đơn ($totalPackages kiện)',
+                    foreground: AppColors.warning,
+                    background: AppColors.warningSoft,
+                    icon: Icons.warehouse_rounded,
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 PhoneCallButton(phone: firstPickup.senderPhone, compact: true),
               ],
             ),
@@ -301,20 +303,25 @@ class _ActiveDeliverySpotlight extends StatelessWidget {
         children: [
           Row(
             children: [
-              StatusPill(
-                label: isReturn
-                    ? 'Hoàn hàng về kho'
-                    : 'Đang giao · ${order.displayCode}',
-                foreground: isReturn ? AppColors.error : AppColors.primary,
-                background: isReturn
-                    ? AppColors.errorSoft
-                    : AppColors.primarySoft,
-                icon: isReturn
-                    ? Icons.assignment_return_rounded
-                    : Icons.two_wheeler_rounded,
+              Flexible(
+                child: StatusPill(
+                  label: isReturn
+                      ? 'Hoàn hàng về kho'
+                      : 'Đang giao · ${order.displayCode}',
+                  foreground: isReturn ? AppColors.error : AppColors.primary,
+                  background: isReturn
+                      ? AppColors.errorSoft
+                      : AppColors.primarySoft,
+                  icon: isReturn
+                      ? Icons.assignment_return_rounded
+                      : Icons.two_wheeler_rounded,
+                ),
               ),
               const SizedBox(width: 8),
-              if (!isReturn) CodBadge(amount: order.codAmount),
+              if (!isReturn) ...[
+                CodBadge(amount: order.codAmount),
+                const SizedBox(width: 8),
+              ],
               const Spacer(),
               PhoneCallButton(
                 phone: isReturn ? order.senderPhone : order.recipientPhone,
@@ -347,23 +354,30 @@ class _ActiveDeliverySpotlight extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 4,
             children: [
-              const Icon(
-                Icons.schedule_rounded,
-                size: 15,
-                color: AppColors.textSecondary,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.schedule_rounded,
+                    size: 15,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Khung giờ: ${AppFormatters.timeWindow(order.timeWindowStart, order.timeWindowEnd)}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 5),
-              Text(
-                'Khung giờ: ${AppFormatters.timeWindow(order.timeWindowStart, order.timeWindowEnd)}',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(width: 12),
               Text(
                 '${order.packageCount} kiện · ${order.weightKg.toStringAsFixed(1)} kg',
                 style: const TextStyle(
