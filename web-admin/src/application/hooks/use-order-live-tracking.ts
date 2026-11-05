@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { refreshAccessToken } from '@/lib/api';
 
 export type TrackingSignal = 'waiting' | 'live' | 'stale' | 'reconnecting';
@@ -35,14 +34,6 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
     if (!orderId) return;
 
     let disposed = false;
-    if (driverUserId) {
-      void orderRepository.getDriverPosition(driverUserId).then((driver) => {
-        if (!disposed && driver.currentLat != null && driver.currentLng != null) {
-          setPosition([driver.currentLat, driver.currentLng]);
-        }
-      }).catch(() => undefined);
-    }
-
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
     const controller = new AbortController();
     const onEvent = (eventName: string, data: string) => {

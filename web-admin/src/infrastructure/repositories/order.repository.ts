@@ -109,18 +109,6 @@ export const orderRepository = {
   async createOrder(payload: CreateOrderPayload): Promise<Order> {
     return mapOrder((await api.post<unknown>('/orders', toCreateOrderRequest(payload))).data);
   },
-  async getDriverPosition(userId: string): Promise<{currentLat?:number; currentLng?:number; fullName?:string}> {
-    const response = await api.get<{ data?: Record<string, unknown> }>(`/drivers/user/${userId}/public`);
-    const raw = (response.data?.data ?? response.data) as Record<string, unknown> | undefined;
-    const lat = raw?.currentLat ?? raw?.current_lat;
-    const lng = raw?.currentLng ?? raw?.current_lng;
-    const name = raw?.fullName ?? raw?.full_name;
-    return {
-      currentLat: typeof lat === 'number' ? lat : undefined,
-      currentLng: typeof lng === 'number' ? lng : undefined,
-      fullName: typeof name === 'string' ? name : undefined,
-    };
-  },
   async getOperationsQueue(): Promise<OperationsQueue> {
     const response = await api.get<unknown>('/orders/operations/queue');
     const responseBody = response.data as { data?: unknown };

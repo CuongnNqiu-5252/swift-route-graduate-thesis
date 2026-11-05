@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { refreshAccessToken } from '@/lib/api';
 import type { TrackingSignal } from './use-order-live-tracking';
 
@@ -15,11 +14,12 @@ type LocationEvent = {
   recorded_at: string;
 };
 
-export function usePlanLiveTracking(planId?: string, driverUserId?: string | null) {
+export function usePlanLiveTracking(planId?: string, driverUserId?: string | null, driverProfileId?: string) {
   const [position, setPosition] = useState<[number, number]>();
   const [bearing, setBearing] = useState<number>();
   const [stepProgress, setStepProgress] = useState<{ step: number; total: number } | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>();
   const [signal, setSignal] = useState<TrackingSignal>('waiting');
 
@@ -28,19 +28,15 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
     setBearing(undefined);
     setStepProgress(null);
     setIsSimulating(false);
+    setIsPaused(false);
     setLastUpdate(undefined);
     setSignal('waiting');
-    if (!planId) return;
+    if (!planId && !driverProfileId) return;
+    const streamPath = driverProfileId
+      ? `/orders/dispatch/drivers/${driverProfileId}/tracking/stream`
+      : `/orders/dispatch/plans/${planId}/tracking/stream`;
 
     let disposed = false;
-    if (driverUserId) {
-      void orderRepository.getDriverPosition(driverUserId).then((driver) => {
-        if (!disposed && driver.currentLat != null && driver.currentLng != null) {
-          setPosition([driver.currentLat, driver.currentLng]);
-        }
-      }).catch(() => undefined);
-    }
-
     const controller = new AbortController();
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
@@ -48,14 +44,14 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
       while (!disposed) {
         try {
           let token = localStorage.getItem('access_token');
-          let response = await fetch(`${baseUrl}/orders/dispatch/plans/${planId}/tracking/stream`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          let response = await fetch(`${baseUrl}${streamPath}`, {
+            headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'X-Tenant-Id': localStorage.getItem('tenant_id') || '' },
             signal: controller.signal,
           });
           if (response.status === 401) {
             token = await refreshAccessToken();
-            response = await fetch(`${baseUrl}/orders/dispatch/plans/${planId}/tracking/stream`, {
-              headers: { Authorization: `Bearer ${token}` },
+            response = await fetch(`${baseUrl}${streamPath}`, {
+              headers: { Authorization: `Bearer ${token}`, 'X-Tenant-Id': localStorage.getItem('tenant_id') || '' },
               signal: controller.signal,
             });
           }
@@ -78,8 +74,19 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
               }
               if (!data.length) continue;
               if (eventName === 'connected') {
-                const payload = JSON.parse(data.join('\n')) as { simulating?: boolean };
+                const payload = JSON.parse(data.join('\n')) as { simulating?: boolean; paused?: boolean };
                 if (typeof payload.simulating === 'boolean') setIsSimulating(payload.simulating);
+                setIsPaused(payload.paused === true);
+                continue;
+              }
+              if (eventName === 'status_update') {
+                const update = JSON.parse(data.join('\n')) as { status?: string };
+                if (update.status === 'SIMULATION_PAUSED') setIsPaused(true);
+                if (update.status === 'SIMULATION_RESUMED') setIsPaused(false);
+                if (update.status === 'SIMULATION_STOPPED') {
+                  setIsPaused(false);
+                  setIsSimulating(false);
+                }
                 continue;
               }
               if (eventName !== 'location_update' && eventName !== 'location_snapshot') continue;
@@ -115,7 +122,7 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
       controller.abort();
       window.clearInterval(freshnessTimer);
     };
-  }, [driverUserId, planId]);
+  }, [driverUserId, planId, driverProfileId]);
 
-  return { position, bearing, stepProgress, isSimulating, lastUpdate, signal };
+  return { position, bearing, stepProgress, isSimulating, isPaused, lastUpdate, signal };
 }
