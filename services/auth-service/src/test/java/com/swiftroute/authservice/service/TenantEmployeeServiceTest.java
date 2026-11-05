@@ -54,6 +54,15 @@ class TenantEmployeeServiceTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    @Mock
+    private DriverOnboardingClient driverOnboarding;
+
+    @Mock
+    private VerificationCipher invitationCipher;
+
+    @Mock
+    private TenantDetailsClient tenantDetails;
+
     @InjectMocks
     private TenantEmployeeService tenantEmployeeService;
 
@@ -79,6 +88,11 @@ class TenantEmployeeServiceTest {
                 .membershipRole(TenantMembershipRole.OWNER)
                 .status(TenantMembershipStatus.ACTIVE)
                 .build();
+
+        org.mockito.Mockito.lenient().when(tenantDetails.businessName(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("SwiftRoute Logistics");
+        org.mockito.Mockito.lenient().when(invitationCipher.encrypt(org.mockito.ArgumentMatchers.any()))
+                .thenReturn("encrypted-link");
     }
 
     @Test

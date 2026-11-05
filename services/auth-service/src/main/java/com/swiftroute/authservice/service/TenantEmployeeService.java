@@ -203,19 +203,54 @@ public class TenantEmployeeService {
         String email = invitation.getEmail();
         User user = userRepository.findByEmail(email).orElse(null);
 
-        if (user == null || !user.isEmailVerified()) {
-            // Registration and email verification must finish before explicit acceptance.
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        } else {
-            var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-            if (authentication == null || !authentication.isAuthenticated()
-                    || !user.getId().toString().equals(authentication.getName())) {
+        Role targetRole = mapUserRole(invitation.getRole());
+
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean isAuthenticated = authentication != null && authentication.isAuthenticated()
+                && !"anonymousUser".equals(authentication.getName());
+
+        if (isAuthenticated) {
+            // Authenticated browser flow: user must match the invitation account
+            if (user == null || !user.getId().toString().equals(authentication.getName())) {
                 throw new AppException(ErrorCode.ACCESS_DENIED);
             }
             if (request.fullName() != null && !request.fullName().isBlank()) {
                 user.setFullName(request.fullName().trim());
             }
+            if (invitation.getRole() == TenantMembershipRole.DRIVER && user.getRole() != Role.DRIVER) {
+                user.setRole(Role.DRIVER);
+            }
             user = userRepository.save(user);
+        } else {
+            // Direct / mobile activation flow: raw token proves possession of the invited link
+            if (user == null) {
+                if (request.password() == null || request.password().length() < 6) {
+                    throw new AppException(ErrorCode.VALIDATION_ERROR);
+                }
+                user = User.builder()
+                        .email(email)
+                        .passwordHash(passwordEncoder.encode(request.password()))
+                        .fullName(request.fullName() != null && !request.fullName().isBlank() ? request.fullName().trim() : "Member")
+                        .role(targetRole)
+                        .emailVerified(true)
+                        .status("ACTIVE")
+                        .build();
+                user = userRepository.save(user);
+                log.info("Created new user id={} from accepted invitation", user.getId());
+            } else {
+                if (request.password() != null && request.password().length() >= 6) {
+                    user.setPasswordHash(passwordEncoder.encode(request.password()));
+                }
+                if (request.fullName() != null && !request.fullName().isBlank()) {
+                    user.setFullName(request.fullName().trim());
+                }
+                if (invitation.getRole() == TenantMembershipRole.DRIVER && user.getRole() != Role.DRIVER) {
+                    user.setRole(Role.DRIVER);
+                }
+                user.setEmailVerified(true);
+                user = userRepository.save(user);
+                log.info("Activated existing user id={} from accepted invitation", user.getId());
+            }
         }
 
         final User finalUser = user;
