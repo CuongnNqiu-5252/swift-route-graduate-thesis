@@ -77,6 +77,8 @@ class CodBadge extends StatelessWidget {
         ),
         child: Text(
           'Không thu COD',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: large ? 12.5 : 11.5,
             fontWeight: FontWeight.w600,
@@ -105,12 +107,16 @@ class CodBadge extends StatelessWidget {
             color: AppColors.warning,
           ),
           const SizedBox(width: 5),
-          Text(
-            'Thu COD ${AppFormatters.currency(amount)}',
-            style: AppTheme.numStyle(
-              fontSize: large ? 13.5 : 12,
-              fontWeight: FontWeight.w800,
-              color: AppColors.warning,
+          Flexible(
+            child: Text(
+              'Thu COD ${AppFormatters.currency(amount)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.numStyle(
+                fontSize: large ? 13.5 : 12,
+                fontWeight: FontWeight.w800,
+                color: AppColors.warning,
+              ),
             ),
           ),
         ],

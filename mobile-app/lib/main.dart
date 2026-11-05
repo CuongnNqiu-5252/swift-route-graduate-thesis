@@ -1,5 +1,7 @@
 // main.dart
 
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,17 +16,26 @@ import 'package:swiftroute_app/presentation/screens/login_screen.dart';
 import 'package:swiftroute_app/presentation/screens/forgot_password_screen.dart';
 import 'package:swiftroute_app/presentation/screens/register_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  GoogleFonts.config.allowRuntimeFetching = true;
+  runApp(const ProviderScope(child: SwiftRouteApp()));
+
+  // Firebase is an optional integration for the driver app at the moment.
+  // It must never block the first Flutter frame, especially on web when the
+  // Firebase bootstrap request is unavailable or slow.
+  unawaited(_initializeFirebase());
+}
+
+Future<void> _initializeFirebase() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
-    );
-  } catch (e) {
+    ).timeout(const Duration(seconds: 10));
+  } catch (e, stackTrace) {
     debugPrint('Firebase initialization ignored/failed: $e');
+    debugPrintStack(stackTrace: stackTrace);
   }
-  GoogleFonts.config.allowRuntimeFetching = true;
-  runApp(const ProviderScope(child: SwiftRouteApp()));
 }
 
 class SwiftRouteApp extends ConsumerWidget {

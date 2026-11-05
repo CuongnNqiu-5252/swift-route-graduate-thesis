@@ -302,27 +302,32 @@ class _ActiveDeliverySpotlight extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Flexible(
-                child: StatusPill(
-                  label: isReturn
-                      ? 'Hoàn hàng về kho'
-                      : 'Đang giao · ${order.displayCode}',
-                  foreground: isReturn ? AppColors.error : AppColors.primary,
-                  background: isReturn
-                      ? AppColors.errorSoft
-                      : AppColors.primarySoft,
-                  icon: isReturn
-                      ? Icons.assignment_return_rounded
-                      : Icons.two_wheeler_rounded,
+              Expanded(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    StatusPill(
+                      label: isReturn
+                          ? 'Hoàn hàng về kho'
+                          : 'Đang giao · ${order.displayCode}',
+                      foreground:
+                          isReturn ? AppColors.error : AppColors.primary,
+                      background: isReturn
+                          ? AppColors.errorSoft
+                          : AppColors.primarySoft,
+                      icon: isReturn
+                          ? Icons.assignment_return_rounded
+                          : Icons.two_wheeler_rounded,
+                    ),
+                    if (!isReturn) CodBadge(amount: order.codAmount),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
-              if (!isReturn) ...[
-                CodBadge(amount: order.codAmount),
-                const SizedBox(width: 8),
-              ],
-              const Spacer(),
               PhoneCallButton(
                 phone: isReturn ? order.senderPhone : order.recipientPhone,
                 compact: true,
@@ -359,24 +364,31 @@ class _ActiveDeliverySpotlight extends StatelessWidget {
             spacing: 12,
             runSpacing: 4,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.schedule_rounded,
-                    size: 15,
-                    color: AppColors.textSecondary,
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    'Khung giờ: ${AppFormatters.timeWindow(order.timeWindowStart, order.timeWindowEnd)}',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
+              Text.rich(
+                TextSpan(
+                  children: [
+                    const WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: Padding(
+                        padding: EdgeInsets.only(right: 5),
+                        child: Icon(
+                          Icons.schedule_rounded,
+                          size: 15,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    TextSpan(
+                      text:
+                          'Khung giờ: ${AppFormatters.timeWindow(order.timeWindowStart, order.timeWindowEnd)}',
+                    ),
+                  ],
+                ),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
               ),
               Text(
                 '${order.packageCount} kiện · ${order.weightKg.toStringAsFixed(1)} kg',
