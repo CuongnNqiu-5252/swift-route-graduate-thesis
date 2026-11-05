@@ -73,7 +73,10 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
       );
     } catch (e) {
       if (mounted) {
-        _showSnack('Không xác nhận được lấy hàng: $e', color: AppColors.error);
+        _showSnack(
+          'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
+          color: AppColors.error,
+        );
       }
     }
   }
@@ -115,7 +118,10 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        _showSnack('Không cập nhật được đơn hoàn: $e', color: AppColors.error);
+        _showSnack(
+          'Không cập nhật được đơn hoàn: ${AppFormatters.errorMessage(e)}',
+          color: AppColors.error,
+        );
       }
     }
   }

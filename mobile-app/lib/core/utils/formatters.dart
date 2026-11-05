@@ -1,5 +1,6 @@
 // core/utils/formatters.dart
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -43,6 +44,26 @@ abstract final class AppFormatters {
     if (id.isEmpty) return '#---';
     final clean = id.replaceAll('-', '').toUpperCase();
     return '#${clean.length > 6 ? clean.substring(0, 6) : clean}';
+  }
+
+  /// Extracts a user-friendly error message from DioException or general errors.
+  static String errorMessage(dynamic error, [String fallback = 'Đã có lỗi xảy ra']) {
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map) {
+        if (data['error'] is Map && data['error']['message'] != null) {
+          return data['error']['message'].toString();
+        }
+        if (data['message'] != null) {
+          return data['message'].toString();
+        }
+      }
+    }
+    final raw = error?.toString() ?? '';
+    if (raw.contains('Exception: ')) {
+      return raw.split('Exception: ').last.trim();
+    }
+    return raw.isNotEmpty ? raw : fallback;
   }
 
   /// Launches the native phone dialer with 1 tap.

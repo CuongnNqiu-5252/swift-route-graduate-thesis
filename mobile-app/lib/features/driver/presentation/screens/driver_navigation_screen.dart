@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/utils/location_helper.dart';
 import 'package:swiftroute_app/core/utils/polyline_decoder.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
@@ -174,7 +175,7 @@ class _DriverNavigationScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lấy hàng: $e'),
+          content: Text('Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}'),
         ),
       );
     }
@@ -245,7 +246,7 @@ class _DriverNavigationScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không cập nhật được đơn hoàn: $e'),
+          content: Text('Không cập nhật được đơn hoàn: ${AppFormatters.errorMessage(e)}'),
         ),
       );
     }

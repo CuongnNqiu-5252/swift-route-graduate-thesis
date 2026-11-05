@@ -64,7 +64,7 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lấy hàng: $e'),
+          content: Text('Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}'),
         ),
       );
     }

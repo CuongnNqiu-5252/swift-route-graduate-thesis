@@ -57,6 +57,17 @@ public class PackageCustodyService {
         }
 
         for (PackageUnit unit : units) {
+            if (unit.getCurrentCustodianId() != null && !driverId.equals(unit.getCurrentCustodianId())) {
+                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+            }
+            if (Set.of("DELIVERED", "RETURNED", "CANCELLED").contains(unit.getStatus())) {
+                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+            }
+            if (driverId.equals(unit.getCurrentCustodianId()) && "IN_CUSTODY".equals(unit.getStatus())) {
+                // Driver already holds physical custody of this package (e.g. following incident resolution / redelivery)
+                unit.setUpdatedAt(Instant.now());
+                continue;
+            }
             if (unit.getCurrentCustodianId() != null || !"PENDING_PICKUP".equals(unit.getStatus())) {
                 throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
             }

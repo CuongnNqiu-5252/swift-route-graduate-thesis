@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
@@ -48,7 +49,7 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không nhận được chuyến: $e'),
+          content: Text('Không nhận được chuyến: ${AppFormatters.errorMessage(e)}'),
         ),
       );
     } finally {
@@ -75,7 +76,7 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lấy hàng: $e'),
+          content: Text('Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}'),
         ),
       );
     }
