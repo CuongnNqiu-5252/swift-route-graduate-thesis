@@ -21,11 +21,7 @@ class DriverNotifier extends AsyncNotifier<DriverModel?> {
   @override
   Future<DriverModel?> build() async {
     // Automatically load current driver profile using token in Dio interceptor
-    try {
-      return await ref.read(driverRemoteDataSourceProvider).getMyProfile();
-    } catch (_) {
-      return null;
-    }
+    return ref.read(driverRemoteDataSourceProvider).getMyProfile();
   }
 
   /// Manually refresh current driver profile

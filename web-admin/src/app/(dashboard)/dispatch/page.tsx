@@ -386,7 +386,7 @@ export default function DispatchPage() {
       }));
     }
     return lastAssignedRoute?.stops ?? latestAssignedStops;
-  }, [lastAssignedRoute?.stops, latestAssignedStops, planStopsForMap, result?.ordered_stops, selectedOrders]);
+  }, [lastAssignedRoute?.stops, latestAssignedStops, planStopsForMap, result, selectedOrders]);
 
   const depotForMap = useMemo<DispatchDepot | null>(() => {
     if (selectedOrders.length || selectedPlan) return depot;

@@ -16,6 +16,13 @@ class DriverProfileTab extends ConsumerWidget {
     final driverState = ref.watch(driverProvider);
     final ordersState = ref.watch(driverOrdersProvider);
     final user = ref.watch(currentUserProvider);
+    final driver = driverState.valueOrNull;
+    final name = driver?.fullName.trim() ?? '';
+    final displayName = name.isNotEmpty
+        ? name
+        : (user?.name.trim().isNotEmpty == true
+              ? user!.name.trim()
+              : 'Chưa có họ tên');
 
     final orders = ordersState.valueOrNull ?? [];
     final total = orders.length;
@@ -40,6 +47,17 @@ class DriverProfileTab extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (driverState.isLoading) const LinearProgressIndicator(),
+          if (driverState.hasError)
+            ListTile(
+              leading: const Icon(Icons.error_outline, color: AppColors.error),
+              title: const Text('Không tải được hồ sơ tài xế'),
+              trailing: TextButton(
+                onPressed: () =>
+                    ref.read(driverProvider.notifier).refreshProfile(),
+                child: const Text('Thử lại'),
+              ),
+            ),
           // 1. Profile Header
           Container(
             padding: const EdgeInsets.all(20),
@@ -54,8 +72,7 @@ class DriverProfileTab extends ConsumerWidget {
                   radius: 32,
                   backgroundColor: AppColors.primary,
                   child: Text(
-                    (user?.name.isNotEmpty == true ? user!.name[0] : 'T')
-                        .toUpperCase(),
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
                     style: const TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.bold,
@@ -69,7 +86,7 @@ class DriverProfileTab extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        user?.name ?? 'Tài xế SwiftRoute',
+                        displayName,
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -77,7 +94,9 @@ class DriverProfileTab extends ConsumerWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        user?.email ?? 'driver@swiftroute.vn',
+                        user?.email.trim().isNotEmpty == true
+                            ? user!.email
+                            : 'Chưa có email',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.textSecondary,
@@ -90,15 +109,25 @@ class DriverProfileTab extends ConsumerWidget {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.success.withValues(alpha: 0.1),
+                          color: driver?.status == 'ACTIVE'
+                              ? AppColors.successSoft
+                              : AppColors.warningSoft,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Text(
-                          'Tài xế chính thức (Đã xác minh)',
+                        child: Text(
+                          switch (driver?.status) {
+                            'ACTIVE' => 'Hồ sơ đã được duyệt',
+                            'PENDING_APPROVAL' => 'Hồ sơ đang chờ duyệt',
+                            'SUSPENDED' => 'Tài khoản tạm ngưng',
+                            null || '' => 'Chưa tải được trạng thái hồ sơ',
+                            _ => 'Hồ sơ chưa được duyệt',
+                          },
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: AppColors.success,
+                            color: driver?.status == 'ACTIVE'
+                                ? AppColors.success
+                                : AppColors.warning,
                           ),
                         ),
                       ),
@@ -187,7 +216,7 @@ class DriverProfileTab extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Hiệu suất ca hôm nay',
+                  'Thống kê danh sách đơn hiện tại',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -277,7 +306,7 @@ class DriverProfileTab extends ConsumerWidget {
           const SizedBox(height: 16),
           const Center(
             child: Text(
-              'SwiftRoute Driver v1.0.0 (TSP Engine & Multi-Stop)',
+              'SwiftRoute Driver',
               style: TextStyle(fontSize: 11, color: AppColors.textHint),
             ),
           ),
@@ -345,7 +374,7 @@ class _OnboardingPanelState extends ConsumerState<_OnboardingPanel> {
     _phone = TextEditingController(text: widget.driver.phone);
     _plate = TextEditingController(text: widget.driver.licensePlate);
     _capacity = TextEditingController(
-      text: widget.driver.capacity?.toString() ?? '20',
+      text: widget.driver.capacity?.toString() ?? '',
     );
     _vehicleType =
         const {'MOTORCYCLE', 'CAR', 'VAN'}.contains(widget.driver.vehicleType)

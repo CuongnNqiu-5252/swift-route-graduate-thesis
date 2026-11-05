@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AlertTriangle, BarChart3, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Menu, PackageSearch, Route, Settings, Truck, UserRound, Users, WalletCards, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Menu, PackageSearch, Route, Settings, Truck, UserRound, Users, WalletCards, X } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +16,6 @@ const navItems = [
   { href: '/locations', label: 'Điểm lấy hàng', icon: MapPin },
   { href: '/settlements', label: 'Đối soát tài xế', icon: WalletCards },
   { href: '/members', label: 'Nhân sự', icon: Users },
-  { href: '/analytics', label: 'Phân tích', icon: BarChart3 },
   { href: '/organizations', label: 'Tổ chức', icon: Users },
   { href: '/onboarding', label: 'Thiết lập doanh nghiệp', icon: Settings },
   { href: '/settings', label: 'Cài đặt', icon: Settings },

@@ -88,58 +88,58 @@ export interface FileUploadResult {
 
 export const operationsRepository = {
   async getIncidents(params?: { status?: string; severity?: string; driver_id?: string; order_id?: string }): Promise<IncidentDto[]> {
-    const res = await api.get<{ data: IncidentDto[] }>('/operations/incidents', { params });
-    return (res.data as unknown as { data: IncidentDto[] }).data ?? [];
+    const res = await api.get<IncidentDto[]>('/operations/incidents', { params });
+    return res.data;
   },
 
   async getIncidentById(id: string): Promise<IncidentDto> {
-    const res = await api.get<{ data: IncidentDto }>(`/operations/incidents/${id}`);
-    return (res.data as unknown as { data: IncidentDto }).data;
+    const res = await api.get<IncidentDto>(`/operations/incidents/${id}`);
+    return res.data;
   },
 
   async resolveIncident(id: string, params: ResolveIncidentParams): Promise<IncidentDto> {
-    const res = await api.patch<{ data: IncidentDto }>(`/operations/incidents/${id}/resolve`, params);
-    return (res.data as unknown as { data: IncidentDto }).data;
+    const res = await api.patch<IncidentDto>(`/operations/incidents/${id}/resolve`, params);
+    return res.data;
   },
 
   async getReturns(params?: { status?: string; driver_id?: string }): Promise<ReturnRequestDto[]> {
-    const res = await api.get<{ data: ReturnRequestDto[] }>('/operations/returns', { params });
-    return (res.data as unknown as { data: ReturnRequestDto[] }).data ?? [];
+    const res = await api.get<ReturnRequestDto[]>('/operations/returns', { params });
+    return res.data;
   },
 
   async getReturnById(id: string): Promise<ReturnRequestDto> {
-    const res = await api.get<{ data: ReturnRequestDto }>(`/operations/returns/${id}`);
-    return (res.data as unknown as { data: ReturnRequestDto }).data;
+    const res = await api.get<ReturnRequestDto>(`/operations/returns/${id}`);
+    return res.data;
   },
 
   async createReturn(params: CreateReturnParams): Promise<ReturnRequestDto> {
-    const res = await api.post<{ data: ReturnRequestDto }>('/operations/returns', params);
-    return (res.data as unknown as { data: ReturnRequestDto }).data;
+    const res = await api.post<ReturnRequestDto>('/operations/returns', params);
+    return res.data;
   },
 
   async approveReturn(id: string, params?: { return_location_id?: string; assigned_driver_id?: string; notes?: string }): Promise<ReturnRequestDto> {
-    const res = await api.patch<{ data: ReturnRequestDto }>(`/operations/returns/${id}/approve`, params ?? {});
-    return (res.data as unknown as { data: ReturnRequestDto }).data;
+    const res = await api.patch<ReturnRequestDto>(`/operations/returns/${id}/approve`, params ?? {});
+    return res.data;
   },
 
   async confirmReturnReceipt(id: string, notes?: string): Promise<ReturnRequestDto> {
-    const res = await api.patch<{ data: ReturnRequestDto }>(`/operations/returns/${id}/confirm-receipt`, { notes });
-    return (res.data as unknown as { data: ReturnRequestDto }).data;
+    const res = await api.patch<ReturnRequestDto>(`/operations/returns/${id}/confirm-receipt`, { notes });
+    return res.data;
   },
 
   async reportDiscrepancy(id: string, params: ReportDiscrepancyParams): Promise<ReturnRequestDto> {
-    const res = await api.patch<{ data: ReturnRequestDto }>(`/operations/returns/${id}/discrepancy`, params);
-    return (res.data as unknown as { data: ReturnRequestDto }).data;
+    const res = await api.patch<ReturnRequestDto>(`/operations/returns/${id}/discrepancy`, params);
+    return res.data;
   },
 
   async uploadImage(file: File, folder = 'evidence'): Promise<FileUploadResult> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', folder);
-    const res = await api.post<{ data: FileUploadResult }>('/uploads/image', formData, {
+    const res = await api.post<FileUploadResult>('/uploads/image', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-    return (res.data as unknown as { data: FileUploadResult }).data;
+    return res.data;
   },
 
   async verifyCod(id: string, notes?: string): Promise<void> {

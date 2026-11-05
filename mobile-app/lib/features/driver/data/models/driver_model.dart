@@ -55,13 +55,13 @@ class DriverModel {
       licensePlate: json['license_plate'] as String? ?? '',
       vehicleType: json['vehicle_type'] as String? ?? '',
       capacity: (json['capacity'] as num?)?.toInt(),
-      driverType: json['driver_type'] as String? ?? 'DEDICATED',
+      driverType: json['driver_type'] as String? ?? '',
       shiftStart: json['shift_start'] as String?,
       shiftEnd: json['shift_end'] as String?,
       currentLat: (json['current_lat'] as num?)?.toDouble(),
       currentLng: (json['current_lng'] as num?)?.toDouble(),
       isAvailable: json['is_available'] as bool? ?? false,
-      status: json['status'] as String? ?? 'ACTIVE',
+      status: json['status'] as String? ?? '',
       reviewNote: json['review_note'] as String?,
     );
   }
