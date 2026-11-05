@@ -227,12 +227,14 @@ class OrderModel {
 
   /// True when this is a forward delivery order whose physical package has not been picked up yet.
   bool get needsPickup =>
+      status != OrderStatus.cancelled &&
       deliveryTaskType != 'RETURN' &&
       (deliveryTaskStatus ?? DeliveryTaskStatus.assigned).index <
           DeliveryTaskStatus.pickedUp.index;
 
   /// True when the package is on the vehicle and ready to be delivered to the customer.
   bool get isOutForDelivery =>
+      status != OrderStatus.cancelled &&
       deliveryTaskType != 'RETURN' &&
       (deliveryTaskStatus == DeliveryTaskStatus.pickedUp ||
           deliveryTaskStatus == DeliveryTaskStatus.outForDelivery);

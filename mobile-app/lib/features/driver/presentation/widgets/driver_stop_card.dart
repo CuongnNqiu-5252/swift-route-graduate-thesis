@@ -26,7 +26,9 @@ class DriverStopCard extends ConsumerWidget {
     final status = stop.deliveryTaskStatus ?? DeliveryTaskStatus.assigned;
     final isDone = status == DeliveryTaskStatus.completed;
     final isFailed = status == DeliveryTaskStatus.failed;
-    final isCancelled = status == DeliveryTaskStatus.cancelled;
+    final isCancelled =
+        status == DeliveryTaskStatus.cancelled ||
+        stop.status == OrderStatus.cancelled;
     final isClosed = isDone || isFailed || isCancelled;
     final canDeliver = stop.isOutForDelivery;
 

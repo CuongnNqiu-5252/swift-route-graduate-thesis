@@ -85,11 +85,7 @@ class _DriverActivationScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Kích hoạt tài khoản tài xế'),
-        backgroundColor: AppColors.background,
-        foregroundColor: AppColors.primary,
-      ),
+      appBar: AppBar(title: const Text('Kích hoạt tài khoản tài xế')),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -174,14 +170,39 @@ class _DriverActivationScreenState
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 16),
-                      Semantics(
-                        liveRegion: true,
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(
-                            color: AppColors.error,
-                            height: 1.4,
-                          ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.errorSoft,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.errorBorder),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 20,
+                              color: AppColors.error,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Semantics(
+                                liveRegion: true,
+                                child: Text(
+                                  _error!,
+                                  style: const TextStyle(
+                                    color: AppColors.error,
+                                    fontSize: 13,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

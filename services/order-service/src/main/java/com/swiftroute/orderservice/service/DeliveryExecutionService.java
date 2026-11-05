@@ -137,6 +137,7 @@ public class DeliveryExecutionService {
     public List<DriverDeliveryTaskResponse> activeForDriver(UUID driverId, String role) {
         requireDriver(role);
         return tasks.findByDriverIdAndStatusIn(driverId, ACTIVE).stream()
+                .filter(task -> task.getOrder().getStatus() != OrderStatus.CANCELLED)
                 .map(DriverDeliveryTaskResponse::from)
                 .toList();
     }
@@ -159,6 +160,10 @@ public class DeliveryExecutionService {
         }
 
         DeliveryTaskStatus previous = task.getStatus();
+        // The order remains authoritative even if a stale task is still active.
+        if (task.getOrder().getStatus() == OrderStatus.CANCELLED) {
+            throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
+        }
         if (!allowed(task.getTaskType(), previous, request.status())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }

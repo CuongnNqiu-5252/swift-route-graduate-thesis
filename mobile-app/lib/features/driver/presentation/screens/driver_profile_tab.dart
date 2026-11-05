@@ -133,9 +133,9 @@ class DriverProfileTab extends ConsumerWidget {
                   const Text(
                     'Phương tiện và ca làm',
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textSecondary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const Divider(height: 20, color: AppColors.divider),
@@ -189,9 +189,9 @@ class DriverProfileTab extends ConsumerWidget {
                 const Text(
                   'Hiệu suất ca hôm nay',
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textSecondary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const Divider(height: 20, color: AppColors.divider),
