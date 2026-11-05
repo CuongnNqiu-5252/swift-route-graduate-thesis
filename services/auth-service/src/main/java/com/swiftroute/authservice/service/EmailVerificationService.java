@@ -39,6 +39,17 @@ public class EmailVerificationService {
     }
 
     @Transactional
+    public void resendByEmail(String email) {
+        if (email == null || email.isBlank()) return;
+        users.findByEmail(email.trim().toLowerCase(Locale.ROOT)).ifPresent(user -> {
+            try { resend(user.getId()); }
+            catch (AppException ex) {
+                if (ex.getErrorCode() != ErrorCode.VERIFICATION_RATE_LIMITED) throw ex;
+            }
+        });
+    }
+
+    @Transactional
     public void verify(String raw) {
         if (raw == null || raw.length() > 256) throw new AppException(ErrorCode.INVALID_VERIFICATION_TOKEN);
         var token = tokens.findByTokenHash(hash(raw)).orElseThrow(() -> new AppException(ErrorCode.INVALID_VERIFICATION_TOKEN));

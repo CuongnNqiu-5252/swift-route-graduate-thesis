@@ -9,17 +9,21 @@ export interface Driver {
   vehicle_type: string;
   vehicle_plate: string;
   status: DriverStatus;
+  onboarding_status: 'INACTIVE' | 'PENDING_APPROVAL' | 'ACTIVE' | 'SUSPENDED';
+  is_available: boolean;
+  capacity?: number;
+  review_note?: string;
   current_lat?: number;
   current_lng?: number;
   created_at: string;
 }
 
 export interface CreateDriverPayload {
-  userId: string;
+  userId?: string;
   tenantId: string;
   fullName: string;
   phone: string;
-  licensePlate: string;
+  licensePlate?: string;
   vehicleType: 'MOTORCYCLE' | 'CAR' | 'VAN';
   capacity: number;
   driverType: 'DEDICATED' | 'POOLED';

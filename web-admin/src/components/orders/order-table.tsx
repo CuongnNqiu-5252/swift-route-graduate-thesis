@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -9,13 +9,12 @@ import {
 } from '@tanstack/react-table';
 import { Order, OrderStatus } from '@/domain/entities/order.entity';
 import { OrderStatusBadge } from './order-status-badge';
-import { formatVNDate, formatDistance } from '@/lib/utils';
+import { formatVNDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 interface OrderTableProps {
   orders: Order[];
   isLoading: boolean;
-  onUpdateStatus?: (orderId: string, status: OrderStatus) => void;
   onCancelOrder?: (orderId: string, reason?: string) => void;
   selectable?: boolean;
   selectedIds?: Set<string>;
@@ -25,7 +24,6 @@ interface OrderTableProps {
 export function OrderTable({
   orders,
   isLoading,
-  onUpdateStatus,
   onCancelOrder,
   selectable,
   selectedIds,
@@ -102,7 +100,7 @@ export function OrderTable({
           <span className="text-xs text-gray-500">{formatVNDate(getValue() as string)}</span>
         ),
       },
-      ...(onUpdateStatus || onCancelOrder
+      ...(onCancelOrder
         ? [
             {
               id: 'actions',
@@ -110,20 +108,11 @@ export function OrderTable({
               cell: ({ row }: { row: { original: Order } }) => {
                 const order = row.original;
                 const canCancel =
-                  order.status === 'PAID' ||
+                  order.status === 'READY_FOR_DISPATCH' ||
                   order.status === 'PLANNED' ||
                   order.status === 'PENDING_PAYMENT';
                 return (
                   <div className="flex items-center gap-2">
-                    {onUpdateStatus && order.status === 'PAID' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => onUpdateStatus(order.id, 'PLANNED')}
-                      >
-                        Lên kế hoạch
-                      </Button>
-                    )}
                     {onCancelOrder && canCancel && (
                       <Button
                         size="sm"
@@ -149,7 +138,7 @@ export function OrderTable({
           ]
         : []),
     ],
-    [selectable, selectedIds, onToggleSelect, onUpdateStatus, onCancelOrder]
+    [selectable, selectedIds, onToggleSelect, onCancelOrder]
   );
 
   const table = useReactTable({ data: orders, columns, getCoreRowModel: getCoreRowModel() });
@@ -205,4 +194,3 @@ export function OrderTable({
     </div>
   );
 }
-

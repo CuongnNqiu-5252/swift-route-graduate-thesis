@@ -32,6 +32,16 @@ body {
 .workspace-sheet thead { background: transparent; }
 .workspace-sheet th { text-transform: none; letter-spacing: normal; font-weight: 500; }
 .workspace-sheet input:not([type="checkbox"]):not([type="radio"]), .workspace-sheet select, .workspace-sheet textarea { min-height: 44px; }
+.animate-spin {
+  animation-duration: 1.1s;
+}
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *:not(.animate-spin), *:not(.animate-spin)::before, *:not(.animate-spin)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .animate-spin {
+    animation-duration: 1.2s !important;
+  }
 }

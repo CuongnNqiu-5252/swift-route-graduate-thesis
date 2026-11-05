@@ -13,7 +13,8 @@ class CustomerOrdersScreen extends ConsumerStatefulWidget {
   const CustomerOrdersScreen({super.key});
 
   @override
-  ConsumerState<CustomerOrdersScreen> createState() => _CustomerOrdersScreenState();
+  ConsumerState<CustomerOrdersScreen> createState() =>
+      _CustomerOrdersScreenState();
 }
 
 class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
@@ -30,7 +31,9 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
   Future<void> _loadOrders() async {
     setState(() => _isLoading = true);
     try {
-      final orders = await ref.read(orderRemoteDataSourceProvider).getMyOrders();
+      final orders = await ref
+          .read(orderRemoteDataSourceProvider)
+          .getMyOrders();
       // Sort newest first
       orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       if (mounted) {
@@ -48,10 +51,14 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
 
   List<OrderModel> get _filteredOrders {
     if (_selectedFilter == 'ACTIVE') {
-      return _orders.where((o) =>
-          o.status == OrderStatus.paid ||
-          o.status == OrderStatus.planned ||
-          o.status == OrderStatus.inTransit).toList();
+      return _orders
+          .where(
+            (o) =>
+                o.status == OrderStatus.paid ||
+                o.status == OrderStatus.planned ||
+                o.status == OrderStatus.inTransit,
+          )
+          .toList();
     }
     if (_selectedFilter == 'DELIVERED') {
       return _orders.where((o) => o.status == OrderStatus.delivered).toList();
@@ -116,18 +123,20 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
             Expanded(
               child: _isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.primary),
+                      child: CircularProgressIndicator(
+                        color: AppColors.primary,
+                      ),
                     )
                   : filtered.isEmpty
-                      ? _buildEmptyState()
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
-                          itemCount: filtered.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            return _buildOrderCard(filtered[index]);
-                          },
-                        ),
+                  ? _buildEmptyState()
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        return _buildOrderCard(filtered[index]);
+                      },
+                    ),
             ),
           ],
         ),
@@ -136,10 +145,9 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
         currentIndex: 1,
         onTap: (index) {
           if (index == 0) {
-            Navigator.of(context).pushNamedAndRemoveUntil(
-              '/customer/home',
-              (route) => false,
-            );
+            Navigator.of(
+              context,
+            ).pushNamedAndRemoveUntil('/customer/home', (route) => false);
           }
         },
       ),
@@ -256,7 +264,10 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
                     ],
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: badgeColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
@@ -287,13 +298,21 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
                 children: [
                   Column(
                     children: [
-                      const Icon(Icons.circle, size: 10, color: AppColors.primary),
+                      const Icon(
+                        Icons.circle,
+                        size: 10,
+                        color: AppColors.primary,
+                      ),
                       Container(
                         width: 1.5,
                         height: 24,
                         color: Colors.grey.shade300,
                       ),
-                      const Icon(Icons.location_on, size: 12, color: AppColors.accent),
+                      const Icon(
+                        Icons.location_on,
+                        size: 12,
+                        color: AppColors.accent,
+                      ),
                     ],
                   ),
                   const SizedBox(width: 10),
@@ -340,18 +359,32 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.scale_rounded, size: 14, color: Colors.grey.shade500),
+                      Icon(
+                        Icons.scale_rounded,
+                        size: 14,
+                        color: Colors.grey.shade500,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         '${order.weightKg.toStringAsFixed(1)} kg',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                       const SizedBox(width: 12),
-                      Icon(Icons.flag_outlined, size: 14, color: Colors.grey.shade500),
+                      Icon(
+                        Icons.flag_outlined,
+                        size: 14,
+                        color: Colors.grey.shade500,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         order.priority.isNotEmpty ? order.priority : 'NORMAL',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
@@ -367,7 +400,10 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
                       order.status == OrderStatus.delivered
                           ? 'Xem lại'
                           : 'Theo dõi live',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: order.status == OrderStatus.delivered
@@ -377,7 +413,10 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
                           ? AppColors.textPrimary
                           : Colors.white,
                       elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -394,13 +433,15 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
 
   void _openTrackingForOrder(OrderModel order) {
     ref.read(orderTrackingProvider.notifier).selectOrderForTracking(order);
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => OrderTrackingScreen(targetOrder: order),
-      ),
-    ).then((_) {
-      _loadOrders();
-    });
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => OrderTrackingScreen(targetOrder: order),
+          ),
+        )
+        .then((_) {
+          _loadOrders();
+        });
   }
 
   (Color, String, IconData) _getStatusDetails(OrderStatus status) {

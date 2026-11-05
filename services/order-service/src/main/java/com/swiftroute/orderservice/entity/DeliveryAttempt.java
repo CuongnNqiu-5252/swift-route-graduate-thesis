@@ -30,18 +30,27 @@ public class DeliveryAttempt {
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "attempt_id")
     private UUID id;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
     private Order order;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "task_id")
     private DeliveryTask task;
+
     private UUID tenantId;
     private Integer attemptNumber;
     private String outcome;
     private String failureReason;
     private String notes;
     private String proofUrl;
+    private String photoUrl;
+    private String signatureUrl;
+    private Double lat;
+    private Double lng;
+    @Builder.Default
+    private Integer contactAttempts = 1;
     private UUID completedBy;
     @Builder.Default
     private Instant completedAt = Instant.now();

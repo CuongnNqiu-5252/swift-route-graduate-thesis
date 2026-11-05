@@ -1,9 +1,11 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { OptimizationResult } from '@/domain/entities/routing.entity';
 import { Cpu, Clock, Navigation, CheckCircle2 } from 'lucide-react';
+import { formatRoadDistance } from '@/lib/route-format';
 
 interface AlgorithmMetricsBarProps {
   result: OptimizationResult;
+  roadMetrics?: { distanceMeters: number; durationSeconds: number } | null;
 }
 
 const ALGORITHM_NAMES: Record<string, string> = {
@@ -11,7 +13,7 @@ const ALGORITHM_NAMES: Record<string, string> = {
   auto: 'Tự động (Google OR-Tools)',
 };
 
-export function AlgorithmMetricsBar({ result }: AlgorithmMetricsBarProps) {
+export function AlgorithmMetricsBar({ result, roadMetrics }: AlgorithmMetricsBarProps) {
   const algoDisplay = ALGORITHM_NAMES[result.algorithm_used] || result.algorithm_used;
 
   return (
@@ -59,9 +61,9 @@ export function AlgorithmMetricsBar({ result }: AlgorithmMetricsBarProps) {
                 <Navigation size={16} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Tổng quãng đường</p>
+                <p className="text-xs text-gray-500">Quãng đường thực tế Goong</p>
                 <p className="text-sm font-bold text-emerald-700">
-                  {result.total_distance_km.toFixed(2)} km
+                  {roadMetrics ? formatRoadDistance(roadMetrics.distanceMeters) : 'Đang tính…'}
                 </p>
               </div>
             </div>
@@ -69,9 +71,9 @@ export function AlgorithmMetricsBar({ result }: AlgorithmMetricsBarProps) {
             <div className="h-8 w-px bg-gray-200" />
 
             <div>
-              <p className="text-xs text-gray-500">Ước tính thời gian giao</p>
+              <p className="text-xs text-gray-500">Thời gian chạy xe Goong</p>
               <p className="text-sm font-bold text-gray-900">
-                ~{result.total_duration_min.toFixed(0)} phút ({result.ordered_stops.length} điểm)
+                {roadMetrics ? `~${Math.max(1, Math.round(roadMetrics.durationSeconds / 60))} phút` : 'Đang tính…'} ({result.ordered_stops.length} điểm)
               </p>
             </div>
           </div>

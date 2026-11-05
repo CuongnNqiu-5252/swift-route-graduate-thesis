@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
+import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
 import com.swiftroute.authservice.dto.response.LoginResponseDTO;
 import com.swiftroute.authservice.dto.response.UserProfileResponseDTO;
 import com.swiftroute.authservice.entity.RefreshToken;
@@ -133,7 +134,7 @@ public class AuthserviceImpl implements AuthService {
 
     @Override
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
-    public UserProfileResponseDTO getProfile(java.util.UUID userId) {
+    public UserProfileResponseDTO getProfile(java.util.UUID userId, String effectiveRole) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new com.swiftroute.authservice.exception.AppException(ErrorCode.USER_NOT_FOUND));
         return new UserProfileResponseDTO(
@@ -142,8 +143,20 @@ public class AuthserviceImpl implements AuthService {
                 user.getPhone(),
                 user.getFullName(),
                 user.getRole(),
+                effectiveRole == null || effectiveRole.isBlank() ? user.getRole().name() : effectiveRole,
                 tenantMembershipRepository.findByUser_IdAndStatus(userId, com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE).stream().findFirst().map(com.swiftroute.authservice.entity.TenantMembership::getTenantId).orElse(null),
                 user.getStatus(),
                 user.getCreatedAt(), user.isEmailVerified());
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponseDTO updateProfile(java.util.UUID userId, UpdateProfileRequestDTO request, String effectiveRole) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new com.swiftroute.authservice.exception.AppException(ErrorCode.USER_NOT_FOUND));
+        user.setFullName(request.fullName().trim());
+        user.setPhone(request.phoneNumber().trim());
+        userRepository.save(user);
+        return getProfile(userId, effectiveRole);
     }
 }

@@ -1,4 +1,5 @@
 import { Order, OrderStatus } from '@/domain/entities/order.entity';
+import { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import api from '@/lib/api';
 
 export interface OrdersResponse {
@@ -65,6 +66,14 @@ export function toCreateOrderRequest(payload: CreateOrderPayload): CreateOrderRe
   };
 }
 
+function fromApiOrderStatus(status: unknown): OrderStatus {
+  return status === 'PAID' ? 'READY_FOR_DISPATCH' : status as OrderStatus;
+}
+
+function toApiOrderStatus(status: OrderStatus): string {
+  return status === 'READY_FOR_DISPATCH' ? 'PAID' : status;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapOrder(raw: any): Order {
   const rawId = raw.orderId || raw.order_id || raw.id || '';
@@ -75,6 +84,8 @@ function mapOrder(raw: any): Order {
     tenant_name: raw.tenantName || raw.tenant_name,
     customer_id: raw.customerId || raw.customer_id || '',
     customer_name: raw.recipientName || raw.customer_name,
+    pickup_location_id: raw.pickupLocationId || raw.pickup_location_id,
+    pickup_location_name: raw.pickupLocationName || raw.pickup_location_name,
     pickup_address: raw.pickupAddress || raw.pickup_address || '',
     delivery_address: raw.deliveryAddress || raw.delivery_address || '',
     pickup_lat: raw.pickupLat ?? raw.pickup_lat ?? 0,
@@ -83,7 +94,7 @@ function mapOrder(raw: any): Order {
     delivery_lng: raw.deliveryLng ?? raw.delivery_lng ?? 0,
     package_category: raw.packageCategory || raw.package_category || 'PARCEL',
     weight_kg: raw.weightKg ?? raw.weight_kg ?? 0,
-    status: raw.status as OrderStatus,
+    status: fromApiOrderStatus(raw.status),
     notes: raw.notes || raw.note || undefined,
     time_window_start: raw.timeWindowStart || raw.time_window_start,
     time_window_end: raw.timeWindowEnd || raw.time_window_end,
@@ -99,7 +110,16 @@ export const orderRepository = {
     return mapOrder((await api.post<unknown>('/orders', toCreateOrderRequest(payload))).data);
   },
   async getDriverPosition(userId: string): Promise<{currentLat?:number; currentLng?:number; fullName?:string}> {
-    return (await api.get(`/drivers/user/${userId}/public`)).data;
+    const response = await api.get<{ data?: Record<string, unknown> }>(`/drivers/user/${userId}/public`);
+    const raw = (response.data?.data ?? response.data) as Record<string, unknown> | undefined;
+    const lat = raw?.currentLat ?? raw?.current_lat;
+    const lng = raw?.currentLng ?? raw?.current_lng;
+    const name = raw?.fullName ?? raw?.full_name;
+    return {
+      currentLat: typeof lat === 'number' ? lat : undefined,
+      currentLng: typeof lng === 'number' ? lng : undefined,
+      fullName: typeof name === 'string' ? name : undefined,
+    };
   },
   async getOperationsQueue(): Promise<OperationsQueue> {
     const response = await api.get<unknown>('/orders/operations/queue');
@@ -124,7 +144,7 @@ export const orderRepository = {
 
   async getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     const params = new URLSearchParams();
-    if (filters.status) params.set('status', filters.status);
+    if (filters.status) params.set('status', toApiOrderStatus(filters.status));
     if (filters.page !== undefined) params.set('page', String(filters.page));
     if (filters.size !== undefined) params.set('size', String(filters.size));
 
@@ -146,7 +166,7 @@ export const orderRepository = {
   },
 
   async updateStatus(orderId: string, status: OrderStatus): Promise<Order> {
-    const response = await api.patch<Order>(`/orders/${orderId}/status`, JSON.stringify(status), {
+    const response = await api.patch<Order>(`/orders/${orderId}/status`, JSON.stringify(toApiOrderStatus(status)), {
       headers: { 'Content-Type': 'application/json' },
     });
     return mapOrder((response.data as { data?: unknown })?.data ?? response.data);
@@ -184,5 +204,68 @@ export const orderRepository = {
       order_ids: payload.order_ids || assignments.map((assignment) => assignment.order_id),
     };
     await api.post('/orders/assign-batch', body);
+  },
+
+  async getDispatchPlans(): Promise<DispatchPlanRecord[]> {
+    const response = await api.get<{ data?: DispatchPlanRecord[] }>('/orders/dispatch/plans');
+    return response.data?.data ?? [];
+  },
+
+  async triggerDispatchPlanning(): Promise<void> {
+    await api.post('/orders/dispatch/trigger');
+  },
+
+  async approveDispatchPlan(planId: string, driverId?: string | null, notes?: string): Promise<DispatchPlanRecord> {
+    const response = await api.post<{ data?: DispatchPlanRecord }>(`/orders/dispatch/plans/${planId}/approve`, {
+      driver_id: driverId ?? null,
+      notes: notes || 'Phê duyệt kế hoạch từ Web Admin',
+    });
+    return (response.data?.data ?? response.data) as DispatchPlanRecord;
+  },
+
+  async dispatchApprovedPlan(planId: string): Promise<DispatchPlanRecord> {
+    const response = await api.post<{ data?: DispatchPlanRecord }>(`/orders/dispatch/plans/${planId}/dispatch`);
+    return (response.data?.data ?? response.data) as DispatchPlanRecord;
+  },
+
+  async cancelDispatchPlan(planId: string, reason: string): Promise<DispatchPlanRecord> {
+    const response = await api.post<{ data?: DispatchPlanRecord }>(`/orders/dispatch/plans/${planId}/cancel`, {
+      reason: reason || 'Huỷ kế hoạch điều phối từ Web Admin',
+    });
+    return (response.data?.data ?? response.data) as DispatchPlanRecord;
+  },
+
+  async reoptimizeDispatchPlan(planId: string): Promise<DispatchPlanRecord> {
+    const response = await api.post<{ data?: DispatchPlanRecord }>(`/orders/dispatch/plans/${planId}/reoptimize`);
+    return (response.data?.data ?? response.data) as DispatchPlanRecord;
+  },
+
+  async insertOrderIntoPlan(planId: string, orderId: string): Promise<DispatchPlanRecord> {
+    const response = await api.post<{ data?: DispatchPlanRecord }>(
+      `/orders/dispatch/plans/${planId}/insert/${orderId}`,
+    );
+    return (response.data?.data ?? response.data) as DispatchPlanRecord;
+  },
+
+  async startOrderSimulation(orderId: string, waypoints: Array<{ lat: number; lng: number }>, intervalMs = 1000): Promise<void> {
+    await api.post(`/orders/${orderId}/tracking/simulate`, {
+      waypoints,
+      interval_ms: intervalMs,
+    });
+  },
+
+  async stopOrderSimulation(orderId: string): Promise<void> {
+    await api.post(`/orders/${orderId}/tracking/simulate/stop`);
+  },
+
+  async startPlanSimulation(planId: string, waypoints: Array<{ lat: number; lng: number }>, intervalMs = 1000): Promise<void> {
+    await api.post(`/orders/dispatch/plans/${planId}/tracking/simulate`, {
+      waypoints,
+      interval_ms: intervalMs,
+    });
+  },
+
+  async stopPlanSimulation(planId: string): Promise<void> {
+    await api.post(`/orders/dispatch/plans/${planId}/tracking/simulate/stop`);
   },
 };

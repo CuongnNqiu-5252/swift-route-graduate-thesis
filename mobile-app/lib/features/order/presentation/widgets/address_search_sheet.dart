@@ -11,12 +11,12 @@ import 'package:swiftroute_app/features/order/data/models/goong_place_model.dart
 class AddressSearchSheet extends ConsumerStatefulWidget {
   final String title;
 
-  const AddressSearchSheet({
-    super.key,
-    required this.title,
-  });
+  const AddressSearchSheet({super.key, required this.title});
 
-  static Future<GoongPlaceDetail?> show(BuildContext context, {required String title}) {
+  static Future<GoongPlaceDetail?> show(
+    BuildContext context, {
+    required String title,
+  }) {
     return showModalBottomSheet<GoongPlaceDetail>(
       context: context,
       isScrollControlled: true,
@@ -143,7 +143,10 @@ class _AddressSearchSheetState extends ConsumerState<AddressSearchSheet> {
               onChanged: _onQueryChanged,
               decoration: InputDecoration(
                 hintText: 'Nhập tên đường, số nhà, địa điểm...',
-                hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
+                hintStyle: const TextStyle(
+                  color: AppColors.textHint,
+                  fontSize: 14,
+                ),
                 prefixIcon: const Icon(Icons.search, color: AppColors.primary),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
@@ -172,55 +175,55 @@ class _AddressSearchSheetState extends ConsumerState<AddressSearchSheet> {
             child: _isLoading && _predictions.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : _predictions.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'Không tìm thấy địa chỉ phù hợp',
-                          style: TextStyle(color: AppColors.textSecondary),
+                ? const Center(
+                    child: Text(
+                      'Không tìm thấy địa chỉ phù hợp',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: _predictions.length,
+                    separatorBuilder: (_, _) => const Divider(
+                      height: 1,
+                      color: AppColors.divider,
+                      indent: 56,
+                    ),
+                    itemBuilder: (context, index) {
+                      final item = _predictions[index];
+                      return ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withAlpha(25),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.location_on_outlined,
+                            color: AppColors.primary,
+                            size: 20,
+                          ),
                         ),
-                      )
-                    : ListView.separated(
-                        itemCount: _predictions.length,
-                        separatorBuilder: (_, __) => const Divider(
-                          height: 1,
-                          color: AppColors.divider,
-                          indent: 56,
+                        title: Text(
+                          item.mainText,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
-                        itemBuilder: (context, index) {
-                          final item = _predictions[index];
-                          return ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withAlpha(25),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.location_on_outlined,
-                                color: AppColors.primary,
-                                size: 20,
-                              ),
-                            ),
-                            title: Text(
-                              item.mainText,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            subtitle: Text(
-                              item.secondaryText,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            onTap: () => _onSelectPrediction(item),
-                          );
-                        },
-                      ),
+                        subtitle: Text(
+                          item.secondaryText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        onTap: () => _onSelectPrediction(item),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

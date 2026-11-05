@@ -39,6 +39,12 @@ public class TenantInvitation {
     @Column(name = "tenant_id", nullable = false)
     private UUID tenantId;
 
+    @Column(name = "driver_id")
+    private UUID driverId;
+
+    @Column(name = "business_name", length = 255)
+    private String businessName;
+
     @Column(name = "email", nullable = false)
     private String email;
 
@@ -82,4 +88,3 @@ public class TenantInvitation {
         updatedAt = Instant.now();
     }
 }
-

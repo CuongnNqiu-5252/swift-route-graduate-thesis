@@ -21,11 +21,7 @@ class AuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    const publicPaths = [
-      '/auth/login',
-      '/auth/register',
-      '/auth/refresh',
-    ];
+    const publicPaths = ['/auth/login', '/auth/register', '/auth/refresh'];
     if (publicPaths.any((p) => options.path.contains(p))) {
       return handler.next(options);
     }
@@ -147,8 +143,10 @@ class AuthInterceptor extends Interceptor {
         return false;
       }
 
-      final newAccessToken = (data['access_token'] ?? data['accessToken']) as String?;
-      final newRefreshToken = (data['refresh_token'] ?? data['refreshToken']) as String?;
+      final newAccessToken =
+          (data['access_token'] ?? data['accessToken']) as String?;
+      final newRefreshToken =
+          (data['refresh_token'] ?? data['refreshToken']) as String?;
 
       if (newAccessToken == null || newAccessToken.isEmpty) return false;
 

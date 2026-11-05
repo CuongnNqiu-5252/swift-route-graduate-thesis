@@ -29,6 +29,7 @@ function mapInvitation(raw: ApiRecord): TenantInvitation {
   return {
     id: String(raw.id ?? ''),
     tenant_id: String(value(raw, 'tenantId', 'tenant_id') ?? ''),
+    driver_id: String(value(raw, 'driverId', 'driver_id') ?? '') || undefined,
     email: String(raw.email ?? ''),
     role: raw.role as TenantMembershipRole,
     status: raw.status as TenantInvitation['status'],
@@ -48,6 +49,7 @@ function mapInviteResponse(raw: ApiRecord): InviteMemberResponse {
 export interface InviteMemberPayload {
   email: string;
   role: TenantMembershipRole;
+  driverId?: string;
 }
 
 export interface AcceptInvitationPayload {
@@ -85,7 +87,11 @@ export const memberRepository = {
 
   async inviteMember(payload: InviteMemberPayload, tenantId?: string): Promise<InviteMemberResponse> {
     const tid = tenantId || getCurrentTenantId();
-    const res = await api.post(`/tenants/${tid}/members/invite`, payload);
+    const res = await api.post(`/tenants/${tid}/members/invite`, {
+      email: payload.email,
+      role: payload.role,
+      driver_id: payload.driverId,
+    });
     return mapInviteResponse(res.data as ApiRecord);
   },
 
@@ -93,6 +99,11 @@ export const memberRepository = {
     const tid = tenantId || getCurrentTenantId();
     const res = await api.patch(`/tenants/${tid}/members/${membershipId}/status`, { status });
     return mapMember(res.data as ApiRecord);
+  },
+
+  async revokeInvitation(invitationId: string, tenantId?: string): Promise<void> {
+    const tid = tenantId || getCurrentTenantId();
+    await api.post(`/tenants/${tid}/members/invitations/${invitationId}/revoke`);
   },
 
   async acceptInvitation(payload: AcceptInvitationPayload): Promise<TenantMember> {

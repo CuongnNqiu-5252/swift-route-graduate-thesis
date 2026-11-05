@@ -41,10 +41,12 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/email/verify",
+                                "/api/auth/email/resend-public",
                                 "/internal/tenant-memberships/provision",
                                 "/api/auth/login",
                                 "/api/auth/refresh",
                                 "/api/auth/invitations/accept",
+                                "/api/auth/invitations/preview",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/actuator/health")

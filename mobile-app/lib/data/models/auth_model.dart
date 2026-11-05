@@ -71,8 +71,8 @@ class LoginResponse {
     // Unwrap the ApiResponse envelope if present
     final payload =
         json.containsKey('data') && json['data'] is Map<String, dynamic>
-            ? json['data'] as Map<String, dynamic>
-            : json;
+        ? json['data'] as Map<String, dynamic>
+        : json;
 
     return LoginResponse(
       accessToken:
@@ -99,7 +99,8 @@ class UserModel extends User {
       id: (json['id'] ?? json['user_id'] ?? '') as String,
       email: (json['email'] ?? '') as String,
       name:
-          (json['full_name'] ?? json['fullName'] ?? json['name'] ?? '') as String,
+          (json['full_name'] ?? json['fullName'] ?? json['name'] ?? '')
+              as String,
       role: (json['role'] ?? 'CUSTOMER') as String,
       avatar: (json['avatar'] ?? json['avatar_url']) as String?,
     );

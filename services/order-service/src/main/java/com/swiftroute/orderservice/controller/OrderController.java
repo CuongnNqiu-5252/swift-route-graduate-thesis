@@ -18,13 +18,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
 import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
+import com.swiftroute.orderservice.dto.request.StartSimulationRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
-import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
+import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
@@ -138,26 +138,9 @@ public class OrderController {
     }
 
     /**
-     * GET /api/orders/me
-     * Lấy danh sách đơn hàng của người dùng hiện tại.
-     * Role được phép: CUSTOMER
-     */
-    @GetMapping("/me")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getMyOrders(
-            @RequestHeader("X-User-Id") String userId) {
-
-        List<OrderResponse> orders = orderService.getMyOrders(UUID.fromString(userId));
-        return ResponseEntity.ok(ApiResponse.success(orders));
-    }
-
-    /**
      * GET /api/orders/driver/assigned
      * Returns the active orders assigned to the authenticated driver,
      * sorted by delivery window start (earliest first).
-     *
-     * The driver's identity is read from X-User-Id (injected by Gateway after JWT verification).
-     * Only orders in PLANNED or IN_TRANSIT state are returned.
-     * Role required: DRIVER
      */
     @Operation(summary = "Get active orders assigned to the authenticated driver")
     @GetMapping("/driver/assigned")
@@ -210,8 +193,6 @@ public class OrderController {
     /**
      * PATCH /api/orders/{orderId}/status
      * Cập nhật trạng thái đơn hàng.
-     * Hỗ trợ cả payload dạng chuỗi ("PLANNED") lẫn object ({ "status": "PLANNED" }).
-     * Role được phép: ADMIN, OPERATOR, DRIVER (qua routing engine sau này)
      */
     @PatchMapping("/{orderId}/status")
     public ResponseEntity<ApiResponse<OrderResponse>> updateOrderStatus(
@@ -234,25 +215,8 @@ public class OrderController {
     }
 
     /**
-     * PATCH /api/orders/{orderId}/pay
-     * Simulated payment confirmation for demo purposes.
-     * Transitions order from PENDING_PAYMENT to PAID.
-     * Allowed roles: CUSTOMER (owner of the order only), ADMIN, OPS_STAFF.
-     */
-    @Operation(summary = "Confirm mock payment — transitions order to PAID")
-    @PatchMapping("/{orderId}/pay")
-    public ResponseEntity<ApiResponse<OrderResponse>> confirmPayment(
-            @PathVariable UUID orderId,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
-        OrderResponse response = orderService.confirmPayment(orderId, UUID.fromString(userId), userRole);
-        return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    /**
      * PATCH /api/orders/{orderId}/incident
-     * Driver reports an unexpected delivery incident (traffic, broken vehicle, customer absent).
-     * Transitions order to FAILED with reason logged.
+     * Driver reports an unexpected delivery incident.
      */
     @Operation(summary = "Report delivery incident — transitions order to FAILED")
     @PatchMapping("/{orderId}/incident")
@@ -281,25 +245,8 @@ public class OrderController {
     }
 
     /**
-     * POST /api/orders/assign-batch
-     * Bulk-assigns a list of optimised route stops to drivers.
-     * Transitions each order from PAID to PLANNED and records assigned_driver_id.
-     * Allowed roles: ADMIN, OPS_STAFF.
-     */
-    @Operation(summary = "Assign optimised batch plan to drivers, transitioning orders to PLANNED")
-    @PostMapping("/assign-batch")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> assignBatch(
-            @Valid @RequestBody AssignBatchRequest request,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
-        List<OrderResponse> responses = orderService.assignBatch(request, UUID.fromString(userId), userRole);
-        return ResponseEntity.ok(ApiResponse.success(responses));
-    }
-
-    /**
      * GET /api/orders/{orderId}/tracking/stream
      * Server-Sent Events (SSE) live real-time location stream.
-     * Streams real GPS updates for an order after tenant/order authorization.
      */
     @Operation(summary = "Subscribe to live real-time SSE tracking stream for an order")
     @GetMapping(value = "/{orderId}/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -311,5 +258,50 @@ public class OrderController {
         UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
         orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
         return trackingSimulationService.subscribe(orderId);
+    }
+
+    /**
+     * POST /api/orders/{orderId}/tracking/simulate
+     * Starts an on-demand GPS route simulation along the given street waypoints.
+     */
+    @Operation(summary = "Start on-demand GPS route simulation for an order")
+    @PostMapping("/{orderId}/tracking/simulate")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> startOrderSimulation(
+            @PathVariable UUID orderId,
+            @Valid @RequestBody StartSimulationRequest request,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
+        UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
+        OrderResponse order = orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
+        trackingSimulationService.startRouteSimulation(
+                orderId,
+                order.assignedDriverId(),
+                List.of(),
+                request.waypoints(),
+                request.intervalMs());
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "order_id", orderId,
+                "waypoint_count", request.waypoints().size(),
+                "status", "SIMULATING")));
+    }
+
+    /**
+     * POST /api/orders/{orderId}/tracking/simulate/stop
+     * Stops an active GPS route simulation for an order.
+     */
+    @Operation(summary = "Stop on-demand GPS route simulation for an order")
+    @PostMapping("/{orderId}/tracking/simulate/stop")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> stopOrderSimulation(
+            @PathVariable UUID orderId,
+            @RequestHeader("X-User-Id") String userId,
+            @RequestHeader("X-User-Role") String userRole,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
+        UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
+        orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
+        trackingSimulationService.stopRouteSimulation(orderId, List.of());
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "order_id", orderId,
+                "status", "STOPPED")));
     }
 }

@@ -9,6 +9,7 @@ import com.swiftroute.authservice.entity.enums.TenantMembershipRole;
 public record InviteMemberResponse(
         UUID id,
         UUID tenantId,
+        UUID driverId,
         String email,
         TenantMembershipRole role,
         TenantInvitationStatus status,
@@ -16,4 +17,3 @@ public record InviteMemberResponse(
         Instant expiresAt,
         Instant createdAt) {
 }
-

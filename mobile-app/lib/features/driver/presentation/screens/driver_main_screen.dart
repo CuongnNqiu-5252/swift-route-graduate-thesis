@@ -1,19 +1,22 @@
+// features/driver/presentation/screens/driver_main_screen.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/utils/location_helper.dart';
+import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_cod_handover_tab.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_earnings_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_home_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_profile_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_route_tab.dart';
-import 'package:swiftroute_app/features/driver/presentation/screens/driver_cod_handover_tab.dart';
-import 'package:swiftroute_app/features/driver/presentation/screens/driver_earnings_tab.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
-import 'package:swiftroute_app/core/utils/location_helper.dart';
 
-/// The master shell screen for drivers after logging in.
-/// Hosts daily execution, COD handover, and profile tabs.
+/// Master 5-tab operational shell for SwiftRoute Driver:
+/// Hôm nay · Lộ trình · Thu nhập · Bàn giao · Tài khoản
 class DriverMainScreen extends ConsumerStatefulWidget {
   const DriverMainScreen({super.key});
 
@@ -31,7 +34,6 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
   @override
   void initState() {
     super.initState();
-    // Auto-fetch profile and assigned orders when the driver shell opens
     Future.microtask(() async {
       await ref.read(driverProvider.notifier).refreshProfile();
       await ref.read(driverOrdersProvider.notifier).refreshOrders();
@@ -66,17 +68,12 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
             sequence: _locationSequence,
           );
       if (!ok) throw StateError('Không đồng bộ được vị trí');
-      _locationFailures = 0;
+      if (mounted && _locationFailures > 0) {
+        setState(() => _locationFailures = 0);
+      }
     } catch (_) {
-      _locationFailures++;
-      if (mounted && _locationFailures == 3) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'GPS chưa đồng bộ. Hãy kiểm tra quyền vị trí và kết nối mạng.',
-            ),
-          ),
-        );
+      if (mounted) {
+        setState(() => _locationFailures++);
       }
     } finally {
       _locationRequestInFlight = false;
@@ -112,7 +109,6 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Automatically redirect back to login if user becomes unauthenticated
     ref.listen(authProvider, (previous, next) {
       if (!next.isAuthenticated) {
         Navigator.of(
@@ -122,27 +118,47 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
     });
 
     final ordersState = ref.watch(driverOrdersProvider);
+    final codState = ref.watch(driverCodHandoverProvider);
+
     final activeOrdersCount =
         ordersState.valueOrNull
             ?.where(
               (o) =>
                   o.deliveryTaskStatus != DeliveryTaskStatus.completed &&
-                  o.deliveryTaskStatus != DeliveryTaskStatus.cancelled,
+                  o.deliveryTaskStatus != DeliveryTaskStatus.cancelled &&
+                  o.deliveryTaskStatus != DeliveryTaskStatus.failed,
             )
             .length ??
         0;
 
+    final pendingCodCount = codState.valueOrNull?.length ?? 0;
+
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Column(
         children: [
-          DriverHomeTab(
-            onNavigateToRoute: () => setState(() => _currentIndex = 1),
+          SafeArea(
+            bottom: false,
+            top: _locationFailures >= 3,
+            child: GpsSyncBanner(
+              hasLocationIssue: _locationFailures >= 3,
+              onRetry: _syncLocation,
+            ),
           ),
-          const DriverRouteTab(),
-          const DriverEarningsTab(),
-          const DriverCodHandoverTab(),
-          const DriverProfileTab(),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                DriverHomeTab(
+                  onNavigateToRoute: () => setState(() => _currentIndex = 1),
+                  onNavigateToHandover: () => setState(() => _currentIndex = 3),
+                ),
+                const DriverRouteTab(),
+                const DriverEarningsTab(),
+                const DriverCodHandoverTab(),
+                const DriverProfileTab(),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: Container(
@@ -151,56 +167,52 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
         ),
         child: NavigationBar(
           selectedIndex: _currentIndex,
-          backgroundColor: Colors.white,
-          indicatorColor: AppColors.primary.withValues(alpha: 0.12),
           onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
           destinations: [
             const NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(
-                Icons.dashboard_rounded,
-                color: AppColors.primary,
-              ),
-              label: 'Trang chủ',
+              icon: Icon(Icons.today_outlined),
+              selectedIcon: Icon(Icons.today_rounded),
+              label: 'Hôm nay',
             ),
             NavigationDestination(
               icon: Badge(
                 isLabelVisible: activeOrdersCount > 0,
+                backgroundColor: AppColors.primary,
                 label: Text('$activeOrdersCount'),
-                backgroundColor: AppColors.accent,
                 child: const Icon(Icons.alt_route_rounded),
               ),
               selectedIcon: Badge(
                 isLabelVisible: activeOrdersCount > 0,
+                backgroundColor: AppColors.primary,
                 label: Text('$activeOrdersCount'),
-                backgroundColor: AppColors.accent,
-                child: const Icon(
-                  Icons.alt_route_rounded,
-                  color: AppColors.primary,
-                ),
+                child: const Icon(Icons.alt_route_rounded),
               ),
               label: 'Lộ trình',
             ),
             const NavigationDestination(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              selectedIcon: Icon(
-                Icons.account_balance_wallet_rounded,
-                color: AppColors.primary,
-              ),
+              icon: Icon(Icons.receipt_long_outlined),
+              selectedIcon: Icon(Icons.receipt_long_rounded),
               label: 'Thu nhập',
             ),
-            const NavigationDestination(
-              icon: Icon(Icons.payments_outlined),
-              selectedIcon: Icon(
-                Icons.payments_rounded,
-                color: AppColors.primary,
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: pendingCodCount > 0,
+                backgroundColor: AppColors.accent,
+                label: Text('$pendingCodCount'),
+                child: const Icon(Icons.payments_outlined),
               ),
-              label: 'COD',
+              selectedIcon: Badge(
+                isLabelVisible: pendingCodCount > 0,
+                backgroundColor: AppColors.accent,
+                label: Text('$pendingCodCount'),
+                child: const Icon(Icons.payments_rounded),
+              ),
+              label: 'Bàn giao',
             ),
             const NavigationDestination(
-              icon: Icon(Icons.badge_outlined),
-              selectedIcon: Icon(Icons.badge_rounded, color: AppColors.primary),
-              label: 'Hồ sơ & Ca',
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: 'Tài khoản',
             ),
           ],
         ),

@@ -1,36 +1,98 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Order } from '@/domain/entities/order.entity';
-import { OptimizationResult } from '@/domain/entities/routing.entity';
+import { DispatchDepot, OptimizationResult } from '@/domain/entities/routing.entity';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { routingRepository } from '@/infrastructure/repositories/routing.repository';
 
-// Default depot: SwiftRoute Hub — Ninh Kieu, Can Tho
-const DEFAULT_DEPOT = { lat: 10.0371, lng: 105.7828 };
+interface UseDispatchOptions {
+  fallbackDepot?: DispatchDepot | null;
+}
 
-export function useDispatch() {
+function pickupKey(order: Order) {
+  if (order.pickup_location_id) return order.pickup_location_id;
+  return `${order.pickup_lat.toFixed(5)}:${order.pickup_lng.toFixed(5)}:${order.pickup_address.trim().toLocaleLowerCase('vi-VN')}`;
+}
+
+function depotFromOrder(order: Order): DispatchDepot {
+  return {
+    lat: order.pickup_lat,
+    lng: order.pickup_lng,
+    name: order.pickup_location_name || 'Điểm lấy hàng',
+    address: order.pickup_address,
+    pickup_location_id: order.pickup_location_id,
+  };
+}
+
+export function useDispatch({ fallbackDepot = null }: UseDispatchOptions = {}) {
   const [selectedOrders, setSelectedOrders] = useState<Order[]>([]);
   const [algorithm, setAlgorithm] = useState<'auto' | 'ortools'>('auto');
   const [result, setResult] = useState<OptimizationResult | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
+
+  const depot = useMemo(
+    () => selectedOrders[0] ? depotFromOrder(selectedOrders[0]) : fallbackDepot,
+    [fallbackDepot, selectedOrders]
+  );
 
   const toggleOrder = useCallback((order: Order) => {
-    setSelectedOrders((prev) =>
-      prev.find((o) => o.id === order.id)
-        ? prev.filter((o) => o.id !== order.id)
-        : [...prev, order]
+    const alreadySelected = selectedOrders.some((selected) => selected.id === order.id);
+    if (alreadySelected) {
+      setSelectedOrders(selectedOrders.filter((selected) => selected.id !== order.id));
+      setResult(null);
+      setError(null);
+      setSelectionWarning(null);
+      return;
+    }
+
+    const firstOrder = selectedOrders[0];
+    if (firstOrder && pickupKey(firstOrder) !== pickupKey(order)) {
+      setSelectionWarning(`Đơn ${order.order_code} xuất phát từ kho khác. Hãy tối ưu từng kho trong một lượt riêng.`);
+      return;
+    }
+
+    setSelectedOrders([...selectedOrders, order]);
+    setResult(null);
+    setError(null);
+    setSelectionWarning(null);
+  }, [selectedOrders]);
+
+  const selectAll = useCallback((orders: Order[]) => {
+    if (orders.length === 0) return;
+    const reference = selectedOrders[0] || orders[0];
+    const compatible = orders.filter((order) => pickupKey(order) === pickupKey(reference));
+    setSelectedOrders(compatible);
+    setResult(null);
+    setError(null);
+    setSelectionWarning(
+      compatible.length < orders.length
+        ? `Đã chọn ${compatible.length} đơn cùng kho “${reference.pickup_location_name || reference.pickup_address}”. Các kho khác cần được tối ưu riêng.`
+        : null
     );
+  }, [selectedOrders]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedOrders([]);
+    setResult(null);
+    setError(null);
+    setSelectionWarning(null);
   }, []);
 
+  const isOrderSelectable = useCallback((order: Order) => {
+    if (selectedOrders.some((selected) => selected.id === order.id)) return true;
+    return selectedOrders.length === 0 || pickupKey(selectedOrders[0]) === pickupKey(order);
+  }, [selectedOrders]);
+
   const optimize = useCallback(async () => {
-    if (selectedOrders.length === 0) return;
+    if (selectedOrders.length === 0 || !depot) return;
     setIsOptimizing(true);
     setError(null);
     console.group('🚀 [SwiftRoute Dispatch] BẮT ĐẦU TỐI ƯU HÓA TUYẾN ĐƯỜNG');
-    console.log('📍 [Bước 1/4] Điểm xuất phát (Depot):', DEFAULT_DEPOT);
+    console.log('📍 [Bước 1/4] Điểm xuất phát:', depot);
     console.log(`📦 [Bước 2/4] Số đơn hàng được chọn: ${selectedOrders.length} đơn`, selectedOrders.map(o => ({
       code: o.order_code,
       address: o.delivery_address,
@@ -53,7 +115,7 @@ export function useDispatch() {
 
       console.log('📡 Đang gửi request tới Routing Engine (/api/routing/optimize/batch)...');
       const res = await routingRepository.optimize({
-        depot: DEFAULT_DEPOT,
+        depot: { lat: depot.lat, lng: depot.lng },
         stops,
         algorithm,
       });
@@ -78,7 +140,7 @@ export function useDispatch() {
       console.groupEnd();
       setIsOptimizing(false);
     }
-  }, [selectedOrders, algorithm]);
+  }, [selectedOrders, algorithm, depot]);
 
   const assignToDriver = useCallback(
     async (driverInput: string | string[]) => {
@@ -136,10 +198,14 @@ export function useDispatch() {
     isOptimizing,
     isAssigning,
     error,
+    selectionWarning,
     toggleOrder,
+    selectAll,
+    clearSelection,
+    isOrderSelectable,
     optimize,
     assignToDriver,
-    depot: DEFAULT_DEPOT,
+    depot,
   };
 }
 

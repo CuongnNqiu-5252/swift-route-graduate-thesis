@@ -11,7 +11,9 @@ import {
 import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-setWorkerUrl(new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).toString());
+if (typeof window !== 'undefined') {
+  setWorkerUrl('/maplibre-gl-worker.mjs');
+}
 
 export interface LocationMapPickerProps {
   lat: number;
@@ -29,7 +31,7 @@ interface Prediction {
 
 function createMarkerElement() {
   const element = document.createElement('div');
-  element.setAttribute('aria-label', 'Điểm giao đã chọn');
+  element.setAttribute('aria-label', 'Điểm lấy hàng đã chọn');
   element.style.width = '24px';
   element.style.height = '24px';
   element.style.borderRadius = '50% 50% 50% 0';
@@ -45,6 +47,8 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
   const map = useRef<MapLibreMap | null>(null);
   const selectedMarker = useRef<MapLibreMarker | null>(null);
   const latestCoordinates = useRef({ lat, lng });
+  const onChangeRef = useRef(onChange);
+  const onResolvingChangeRef = useRef(onResolvingChange);
   const [query, setQuery] = useState(address ?? '');
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [searching, setSearching] = useState(false);
@@ -55,6 +59,11 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
   const generatedId = useId();
   const sessionToken = useRef(generatedId);
   const mapKey = process.env.NEXT_PUBLIC_GOONG_MAP_KEY;
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+    onResolvingChangeRef.current = onResolvingChange;
+  }, [onChange, onResolvingChange]);
 
   useEffect(() => {
     latestCoordinates.current = { lat, lng };
@@ -70,21 +79,21 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
     setResolving(true);
     setError(null);
     setQuery('');
-    onChange(nextLat, nextLng);
-    onResolvingChange?.(true);
+    onChangeRef.current(nextLat, nextLng);
+    onResolvingChangeRef.current?.(true);
     try {
       const response = await fetch(`/api/maps/reverse?lat=${nextLat}&lng=${nextLng}`);
       const body = await response.json() as { address?: string; error?: string };
       if (!response.ok || !body.address) throw new Error(body.error || 'Không xác định được địa chỉ.');
       setQuery(body.address);
-      onChange(nextLat, nextLng, body.address);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không xác định được địa chỉ.');
+      onChangeRef.current(nextLat, nextLng, body.address);
+    } catch {
+      setError('Đã chọn tọa độ, nhưng Goong chưa trả về địa chỉ. Hãy nhập địa chỉ chi tiết thủ công trước khi lưu.');
     } finally {
       setResolving(false);
-      onResolvingChange?.(false);
+      onResolvingChangeRef.current?.(false);
     }
-  }, [onChange, onResolvingChange]);
+  }, []);
 
   useEffect(() => {
     if (!mapContainer.current || map.current || !mapKey) return;
@@ -160,7 +169,7 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
       if (!response.ok || body.lat == null || body.lng == null) throw new Error(body.error || 'Không lấy được vị trí đã chọn.');
       const resolvedAddress = body.address || prediction.description;
       setQuery(resolvedAddress);
-      onChange(body.lat, body.lng, resolvedAddress);
+      onChangeRef.current(body.lat, body.lng, resolvedAddress);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không lấy được vị trí đã chọn.');
     } finally {
@@ -194,7 +203,7 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
       </div>
       <button type="button" onClick={useCurrentLocation} title="Dùng vị trí hiện tại" aria-label="Dùng vị trí hiện tại" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><LocateFixed className="h-4 w-4"/></button>
     </div>
-    {mapKey ? <div ref={mapContainer} className="h-80 w-full" aria-label="Bản đồ chọn điểm giao" /> : <div className="flex h-80 items-center justify-center px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>}
+    {mapKey ? <div ref={mapContainer} className="h-80 w-full" aria-label="Bản đồ chọn điểm lấy hàng" /> : <div className="flex h-80 items-center justify-center px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>}
     <div className="flex min-h-10 items-center justify-between gap-3 border-t border-slate-200 bg-white px-3 py-2 text-xs">
       <span className={error || mapError ? 'text-rose-700' : 'text-slate-600'}>{error || mapError || (resolving ? 'Đang lấy địa chỉ từ vị trí đã chọn…' : 'Nhấp hoặc kéo ghim; địa chỉ và tọa độ sẽ tự cập nhật.')}</span>
       <span className="shrink-0 tabular-nums text-slate-500">{lat.toFixed(6)}, {lng.toFixed(6)}</span>

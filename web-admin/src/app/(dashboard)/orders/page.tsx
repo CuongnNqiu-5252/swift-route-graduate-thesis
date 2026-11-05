@@ -15,7 +15,7 @@ import { useOrderLiveTracking } from '@/application/hooks/use-order-live-trackin
 
 const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
   { label: 'Tất cả' },
-  { label: 'Chờ điều phối', value: 'PAID' },
+  { label: 'Chờ điều phối', value: 'READY_FOR_DISPATCH' },
   { label: 'Đang giao', value: 'IN_TRANSIT' },
   { label: 'Đã hoàn thành', value: 'DELIVERED' },
   { label: 'Sự cố / Thất bại', value: 'FAILED' },
@@ -24,19 +24,10 @@ const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
 
 export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState<OrderStatus | undefined>(undefined);
-  const { orders, isLoading, refetch, updateStatus, cancelOrder } = useOrders(activeTab);
+  const { orders, isLoading, refetch, cancelOrder } = useOrders(activeTab);
   const [showCreate,setShowCreate]=useState(false); const [selectedId,setSelectedId]=useState('');
   const selected=orders.find(order=>order.id===selectedId) || orders[0];
   const tracking = useOrderLiveTracking(selected?.id, selected?.assigned_driver_id);
-
-  const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus) => {
-    try {
-      await updateStatus(orderId, newStatus);
-      toast.success('Cập nhật trạng thái đơn thành công');
-    } catch {
-      toast.error('Lỗi khi cập nhật trạng thái');
-    }
-  };
 
   const handleCancelOrder = async (orderId: string, reason?: string) => {
     try {
@@ -108,7 +99,6 @@ export default function OrdersPage() {
           <OrderTable
             orders={orders}
             isLoading={isLoading}
-            onUpdateStatus={handleUpdateStatus}
             onCancelOrder={handleCancelOrder}
           />
         </CardContent>

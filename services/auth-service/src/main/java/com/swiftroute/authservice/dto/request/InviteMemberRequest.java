@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotNull;
 
 public record InviteMemberRequest(
         @NotBlank @Email String email,
-        @NotNull TenantMembershipRole role) {
+        @NotNull TenantMembershipRole role,
+        java.util.UUID driverId) {
+    public InviteMemberRequest(String email, TenantMembershipRole role) { this(email, role, null); }
 }
 

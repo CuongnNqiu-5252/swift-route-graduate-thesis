@@ -13,8 +13,9 @@ import '../providers/auth_provider.dart';
 
 enum RegisterRole { customer, driver }
 
-final _selectedRegisterRoleProvider =
-    StateProvider<RegisterRole>((_) => RegisterRole.customer);
+final _selectedRegisterRoleProvider = StateProvider<RegisterRole>(
+  (_) => RegisterRole.customer,
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RegisterScreen
@@ -94,7 +95,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
       return;
     }
 
-    final success = await ref.read(authProvider.notifier).register(
+    final success = await ref
+        .read(authProvider.notifier)
+        .register(
           _emailController.text.trim(),
           _passwordController.text,
           _nameController.text.trim(),
@@ -174,7 +177,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                   onTogglePassword: () =>
                       setState(() => _obscurePassword = !_obscurePassword),
                   onToggleConfirmPassword: () => setState(
-                      () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                    () => _obscureConfirmPassword = !_obscureConfirmPassword,
+                  ),
                   onToggleAgreeTerms: (val) =>
                       setState(() => _agreeTerms = val ?? false),
                   onRegister: _handleRegister,
@@ -247,8 +251,8 @@ class _RegisterHeroSection extends ConsumerWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    AppColors.primary.withOpacity(0),
-                    AppColors.primary.withOpacity(0.85),
+                    AppColors.primary.withValues(alpha: 0),
+                    AppColors.primary.withValues(alpha: 0.85),
                   ],
                 ),
               ),
@@ -341,9 +345,9 @@ class _RegisterRolePillToggle extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.18),
+        color: Colors.white.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(100),
-        border: Border.all(color: Colors.white.withOpacity(0.3)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -392,7 +396,9 @@ class _RegisterPillOption extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: isActive ? AppColors.primary : Colors.white.withOpacity(0.85),
+            color: isActive
+                ? AppColors.primary
+                : Colors.white.withValues(alpha: 0.85),
           ),
         ),
       ),
@@ -419,7 +425,7 @@ class _RegisterBadgeChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(100),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -837,7 +843,7 @@ class _RegisterPrimaryButton extends StatelessWidget {
         onPressed: isLoading ? null : onTap,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
-          disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.5),
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -933,11 +939,7 @@ class _RegisterGoogleButton extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
-            FaIcon(
-              FontAwesomeIcons.google,
-              size: 18,
-              color: Color(0xFFEA4335),
-            ),
+            FaIcon(FontAwesomeIcons.google, size: 18, color: Color(0xFFEA4335)),
             SizedBox(width: 10),
             Text(
               'Continue with Google',

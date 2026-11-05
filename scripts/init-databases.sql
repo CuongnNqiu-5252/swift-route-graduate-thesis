@@ -1,5 +1,5 @@
 -- ==============================================================================
--- SwiftRoute: Initialize All 6 Microservice Databases on Container Startup
+-- SwiftRoute: Initialize All 4 Microservice Databases on Container Startup
 -- ==============================================================================
 
 SELECT 'CREATE DATABASE auth_db WITH OWNER openpg ENCODING ''UTF8'''
@@ -10,12 +10,6 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'order_db')\gexec
 
 SELECT 'CREATE DATABASE driver_db WITH OWNER openpg ENCODING ''UTF8'''
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'driver_db')\gexec
-
-SELECT 'CREATE DATABASE payment_db WITH OWNER openpg ENCODING ''UTF8'''
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'payment_db')\gexec
-
-SELECT 'CREATE DATABASE routing_db WITH OWNER openpg ENCODING ''UTF8'''
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'routing_db')\gexec
 
 SELECT 'CREATE DATABASE notification_db WITH OWNER openpg ENCODING ''UTF8'''
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'notification_db')\gexec

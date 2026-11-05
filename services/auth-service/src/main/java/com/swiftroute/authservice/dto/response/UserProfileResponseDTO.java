@@ -13,7 +13,8 @@ public record UserProfileResponseDTO(
                 String email,
                 String phone,
                 String fullName,
-                Role role,
+                Role accountRole,
+                String role,
                 UUID tenantId,
                 String status,
                 LocalDateTime createdAt, boolean emailVerified) {

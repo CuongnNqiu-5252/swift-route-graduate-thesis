@@ -7,6 +7,7 @@ export interface AuthUser {
   id: string;
   email: string;
   role: string;
+  accountRole?: string;
   name?: string;
   phone?: string;
   tenantId?: string | null;
@@ -41,6 +42,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         full_name?: string;
         fullName?: string;
         role: string;
+        account_role?: string;
+        accountRole?: string;
         tenant_id?: string | null;
         tenantId?: string | null;
         status?: string;
@@ -57,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: data.id,
         email: data.email,
         role: data.role,
+        accountRole: data.account_role || data.accountRole,
         name: data.full_name || data.fullName || data.email,
         phone: data.phone,
         tenantId: localStorage.getItem('tenant_id') ?? data.tenant_id ?? data.tenantId ?? null,

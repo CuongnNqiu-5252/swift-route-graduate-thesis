@@ -45,6 +45,11 @@ public enum ErrorCode {
     OWNER_NOT_ACTIVE(400, "Chủ doanh nghiệp không tồn tại hoặc không hoạt động", HttpStatus.BAD_REQUEST),
     AUTH_SERVICE_UNAVAILABLE(503, "Không thể xác minh chủ doanh nghiệp vào lúc này", HttpStatus.SERVICE_UNAVAILABLE),
 
+    // ===== Lỗi nghiệp vụ Dispatch Plan =====
+    PLAN_NOT_FOUND(404, "Không tìm thấy kế hoạch điều phối", HttpStatus.NOT_FOUND),
+    INVALID_PLAN_STATUS(400, "Trạng thái kế hoạch không hợp lệ hoặc không thể chuyển đổi", HttpStatus.BAD_REQUEST),
+    PLAN_ALREADY_CANCELLED(400, "Kế hoạch điều phối đã bị huỷ, không thể cập nhật", HttpStatus.BAD_REQUEST),
+
     // ===== Lỗi nghiệp vụ Pickup Locations =====
     PICKUP_LOCATION_NOT_FOUND(404, "Điểm lấy hàng không tồn tại hoặc không thuộc doanh nghiệp của bạn", HttpStatus.NOT_FOUND),
     PICKUP_LOCATION_INACTIVE(400, "Điểm lấy hàng đang ngừng hoạt động", HttpStatus.BAD_REQUEST),

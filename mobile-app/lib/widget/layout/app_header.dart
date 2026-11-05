@@ -39,7 +39,7 @@ class Header extends StatelessWidget implements PreferredSizeWidget {
               ),
               child: const Center(child: FlutterLogo(size: 24)),
             ),
-            const Expanded(child: const SizedBox(width: 12)),
+            const Expanded(child: SizedBox(width: 12)),
 
             const SizedBox(width: 12),
 

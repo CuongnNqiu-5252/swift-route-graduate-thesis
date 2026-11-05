@@ -21,13 +21,13 @@ export async function requestGoong(path: string, params: URLSearchParams) {
   return response.json() as Promise<Record<string, unknown>>;
 }
 
-export function goongErrorResponse(error: unknown) {
+export function goongErrorResponse(error: unknown, fallbackMessage = 'Không thể xác định địa chỉ từ Goong. Vui lòng thử lại hoặc nhập địa chỉ thủ công.') {
   const isConfigurationError = error instanceof GoongConfigurationError;
   return Response.json(
     {
       error: isConfigurationError
         ? error.message
-        : 'Không thể xác định địa chỉ từ Goong. Vui lòng thử lại hoặc nhập địa chỉ thủ công.',
+        : fallbackMessage,
     },
     { status: isConfigurationError ? 503 : 502 },
   );

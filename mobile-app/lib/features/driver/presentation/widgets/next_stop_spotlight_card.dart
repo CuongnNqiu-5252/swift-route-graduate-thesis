@@ -1,263 +1,433 @@
+// features/driver/presentation/widgets/next_stop_spotlight_card.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
+import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
+import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
+import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
-import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_detail_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-/// Spotlight card featuring the driver's current or immediate next stop (D02 / D06)
+/// Dominant "Next Action First" operational card on the Today screen.
+/// Consolidates batch route acceptance, 1-swipe grouped depot pickup, and direct map cockpit launch.
 class NextStopSpotlightCard extends ConsumerStatefulWidget {
   const NextStopSpotlightCard({super.key, required this.orders});
 
   final List<OrderModel> orders;
 
   @override
-  ConsumerState<NextStopSpotlightCard> createState() => _NextStopSpotlightCardState();
+  ConsumerState<NextStopSpotlightCard> createState() =>
+      _NextStopSpotlightCardState();
 }
 
 class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
-  Future<void> _advanceOrder(OrderModel order) => DriverStopDetailSheet.show(context, order: order, sequenceNumber: 1);
+  bool _isAcceptingBatch = false;
+
+  Future<void> _acceptAllAssigned(List<OrderModel> assigned) async {
+    setState(() => _isAcceptingBatch = true);
+    try {
+      await ref
+          .read(driverOrdersProvider.notifier)
+          .acceptAllAssigned(orderIds: assigned.map((o) => o.id).toList());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Không nhận được chuyến: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isAcceptingBatch = false);
+    }
+  }
+
+  Future<void> _swipeBatchPickup(List<OrderModel> depotGroup) async {
+    try {
+      await ref
+          .read(driverOrdersProvider.notifier)
+          .confirmBatchPickup(orderIds: depotGroup.map((o) => o.id).toList());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.success,
+          content: Text('Đã lấy ${depotGroup.length} đơn. Sẵn sàng đi giao!'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          content: Text('Không xác nhận được lấy hàng: $e'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // 1. Prioritize active IN_TRANSIT order
-    final inTransit = widget.orders.where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery).firstOrNull;
-    // 2. Otherwise next PLANNED order
-    final nextPlanned = widget.orders.where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.assigned || o.deliveryTaskStatus == DeliveryTaskStatus.accepted || o.deliveryTaskStatus == DeliveryTaskStatus.arrived || o.deliveryTaskStatus == DeliveryTaskStatus.pickedUp).firstOrNull;
+    final active = widget.orders
+        .where(
+          (o) =>
+              o.deliveryTaskStatus != DeliveryTaskStatus.completed &&
+              o.deliveryTaskStatus != DeliveryTaskStatus.cancelled &&
+              o.deliveryTaskStatus != DeliveryTaskStatus.failed,
+        )
+        .toList();
 
-    final targetOrder = inTransit ?? nextPlanned;
+    if (active.isEmpty) {
+      final completedCount = widget.orders
+          .where(
+            (o) =>
+                o.status == OrderStatus.delivered ||
+                o.deliveryTaskStatus == DeliveryTaskStatus.completed,
+          )
+          .length;
+      return EmptyStateCard(
+        icon: completedCount > 0
+            ? Icons.task_alt_rounded
+            : Icons.route_outlined,
+        title: completedCount > 0
+            ? 'Đã hoàn thành $completedCount điểm giao hôm nay'
+            : 'Chưa có điểm dừng nào đang mở',
+        message:
+            'Giữ trạng thái Trực tuyến để nhận lộ trình mới từ trung tâm điều phối.',
+      );
+    }
 
-    if (targetOrder == null) {
-      final totalCompleted = widget.orders.where((o) => o.status == OrderStatus.delivered).length;
+    // Case 1: Unaccepted ASSIGNED tasks -> 1-Tap Batch Start Route!
+    final unaccepted = active
+        .where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.assigned)
+        .toList();
+    if (unaccepted.isNotEmpty &&
+        active.every((o) => o.needsPickup || o.isReturnTask)) {
+      final totalPackages = unaccepted.fold<int>(
+        0,
+        (sum, item) => sum + item.packageCount,
+      );
       return Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppColors.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.divider),
+          border: Border.all(color: AppColors.primaryBorder, width: 1.4),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.check_circle_outline_rounded, size: 48, color: AppColors.success),
+            Row(
+              children: [
+                StatusPill(
+                  label: '${unaccepted.length} đơn mới · $totalPackages kiện',
+                  foreground: AppColors.primary,
+                  background: AppColors.primarySoft,
+                  icon: Icons.bolt_rounded,
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Text(
-              totalCompleted > 0
-                  ? 'Chúc mừng! Bạn đã hoàn thành toàn bộ tuyến giao hôm nay ($totalCompleted đơn).'
-                  : 'Hiện tại chưa có điểm giao nào được phân công.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              'Chuyến giao tại ${unaccepted.first.pickupDisplayName}',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Hệ thống điều phối sẽ tự động cập nhật khi có đơn mới.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            Text(
+              unaccepted.first.pickupAddress,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13.5,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: FilledButton.icon(
+                onPressed: _isAcceptingBatch
+                    ? null
+                    : () => _acceptAllAssigned(unaccepted),
+                icon: _isAcceptingBatch
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.play_arrow_rounded, size: 22),
+                label: Text(
+                  _isAcceptingBatch
+                      ? 'Đang nhận chuyến…'
+                      : 'Bắt đầu chuyến (${unaccepted.length} đơn)',
+                ),
+              ),
             ),
           ],
         ),
       );
     }
 
-    final isInTransit = targetOrder.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery;
-    final badgeColor = isInTransit ? AppColors.accent : AppColors.primary;
-    final badgeText = (targetOrder.deliveryTaskStatus ?? DeliveryTaskStatus.assigned).displayName.toUpperCase();
-    const actionLabel = 'Mở thao tác';
-    const actionIcon = Icons.arrow_forward_rounded;
+    // Case 2: Prioritize active customer delivery first, else grouped depot pickup
+    final nextDelivery = active.where((o) => o.isOutForDelivery).firstOrNull;
+    if (nextDelivery != null) {
+      return _ActiveDeliverySpotlight(order: nextDelivery);
+    }
+
+    final firstPickup = active.where((o) => o.needsPickup).firstOrNull;
+    if (firstPickup != null) {
+      final depotGroup = active
+          .where(
+            (o) =>
+                o.needsPickup && o.pickupGroupKey == firstPickup.pickupGroupKey,
+          )
+          .toList();
+      final totalPackages = depotGroup.fold<int>(
+        0,
+        (sum, item) => sum + item.packageCount,
+      );
+
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.warningBorder, width: 1.4),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                StatusPill(
+                  label:
+                      'Trạm lấy hàng · ${depotGroup.length} đơn ($totalPackages kiện)',
+                  foreground: AppColors.warning,
+                  background: AppColors.warningSoft,
+                  icon: Icons.warehouse_rounded,
+                ),
+                const Spacer(),
+                PhoneCallButton(phone: firstPickup.senderPhone, compact: true),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              firstPickup.pickupDisplayName,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              firstPickup.pickupAddress,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13.5,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => DriverNavigationScreen(order: firstPickup),
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: AppColors.primarySoft,
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primaryBorder),
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                icon: const Icon(Icons.navigation_rounded, size: 18),
+                label: const Text('Mở Bản đồ Dẫn đường tới Kho'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SlideToConfirmButton(
+              label: depotGroup.length > 1
+                  ? 'Vuốt đã lấy $totalPackages kiện (${depotGroup.length} đơn)'
+                  : 'Vuốt xác nhận Đã lấy hàng',
+              backgroundColor: AppColors.accent,
+              icon: Icons.inventory_2_rounded,
+              onConfirmed: () => _swipeBatchPickup(depotGroup),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Case 3: Return-to-Sender task
+    final returnOrder = active.first;
+    return _ActiveDeliverySpotlight(order: returnOrder);
+  }
+}
+
+class _ActiveDeliverySpotlight extends StatelessWidget {
+  const _ActiveDeliverySpotlight({required this.order});
+
+  final OrderModel order;
+
+  @override
+  Widget build(BuildContext context) {
+    final isReturn = order.isReturnTask;
 
     return Container(
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: badgeColor.withValues(alpha: 0.3), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: badgeColor.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.primaryBorder, width: 1.4),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Spotlight Top Banner
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: badgeColor.withValues(alpha: 0.08),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+          Row(
+            children: [
+              StatusPill(
+                label: isReturn
+                    ? 'Hoàn hàng về kho'
+                    : 'Đang giao · ${order.displayCode}',
+                foreground: isReturn ? AppColors.error : AppColors.primary,
+                background: isReturn
+                    ? AppColors.errorSoft
+                    : AppColors.primarySoft,
+                icon: isReturn
+                    ? Icons.assignment_return_rounded
+                    : Icons.two_wheeler_rounded,
+              ),
+              const SizedBox(width: 8),
+              if (!isReturn) CodBadge(amount: order.codAmount),
+              const Spacer(),
+              PhoneCallButton(
+                phone: isReturn ? order.senderPhone : order.recipientPhone,
+                compact: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            isReturn
+                ? order.pickupDisplayName
+                : (order.recipientName?.isNotEmpty == true
+                      ? order.recipientName!
+                      : 'Điểm giao tiếp theo'),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      isInTransit ? Icons.directions_bike_rounded : Icons.next_plan_rounded,
-                      size: 16,
-                      color: badgeColor,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      badgeText,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: badgeColor,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isReturn ? order.pickupAddress : order.deliveryAddress,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.35,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(
+                Icons.schedule_rounded,
+                size: 15,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                'Khung giờ: ${AppFormatters.timeWindow(order.timeWindowStart, order.timeWindowEnd)}',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
                 ),
-                Text(
-                  '#${targetOrder.id.length > 8 ? targetOrder.id.substring(0, 8) : targetOrder.id}',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '${order.packageCount} kiện · ${order.weightKg.toStringAsFixed(1)} kg',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Primary Map Cockpit CTA + Direct Delivery Completion
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => DriverNavigationScreen(order: order),
+                ),
+              ),
+              icon: const Icon(Icons.navigation_rounded, size: 20),
+              label: const Text('Mở Bản đồ Dẫn đường & Giao hàng'),
+            ),
+          ),
+          if (!isReturn) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  flex: 4,
+                  child: OutlinedButton.icon(
+                    onPressed: () => DriverIncidentSheet.show(context, order),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: const BorderSide(color: AppColors.errorBorder),
+                      backgroundColor: AppColors.errorSoft,
+                    ),
+                    icon: const Icon(Icons.report_problem_outlined, size: 18),
+                    label: const Text('Sự cố'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 6,
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        DriverDeliveryPodSheet.show(context, order),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.success,
+                      side: const BorderSide(color: AppColors.successBorder),
+                      backgroundColor: AppColors.successSoft,
+                    ),
+                    icon: const Icon(
+                      Icons.check_circle_outline_rounded,
+                      size: 18,
+                    ),
+                    label: const Text('Giao xong ngay'),
+                  ),
                 ),
               ],
             ),
-          ),
-          // Stop details
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Địa chỉ giao hàng', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                          const SizedBox(height: 2),
-                          Text(
-                            targetOrder.deliveryAddress,
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Metadata chips: time window and weight
-                Row(
-                  children: [
-                    _InfoChip(
-                      icon: Icons.access_time_rounded,
-                      text: '${_formatTime(targetOrder.timeWindowStart)} - ${_formatTime(targetOrder.timeWindowEnd)}',
-                    ),
-                    const SizedBox(width: 8),
-                    _InfoChip(
-                      icon: Icons.scale_rounded,
-                      text: '${targetOrder.weightKg.toStringAsFixed(1)} kg',
-                    ),
-                    const SizedBox(width: 8),
-                    _InfoChip(
-                      icon: Icons.flag_rounded,
-                      text: targetOrder.priority,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // Actions
-                Row(
-                  children: [
-                    // Navigation Map button
-                    Expanded(
-                      flex: 4,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => DriverNavigationScreen(order: targetOrder),
-                          ),
-                        ),
-                        icon: const Icon(Icons.map_rounded, size: 16),
-                        label: const Text('Bản đồ'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: AppColors.divider),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Incident Report Button
-                    OutlinedButton(
-                      onPressed: () => DriverIncidentSheet.show(context, targetOrder),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                        side: const BorderSide(color: AppColors.error, width: 1.2),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      child: const Tooltip(
-                        message: 'Báo sự cố giao hàng',
-                        child: Icon(Icons.report_problem_outlined, color: AppColors.error, size: 18),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Advance status button
-                    Expanded(
-                      flex: 6,
-                      child: FilledButton.icon(
-                        onPressed: () => _advanceOrder(targetOrder),
-                        icon: const Icon(actionIcon, size: 16),
-                        label: Text(actionLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: badgeColor,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatTime(DateTime dt) {
-    final local = dt.toLocal();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: AppColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(text, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
+          ],
         ],
       ),
     );

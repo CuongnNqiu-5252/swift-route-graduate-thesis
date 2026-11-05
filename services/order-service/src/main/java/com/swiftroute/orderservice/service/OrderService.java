@@ -10,12 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.orderservice.config.TenantEventConfig;
-import com.swiftroute.orderservice.dto.request.AssignBatchRequest;
 import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
-import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
+import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OrderEventPayload;
 import com.swiftroute.orderservice.entity.OutboxEvent;
@@ -48,11 +47,8 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final TenantRepository tenantRepository;
     private final OutboxEventRepository outboxEventRepository;
-    private final TrackingSimulationService trackingSimulationService;
     private final RabbitTemplate rabbitTemplate;
-    private final com.swiftroute.orderservice.repository.ProcessedEventRepository processedEventRepository;
     private final PickupLocationRepository pickupLocationRepository;
-    private final DeliveryExecutionService deliveryExecutionService;
     @org.springframework.beans.factory.annotation.Autowired
     private OperationalReadinessService operationalReadiness;
 
@@ -63,7 +59,7 @@ public class OrderService {
      * - Không bắt buộc người nhận phải có tài khoản auth.
      * - Không bắt buộc chọn hàng hóa từ Product Catalog SKU.
      * - Tự động sinh mã tra cứu công khai tracking_token.
-     * - Trạng thái khởi tạo: PAID (hoặc sẵn sàng điều phối) để có thể lập kế hoạch tuyến đường ngay.
+     * - Trạng thái khởi tạo: PAID (sẵn sàng điều phối) để có thể lập kế hoạch tuyến đường ngay.
      *
      * @param request            DTO tạo vận đơn
      * @param creatorUserId      UUID người tạo (nhân viên/chủ shop, lấy từ header X-User-Id)
@@ -244,14 +240,6 @@ public class OrderService {
     }
 
     /**
-     * Lấy danh sách đơn hàng cho người dùng hiện tại (trả về danh sách rỗng nếu không phải consumer).
-     */
-    @Transactional(readOnly = true)
-    public List<OrderResponse> getMyOrders(UUID userId) {
-        return List.of();
-    }
-
-    /**
      * Lấy danh sách đơn hàng của Tenant (quản lý đơn trên dashboard doanh nghiệp).
      */
     @Transactional(readOnly = true)
@@ -361,92 +349,6 @@ public class OrderService {
         return OrderResponse.fromEntity(saved);
     }
 
-    /**
-     * Xác nhận thanh toán trực tuyến thành công cho đơn hàng.
-     */
-    @Transactional
-    public OrderResponse confirmPayment(UUID orderId, UUID requesterId, String requesterRole) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
-
-        OrderStatus previousStatus = order.getStatus();
-        if (previousStatus != OrderStatus.PENDING_PAYMENT) {
-            log.warn("Order {} cannot be confirmed: current status is {}", orderId, previousStatus);
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-
-        order.setStatus(OrderStatus.PAID);
-        order.setPaymentStatus("PAID");
-        order.setFulfillmentStatus("READY_FOR_PLANNING");
-        order.setUpdatedAt(Instant.now());
-
-        Order saved = orderRepository.save(order);
-        emitOrderStatusEvent(saved, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID);
-        log.info("Order {} payment confirmed by user {}", orderId, requesterId);
-
-        return OrderResponse.fromEntity(saved);
-    }
-
-    /**
-     * Lắng nghe sự kiện payment.completed từ Payment Service.
-     */
-    @Transactional
-    public void markPaidFromPaymentEvent(UUID orderId, UUID paymentId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
-
-        if (order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.PLANNED) {
-            log.info("Order {} already in paid/planned state, skipping payment event {}", orderId, paymentId);
-            return;
-        }
-
-        OrderStatus previous = order.getStatus();
-        order.setStatus(OrderStatus.PAID);
-        order.setPaymentStatus("PAID");
-        order.setFulfillmentStatus("READY_FOR_PLANNING");
-        order.setUpdatedAt(Instant.now());
-
-        Order saved = orderRepository.save(order);
-        emitOrderStatusEvent(saved, previous, OrderStatus.PAID);
-        log.info("Order {} marked PAID via payment.completed event {}", orderId, paymentId);
-    }
-
-    /**
-     * Gán tài xế hàng loạt sau khi kế hoạch điều phối được phê duyệt.
-     */
-    @Transactional
-    public List<OrderResponse> assignBatch(AssignBatchRequest request, UUID requesterId, String requesterRole) {
-        List<AssignBatchRequest.AssignmentItem> assignments = request.getEffectiveAssignments();
-        if (assignments.isEmpty()) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
-
-        log.info("Assigning batch of {} orders by requester {}", assignments.size(), requesterId);
-
-        return assignments.stream().map(item -> {
-            Order order = orderRepository.findById(item.orderId())
-                    .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
-
-            operationalReadiness.requireAssignment(order.getTenant(),item.driverId());
-            OrderStatus previous = order.getStatus();
-            order.setAssignedDriverId(item.driverId());
-            if (item.planId() != null) {
-                order.setPlanId(item.planId());
-            }
-            order.setStatus(OrderStatus.PLANNED);
-            order.setFulfillmentStatus("PLANNED");
-            order.setUpdatedAt(Instant.now());
-
-            Order saved = orderRepository.save(order);
-            deliveryExecutionService.assign(saved, item.driverId());
-            emitOrderStatusEvent(saved, previous, OrderStatus.PLANNED);
-            return OrderResponse.fromEntity(saved);
-        }).toList();
-    }
-
     private void emitOrderStatusEvent(Order order, OrderStatus previous, OrderStatus current) {
         UUID eventId = UUID.randomUUID();
         String eventType = "order.status_changed.v1";
@@ -490,45 +392,6 @@ public class OrderService {
             log.warn("Direct event publish to RabbitMQ failed for order {}, OutboxPublisher will retry: {}",
                     order.getId(), ex.getMessage());
         }
-    }
-
-    @Transactional
-    public void assignDriverFromDispatch(UUID orderId, UUID driverId) {
-        assignDriverFromDispatch(orderId, driverId, null, null);
-    }
-
-    @Transactional
-    public void assignDriverFromDispatch(UUID orderId, UUID driverId, UUID planId) {
-        assignDriverFromDispatch(orderId, driverId, planId, null);
-    }
-
-    @Transactional
-    public void assignDriverFromDispatch(UUID orderId, UUID driverId, UUID planId, UUID eventId) {
-        if (eventId != null) {
-            int inserted = processedEventRepository.insertIfNotExists(eventId, "OrderService_DispatchConsumer");
-            if (inserted == 0) {
-                log.info("Ignoring duplicate dispatch event {} for order {}", eventId, orderId);
-                return;
-            }
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
-
-        operationalReadiness.requireAssignment(order.getTenant(),driverId);
-        OrderStatus previous = order.getStatus();
-        order.setAssignedDriverId(driverId);
-        if (planId != null) {
-            order.setPlanId(planId);
-        }
-        order.setStatus(OrderStatus.PLANNED);
-        order.setFulfillmentStatus("PLANNED");
-        order.setUpdatedAt(Instant.now());
-
-        Order saved = orderRepository.save(order);
-        emitOrderStatusEvent(saved, previous, OrderStatus.PLANNED);
-        log.info("Order {} successfully assigned to driver {} via dispatch (planId={})", orderId, driverId, planId);
     }
 
     @Transactional

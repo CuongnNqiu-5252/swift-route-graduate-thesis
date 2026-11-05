@@ -23,5 +23,19 @@ export function useDrivers() {
     return created;
   };
 
-  return { drivers, isLoading, error, createDriver };
+  const reviewDriver = async (driverId: string, approved: boolean, note?: string) => {
+    const updated = await driverRepository.reviewDriver(driverId, approved, note);
+    setDrivers((current) => current.map((driver) => driver.id === driverId ? updated : driver));
+    return updated;
+  };
+
+  const refetch = async () => {
+    setIsLoading(true);
+    setError(null);
+    try { setDrivers(await driverRepository.getDrivers()); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Lỗi tải tài xế'); }
+    finally { setIsLoading(false); }
+  };
+
+  return { drivers, isLoading, error, createDriver, reviewDriver, refetch };
 }

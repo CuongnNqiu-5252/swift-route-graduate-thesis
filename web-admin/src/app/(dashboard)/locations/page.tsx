@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import LocationMapPicker from '@/components/locations/location-map-picker';
+import PickupLocationsMap from '@/components/locations/pickup-locations-map';
 
 const messageFrom = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
 
@@ -225,6 +226,29 @@ export default function PickupLocationsPage() {
           </button>
         </div>
       </div>
+
+      {locations.length > 0 && (
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white" aria-labelledby="locations-map-title">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+            <div>
+              <h2 id="locations-map-title" className="font-semibold text-slate-950">Bản đồ kho và điểm lấy hàng</h2>
+              <p className="mt-1 text-sm text-slate-500">Theo dõi toàn bộ địa điểm xuất phát đơn hàng của workspace trên cùng một bản đồ.</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
+              <span>{locations.filter((location) => location.status === 'ACTIVE').length} đang hoạt động</span>
+              <span>{locations.filter((location) => location.is_default).length > 0 ? 'Đã chọn điểm mặc định' : 'Chưa có điểm mặc định'}</span>
+            </div>
+          </div>
+          <div className="border-y border-slate-200">
+            <PickupLocationsMap locations={locations} />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3 text-xs text-slate-500">
+            <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" aria-hidden="true" />Đang hoạt động</span>
+            <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-slate-500" aria-hidden="true" />Ngừng hoạt động</span>
+            <span>Ghim lớn hơn là điểm lấy hàng mặc định.</span>
+          </div>
+        </section>
+      )}
 
       {/* Locations Table */}
       <Card>

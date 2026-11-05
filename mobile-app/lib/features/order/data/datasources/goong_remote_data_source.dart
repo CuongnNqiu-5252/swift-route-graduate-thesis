@@ -152,7 +152,8 @@ class GoongRemoteDataSource {
         description:
             'Đại học Cần Thơ, Đường 3 Tháng 2, Phường Xuân Khánh, Quận Ninh Kiều, Cần Thơ',
         mainText: 'Đại học Cần Thơ (Khu II)',
-        secondaryText: 'Đường 3 Tháng 2, Phường Xuân Khánh, Quận Ninh Kiều, Cần Thơ',
+        secondaryText:
+            'Đường 3 Tháng 2, Phường Xuân Khánh, Quận Ninh Kiều, Cần Thơ',
       ),
       const GoongPrediction(
         placeId: 'mock_3',
@@ -185,7 +186,8 @@ class GoongRemoteDataSource {
         return const GoongPlaceDetail(
           placeId: 'mock_1',
           name: 'Bến Ninh Kiều',
-          formattedAddress: 'Đường Hai Bà Trưng, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
+          formattedAddress:
+              'Đường Hai Bà Trưng, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
           lat: 10.0341,
           lng: 105.7876,
         );
@@ -202,7 +204,8 @@ class GoongRemoteDataSource {
         return const GoongPlaceDetail(
           placeId: 'mock_3',
           name: 'Vincom Plaza Xuân Khánh',
-          formattedAddress: '209 Đường 30 Tháng 4, Phường Xuân Khánh, Ninh Kiều, Cần Thơ',
+          formattedAddress:
+              '209 Đường 30 Tháng 4, Phường Xuân Khánh, Ninh Kiều, Cần Thơ',
           lat: 10.0279,
           lng: 105.7766,
         );
@@ -218,7 +221,8 @@ class GoongRemoteDataSource {
         return const GoongPlaceDetail(
           placeId: 'mock_default',
           name: 'Điểm giao hàng mẫu Cần Thơ',
-          formattedAddress: 'Đại lộ Hoà Bình, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
+          formattedAddress:
+              'Đại lộ Hoà Bình, Phường Tân An, Quận Ninh Kiều, Cần Thơ',
           lat: 10.0371,
           lng: 105.7828,
         );

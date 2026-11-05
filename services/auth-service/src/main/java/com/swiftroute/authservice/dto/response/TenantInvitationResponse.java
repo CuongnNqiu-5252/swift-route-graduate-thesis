@@ -10,6 +10,7 @@ import com.swiftroute.authservice.entity.enums.TenantMembershipRole;
 public record TenantInvitationResponse(
         UUID id,
         UUID tenantId,
+        UUID driverId,
         String email,
         TenantMembershipRole role,
         TenantInvitationStatus status,
@@ -21,6 +22,7 @@ public record TenantInvitationResponse(
         return new TenantInvitationResponse(
                 inv.getId(),
                 inv.getTenantId(),
+                inv.getDriverId(),
                 inv.getEmail(),
                 inv.getRole(),
                 inv.getStatus(),
@@ -29,4 +31,3 @@ public record TenantInvitationResponse(
                 inv.getCreatedAt());
     }
 }
-

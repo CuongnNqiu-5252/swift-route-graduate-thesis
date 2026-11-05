@@ -3,6 +3,12 @@ export interface LocationPoint {
   lng: number;
 }
 
+export interface DispatchDepot extends LocationPoint {
+  name: string;
+  address: string;
+  pickup_location_id?: string;
+}
+
 export interface OptimizationStop {
   id: string;
   location: LocationPoint;
@@ -49,3 +55,29 @@ export interface WhatIfResult {
   completion_delta_percent: number;
   late_risk_delta: number;
 }
+
+export type PlanStatus = 'DRAFT' | 'APPROVED' | 'DISPATCHED' | 'CANCELLED';
+
+export interface DispatchPlanRecord {
+  plan_id: string;
+  tenant_id: string;
+  plan_status: PlanStatus;
+  driver_id?: string | null;
+  algorithm_used?: string | null;
+  total_distance_km?: number | null;
+  estimated_duration_minutes?: number | null;
+  trigger_type?: string | null;
+  requires_approval?: boolean;
+  order_count: number;
+  ordered_stop_ids: string[];
+  planned_at?: string | null;
+  approved_at?: string | null;
+  dispatched_at?: string | null;
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
+  ack_deadline_at?: string | null;
+  acknowledged_at?: string | null;
+  route_waypoints?: string | null;
+  created_at: string;
+}
+

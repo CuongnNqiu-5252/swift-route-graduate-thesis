@@ -37,3 +37,9 @@ skills-lock.json
 tasks/
 data/
 *.db
+
+# Logs
+*.log
+**/*.log
+.impeccable/
+.codex/

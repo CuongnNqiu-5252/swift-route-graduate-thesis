@@ -19,7 +19,7 @@ export default function OrganizationsPage() {
   const { user, refreshProfile } = useAuth();
   const [memberships, setMemberships] = useState<Array<Membership & { business_name?: string }>>([]);
   const [provisioning, setProvisioning] = useState<ProvisioningState | null>(null);
-  const [pendingTenantId, setPendingTenantId] = useState<string | null>(null);
+  const [pendingTenantId, setPendingTenantId] = useState<string | null>(() => typeof window === 'undefined' ? null : sessionStorage.getItem(PENDING_TENANT_KEY));
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,8 +35,6 @@ export default function OrganizationsPage() {
       setMemberships(named);
     }).catch((e) => setError(e.message));
   }, []);
-
-  useEffect(() => { setPendingTenantId(sessionStorage.getItem(PENDING_TENANT_KEY)); }, []);
 
   useEffect(() => {
     const tenantId = pendingTenantId;
@@ -143,11 +141,10 @@ export default function OrganizationsPage() {
   const waitingForWorkspace = provisioning && provisioning.status !== 'READY';
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-950">Tổ chức của bạn</h1>
-        <p className="mt-1 text-sm text-gray-600">Chọn workspace đang có hoặc tạo doanh nghiệp mới để bắt đầu thiết lập.</p>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <header className="overflow-hidden rounded-2xl bg-slate-950 p-6 text-white sm:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-6"><div><p className="text-sm text-slate-400">SwiftRoute Workspace</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Không gian vận hành của bạn</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">Mỗi workspace tách riêng đơn hàng, tài xế, điểm lấy hàng và đối soát. Chọn một workspace để làm việc hoặc tạo doanh nghiệp mới.</p></div><div className="rounded-xl bg-white/10 px-5 py-4"><p className="text-xs text-slate-400">Workspace đang tham gia</p><p className="mt-1 text-3xl font-semibold tabular-nums">{memberships.length}</p></div></div>
+      </header>
 
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       {notice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
@@ -182,10 +179,10 @@ export default function OrganizationsPage() {
         </Card>
       )}
 
-      <div className="divide-y rounded-xl border border-gray-200 bg-white">
+      <section><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold text-slate-950">Workspace của tôi</h2><span className="text-xs text-slate-500">Chọn để chuyển ngữ cảnh dữ liệu</span></div><div className="grid gap-3 sm:grid-cols-2">
         {memberships.length === 0 && <p className="p-5 text-sm text-gray-600">Bạn chưa tham gia workspace nào.</p>}
         {memberships.map((membership) => (
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4" key={membership.tenant_id}>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4" key={membership.tenant_id}>
             <div className="min-w-0">
               <p className="truncate font-medium text-gray-950">{membership.business_name || `Workspace ${membership.tenant_id.slice(0, 8)}`}</p>
               <p className="mt-1 text-xs text-gray-500">{membership.role} · {membership.status}</p>
@@ -193,10 +190,10 @@ export default function OrganizationsPage() {
             <Button variant="outline" onClick={() => switchTenant(membership.tenant_id).catch((e) => setError(e.message))}>Mở workspace</Button>
           </div>
         ))}
-      </div>
+      </div></section>
 
       <Card>
-        <CardHeader><CardTitle>Tạo tổ chức</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Tạo workspace doanh nghiệp</CardTitle><p className="text-sm text-slate-600">Thông tin này mở đầu hồ sơ onboarding và có thể bổ sung ở bước tiếp theo.</p></CardHeader>
         <CardContent>
           <form onSubmit={create} className="space-y-4">
             <Input label="Tên doanh nghiệp" name="business_name" required minLength={2} maxLength={255}/>

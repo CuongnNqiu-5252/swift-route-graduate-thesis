@@ -1,30 +1,47 @@
+// features/driver/presentation/widgets/shift_stats_card.dart
+
 import 'package:flutter/material.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
+/// Operational shift progress strip with tabular numerals and remaining COD visibility.
 class ShiftStatsCard extends StatelessWidget {
-  const ShiftStatsCard({super.key, required this.orders});
+  const ShiftStatsCard({
+    super.key,
+    required this.orders,
+    this.pendingCodTotal = 0,
+  });
 
   final List<OrderModel> orders;
+  final double pendingCodTotal;
 
   @override
   Widget build(BuildContext context) {
     final total = orders.length;
-    final inTransit = orders
-        .where((o) => o.status == OrderStatus.inTransit)
+    final completed = orders
+        .where(
+          (o) =>
+              o.status == OrderStatus.delivered ||
+              o.deliveryTaskStatus == DeliveryTaskStatus.completed,
+        )
         .length;
-    final planned = orders.where((o) => o.status == OrderStatus.planned).length;
-    final delivered = orders
-        .where((o) => o.status == OrderStatus.delivered)
+    final remaining = orders
+        .where(
+          (o) =>
+              o.deliveryTaskStatus != DeliveryTaskStatus.completed &&
+              o.deliveryTaskStatus != DeliveryTaskStatus.cancelled &&
+              o.deliveryTaskStatus != DeliveryTaskStatus.failed,
+        )
         .length;
-    final failed = orders.where((o) => o.status == OrderStatus.failed).length;
-    final completionRate = total > 0 ? delivered / total : 0.0;
+    final progress = total > 0 ? completed / total : 0.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.divider),
       ),
       child: Column(
@@ -34,13 +51,17 @@ class ShiftStatsCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Tổng quan ca giao hôm nay',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                'Tiến độ ca hôm nay',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
               ),
               Text(
-                '${(completionRate * 100).round()}% hoàn tất',
-                style: const TextStyle(
-                  fontSize: 11,
+                '$completed/$total điểm hoàn tất',
+                style: AppTheme.numStyle(
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                   color: AppColors.primary,
                 ),
@@ -49,11 +70,11 @@ class ShiftStatsCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
-              value: completionRate,
-              minHeight: 6,
-              backgroundColor: AppColors.surfaceVariant,
+              value: progress,
+              minHeight: 7,
+              backgroundColor: AppColors.surface,
               valueColor: const AlwaysStoppedAnimation<Color>(
                 AppColors.success,
               ),
@@ -62,105 +83,59 @@ class ShiftStatsCard extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              _MetricItem(
-                label: 'Tổng đơn',
-                value: '$total',
-                icon: Icons.inventory_2_outlined,
-                color: AppColors.primary,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Còn lại trên xe',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$remaining điểm dừng',
+                      style: AppTheme.numStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(width: 8),
-              _MetricItem(
-                label: 'Đang giao',
-                value: '$inTransit',
-                icon: Icons.delivery_dining_rounded,
-                color: AppColors.accent,
-              ),
-              const SizedBox(width: 8),
-              _MetricItem(
-                label: 'Chờ giao',
-                value: '$planned',
-                icon: Icons.schedule_rounded,
-                color: Colors.blue.shade700,
-              ),
-              const SizedBox(width: 8),
-              _MetricItem(
-                label: 'Đã giao',
-                value: '$delivered',
-                icon: Icons.task_alt_rounded,
-                color: AppColors.success,
+              Container(width: 1, height: 32, color: AppColors.divider),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Tiền mặt COD đang giữ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      AppFormatters.currency(pendingCodTotal),
+                      style: AppTheme.numStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: pendingCodTotal > 0
+                            ? AppColors.warning
+                            : AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          if (failed > 0) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(
-                  Icons.error_outline_rounded,
-                  size: 15,
-                  color: AppColors.error,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '$failed đơn giao không thành công',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.error,
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
   }
-}
-
-class _MetricItem extends StatelessWidget {
-  const _MetricItem({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            style: const TextStyle(
-              fontSize: 10,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }

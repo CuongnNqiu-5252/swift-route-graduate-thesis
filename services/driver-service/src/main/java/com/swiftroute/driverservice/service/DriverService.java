@@ -49,7 +49,9 @@ public class DriverService {
             throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
         }
 
-        if (driverRepository.existsByLicensePlate(request.licensePlate())) {
+        String plate = request.licensePlate() == null || request.licensePlate().isBlank()
+                ? null : request.licensePlate().trim().toUpperCase(java.util.Locale.ROOT);
+        if (plate != null && driverRepository.existsByLicensePlate(plate)) {
             throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
         }
 
@@ -58,14 +60,14 @@ public class DriverService {
                 .userId(request.userId())
                 .fullName(request.fullName())
                 .phone(request.phone())
-                .licensePlate(request.licensePlate())
+                .licensePlate(plate)
                 .vehicleType(request.vehicleType())
                 .capacity(request.capacity())
                 .driverType(request.driverType())
                 .shiftStart(request.shiftStart())
                 .shiftEnd(request.shiftEnd())
-                .status(DriverStatus.ACTIVE)
-                .isAvailable(true)
+                .status(DriverStatus.INACTIVE)
+                .isAvailable(false)
                 .build();
 
         driver = driverRepository.save(driver);
@@ -90,7 +92,7 @@ public class DriverService {
     public DriverResponse getMyProfile(UUID userId) {
         Driver driver = driverRepository.findByUserId(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
     }
 
     @Transactional(readOnly = true)
@@ -104,15 +106,15 @@ public class DriverService {
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
 
-        if (java.util.Set.of("ADMIN","SYSTEM_ADMIN").contains(requesterRole)) {
-            return DriverResponse.fromEntity(driver);
+        if (java.util.Set.of("ADMIN", "SYSTEM_ADMIN").contains(requesterRole)) {
+            return toResponse(driver);
         }
 
         if (List.of("OPS_STAFF", "OWNER", "TENANT_ADMIN").contains(requesterRole)) {
             if (requesterTenantId != null && !driver.getTenantId().equals(requesterTenantId)) {
                 throw new AppException(ErrorCode.ACCESS_DENIED);
             }
-            return DriverResponse.fromEntity(driver);
+            return toResponse(driver);
         }
 
         boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
@@ -121,7 +123,7 @@ public class DriverService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
     }
 
     @Transactional(readOnly = true)
@@ -129,12 +131,12 @@ public class DriverService {
         Driver driver = driverRepository.findById(driverId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
-        return DriverPublicResponse.fromEntity(driver);
+        return toPublicResponse(driver);
     }
 
     @Transactional(readOnly = true)
     public DriverPublicResponse getDriverPublicInfoByUserId(UUID userId) {
-        return DriverPublicResponse.fromEntity(driverRepository.findByUserId(userId)
+        return toPublicResponse(driverRepository.findByUserId(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND)));
     }
 
@@ -146,7 +148,7 @@ public class DriverService {
 
         com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(tenantId);
         return driverRepository.findAllByTenantId(tenantId).stream()
-                .map(DriverResponse::fromEntity)
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -160,7 +162,7 @@ public class DriverService {
             drivers = driverRepository.findAll();
         }
         return drivers.stream()
-                .map(DriverResponse::fromEntity)
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -168,7 +170,8 @@ public class DriverService {
     public List<DriverResponse> getAvailableDriversByTenant(UUID tenantId) {
         com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(tenantId);
         return driverRepository.findAllByTenantIdAndIsAvailableTrue(tenantId).stream()
-                .map(DriverResponse::fromEntity)
+                .filter(this::isOperationallyReady)
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
@@ -183,6 +186,7 @@ public class DriverService {
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
 
+        if (request.fullName() != null && request.fullName().isBlank()) throw new AppException(ErrorCode.VALIDATION_ERROR);
         if (request.fullName() != null)
             driver.setFullName(request.fullName());
         if (request.phone() != null && !request.phone().equals(driver.getPhone())) {
@@ -208,7 +212,12 @@ public class DriverService {
         if (request.shiftEnd() != null)
             driver.setShiftEnd(request.shiftEnd());
 
-        return DriverResponse.fromEntity(driverRepository.save(driver));
+        if (driver.getStatus() != DriverStatus.SUSPENDED) driver.setStatus(DriverStatus.INACTIVE);
+        driver.setIsAvailable(false);
+        driver.setReviewNote(null);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
     }
 
     @Transactional
@@ -251,6 +260,9 @@ public class DriverService {
             throw new AppException(ErrorCode.DRIVER_SUSPENDED);
         }
 
+        if (Boolean.TRUE.equals(request.isAvailable()) && !isOperationallyReady(driver)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         driver.setIsAvailable(request.isAvailable());
         driver = driverRepository.save(driver);
 
@@ -267,7 +279,7 @@ public class DriverService {
                 )
         );
 
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
     }
 
     @Transactional
@@ -286,6 +298,9 @@ public class DriverService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
+        if (Boolean.TRUE.equals(request.isAvailable()) && !isOperationallyReady(driver)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         driver.setIsAvailable(request.isAvailable());
         driver = driverRepository.save(driver);
 
@@ -302,7 +317,7 @@ public class DriverService {
                 )
         );
 
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
     }
 
     @Transactional
@@ -332,7 +347,7 @@ public class DriverService {
 
     @Transactional
     public DriverResponse changeStatus(UUID driverId, DriverStatus newStatus, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
+        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OWNER").contains(requesterRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
@@ -340,8 +355,12 @@ public class DriverService {
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
 
+        if (newStatus == DriverStatus.ACTIVE && (!hasCompleteLinkedProfile(driver)
+                || driver.getStatus() != DriverStatus.PENDING_APPROVAL)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         driver.setStatus(newStatus);
-        if (newStatus == DriverStatus.SUSPENDED || newStatus == DriverStatus.INACTIVE) {
+        if (newStatus != DriverStatus.ACTIVE) {
             driver.setIsAvailable(false);
         }
 
@@ -360,7 +379,79 @@ public class DriverService {
                 )
         );
 
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
+    }
+
+    @Transactional
+    public DriverResponse completeMyProfile(UUID userId, UpdateDriverRequest request) {
+        Driver driver = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        if (driver.getStatus() == DriverStatus.SUSPENDED) throw new AppException(ErrorCode.ACCESS_DENIED);
+        // Reuse duplicate validation; self identity is resolved from the authenticated principal.
+        updateDriver(driver.getId(), request, userId, "OWNER");
+        driver.setStatus(DriverStatus.INACTIVE);
+        driver.setIsAvailable(false);
+        driver.setReviewNote(null);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
+    }
+
+    @Transactional
+    public DriverResponse submitMyProfile(UUID userId) {
+        Driver driver = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        if (driver.getStatus() == DriverStatus.SUSPENDED || !hasCompleteLinkedProfile(driver)) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (driver.getStatus() == DriverStatus.ACTIVE || driver.getStatus() == DriverStatus.PENDING_APPROVAL) {
+            return toResponse(driver);
+        }
+        driver.setStatus(DriverStatus.PENDING_APPROVAL);
+        driver.setIsAvailable(false);
+        driver.setReviewNote(null);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
+    }
+
+    @Transactional
+    public DriverResponse reviewProfile(UUID driverId, boolean approved, String note, UUID requesterId, String role) {
+        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OWNER").contains(role)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        Driver driver = driverRepository.findById(driverId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
+        if (driver.getStatus() != DriverStatus.PENDING_APPROVAL || (approved && !hasCompleteLinkedProfile(driver))) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (!approved && (note == null || note.isBlank())) throw new AppException(ErrorCode.VALIDATION_ERROR);
+        driver.setStatus(approved ? DriverStatus.ACTIVE : DriverStatus.INACTIVE);
+        driver.setReviewNote(note == null ? null : note.trim());
+        driver.setIsAvailable(false);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
+    }
+
+    private void publishAvailability(Driver driver) {
+        saveOutboxEvent("DRIVER", driver.getId(), "driver.availability_changed.v1",
+                new DriverAvailabilityEventPayload(driver.getId(), driver.getTenantId(), driver.getUserId(),
+                        driver.getIsAvailable(), Instant.now()));
+    }
+
+    private boolean hasCompleteLinkedProfile(Driver driver) {
+        return driver.getUserId() != null
+                && driver.getFullName() != null && !driver.getFullName().isBlank()
+                && driver.getPhone() != null && driver.getPhone().matches("^\\+?[0-9]{9,15}$")
+                && driver.getLicensePlate() != null && !driver.getLicensePlate().isBlank()
+                && driver.getVehicleType() != null
+                && driver.getCapacity() != null && driver.getCapacity() > 0;
+    }
+
+    private boolean isOperationallyReady(Driver driver) {
+        return driver.getStatus() == DriverStatus.ACTIVE && hasCompleteLinkedProfile(driver);
     }
 
     private void saveOutboxEvent(String aggregateType, UUID aggregateId, String eventType, Object payload) {
@@ -370,14 +461,11 @@ public class DriverService {
     private DriverResponse updateLocationState(Driver driver, UpdateLocationRequest request) {
         if (!locationCache.accept(driver, request)) {
             log.debug("Ignored stale location update for driver {} at sequence {}", driver.getUserId(), request.effectiveSequence());
-            return DriverResponse.fromEntity(driver);
+            return toResponse(driver);
         }
 
         Instant recordedAt = request.effectiveRecordedAt();
         long sequence = request.effectiveSequence();
-        driver.setCurrentLat(request.lat());
-        driver.setCurrentLng(request.lng());
-        driver = driverRepository.save(driver);
 
         UUID eventId = UUID.randomUUID();
         saveOutboxEvent(
@@ -397,7 +485,34 @@ public class DriverService {
                         request.bearing(),
                         recordedAt,
                         sequence));
+        return DriverResponse.builder()
+                .id(driver.getId())
+                .tenantId(driver.getTenantId())
+                .userId(driver.getUserId())
+                .fullName(driver.getFullName())
+                .phone(driver.getPhone())
+                .licensePlate(driver.getLicensePlate())
+                .vehicleType(driver.getVehicleType())
+                .capacity(driver.getCapacity())
+                .driverType(driver.getDriverType())
+                .shiftStart(driver.getShiftStart())
+                .shiftEnd(driver.getShiftEnd())
+                .currentLat(request.lat())
+                .currentLng(request.lng())
+                .isAvailable(driver.getIsAvailable())
+                .status(driver.getStatus())
+                .reviewNote(driver.getReviewNote())
+                .build();
+    }
+
+    private DriverResponse toResponse(Driver driver) {
+        locationCache.enrichWithCachedLocation(driver);
         return DriverResponse.fromEntity(driver);
+    }
+
+    private DriverPublicResponse toPublicResponse(Driver driver) {
+        locationCache.enrichWithCachedLocation(driver);
+        return DriverPublicResponse.fromEntity(driver);
     }
 
     private void saveOutboxEvent(UUID eventId, String aggregateType, UUID aggregateId, String eventType, Object payload) {

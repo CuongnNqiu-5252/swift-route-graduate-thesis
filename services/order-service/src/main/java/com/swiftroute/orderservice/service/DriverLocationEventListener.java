@@ -14,7 +14,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swiftroute.orderservice.config.DriverLocationEventConfig;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
+import com.swiftroute.orderservice.entity.enums.PlanStatus;
 import com.swiftroute.orderservice.repository.DeliveryTaskRepository;
+import com.swiftroute.orderservice.repository.DispatchPlanRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,7 @@ public class DriverLocationEventListener {
 
     private final ObjectMapper objectMapper;
     private final DeliveryTaskRepository deliveryTasks;
+    private final DispatchPlanRepository dispatchPlans;
     private final TrackingSimulationService tracking;
     private final ConcurrentHashMap<UUID, Long> latestSequences = new ConcurrentHashMap<>();
 
@@ -54,8 +57,29 @@ public class DriverLocationEventListener {
             Double bearing = nullableNumber(root, "bearing");
             Instant recordedAt = instant(root, "recorded_at", "recordedAt");
 
-            deliveryTasks.findActiveOrderIdsByDriverId(userId, ACTIVE).forEach(orderId -> tracking.broadcastDriverLocation(
-                    orderId, userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence));
+            if (!tracking.isSimulationActive(userId)) {
+                tracking.recordDriverPosition(userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+            }
+
+            deliveryTasks.findActiveOrderIdsByDriverId(userId, ACTIVE).forEach(orderId -> {
+                if (tracking.isSimulationActive(orderId)) {
+                    log.debug("Order {} is under active route simulation; skipping real GPS broadcast", orderId);
+                    return;
+                }
+                tracking.broadcastDriverLocation(
+                        orderId, userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+            });
+
+            dispatchPlans.findAllByDriverIdAndPlanStatusIn(userId, java.util.List.of(PlanStatus.DISPATCHED))
+                    .forEach(plan -> {
+                        if (tracking.isSimulationActive(plan.getId())) {
+                            log.debug("Plan {} is under active route simulation; skipping real GPS broadcast", plan.getId());
+                            return;
+                        }
+                        tracking.broadcastDriverLocation(
+                                plan.getId(), userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+                    });
+
             latestSequences.merge(userId, sequence, Math::max);
         } catch (Exception error) {
             log.error("Unable to process driver location event", error);

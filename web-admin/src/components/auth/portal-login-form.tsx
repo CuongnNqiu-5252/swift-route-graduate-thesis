@@ -54,7 +54,7 @@ export function PortalLoginForm({ portal }: { portal: 'tenant' | 'admin' }) {
           {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           {admin && token && user && !isSystemAdmin(user.role) && !error && <p role="alert" className="text-sm text-amber-700">Phiên hiện tại thuộc khách thuê. Hãy dùng tài khoản quản trị hệ thống.</p>}
           <Button type="submit" className="w-full" isLoading={busy} disabled={isLoading}>Đăng nhập</Button>
-          {!admin && <p className="text-center text-sm text-slate-600">Chưa có tài khoản? <Link href="/register" className="text-blue-600 underline">Đăng ký doanh nghiệp</Link></p>}
+          {!admin && <p className="text-center text-sm text-slate-600">Chưa có tài khoản? <Link href="/register" className="text-blue-600 underline">Tạo tài khoản quản trị</Link></p>}
         </form>
       </CardContent></Card>
       <p className={`text-center text-sm ${admin ? 'text-slate-300' : 'text-slate-600'}`}>

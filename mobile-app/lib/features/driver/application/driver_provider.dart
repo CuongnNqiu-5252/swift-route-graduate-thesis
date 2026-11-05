@@ -6,6 +6,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/features/driver/data/datasources/driver_remote_data_source.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_cod_collection_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/package_handover_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_earning_model.dart';
@@ -56,6 +57,36 @@ class DriverNotifier extends AsyncNotifier<DriverModel?> {
     } else if (result.valueOrNull != null) {
       state = result;
     }
+  }
+
+  Future<bool> saveProfile({
+    required String fullName,
+    required String phone,
+    required String licensePlate,
+    required String vehicleType,
+    required int capacity,
+  }) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref
+          .read(driverRemoteDataSourceProvider)
+          .updateMyProfile(
+            fullName: fullName,
+            phone: phone,
+            licensePlate: licensePlate,
+            vehicleType: vehicleType,
+            capacity: capacity,
+          ),
+    );
+    return !state.hasError;
+  }
+
+  Future<bool> submitProfile() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(driverRemoteDataSourceProvider).submitMyProfile(),
+    );
+    return !state.hasError;
   }
 
   /// Send GPS coordinates to the backend
@@ -113,6 +144,68 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
     state = await AsyncValue.guard(
       () => ref.read(orderRemoteDataSourceProvider).getAssignedDriverOrders(),
     );
+  }
+
+  /// 1-Tap Batch Accept: transitions all ASSIGNED tasks on the route to ACCEPTED.
+  Future<void> acceptAllAssigned({List<String>? orderIds}) async {
+    final previousList = state.valueOrNull ?? [];
+    final targetIds = orderIds?.toSet();
+    state = AsyncData(
+      previousList.map((order) {
+        final match = targetIds == null || targetIds.contains(order.id);
+        if (match && order.deliveryTaskStatus == DeliveryTaskStatus.assigned) {
+          return order.copyWith(
+            deliveryTaskStatus: DeliveryTaskStatus.accepted,
+          );
+        }
+        return order;
+      }).toList(),
+    );
+    try {
+      await ref
+          .read(orderRemoteDataSourceProvider)
+          .batchAcceptDeliveryTasks(orderIds: orderIds);
+      final fresh = await ref
+          .read(orderRemoteDataSourceProvider)
+          .getAssignedDriverOrders();
+      state = AsyncData(fresh);
+    } catch (e) {
+      state = AsyncData(previousList);
+      rethrow;
+    }
+  }
+
+  /// 1-Swipe Depot Pickup: confirms physical package pickup for a group of orders
+  /// and transitions them directly to OUT_FOR_DELIVERY.
+  Future<void> confirmBatchPickup({
+    required List<String> orderIds,
+    String? notes,
+  }) async {
+    final previousList = state.valueOrNull ?? [];
+    final idSet = orderIds.toSet();
+    state = AsyncData(
+      previousList.map((order) {
+        if (idSet.contains(order.id)) {
+          return order.copyWith(
+            status: OrderStatus.inTransit,
+            deliveryTaskStatus: DeliveryTaskStatus.outForDelivery,
+          );
+        }
+        return order;
+      }).toList(),
+    );
+    try {
+      await ref
+          .read(orderRemoteDataSourceProvider)
+          .batchPickupDeliveryTasks(orderIds: orderIds, notes: notes);
+      final fresh = await ref
+          .read(orderRemoteDataSourceProvider)
+          .getAssignedDriverOrders();
+      state = AsyncData(fresh);
+    } catch (e) {
+      state = AsyncData(previousList);
+      rethrow;
+    }
   }
 
   /// Transition order status (PLANNED -> IN_TRANSIT -> DELIVERED / FAILED)
@@ -291,4 +384,39 @@ class DriverEarningsNotifier extends AsyncNotifier<DriverEarningsBundle> {
 final driverEarningsProvider =
     AsyncNotifierProvider<DriverEarningsNotifier, DriverEarningsBundle>(
       DriverEarningsNotifier.new,
+    );
+
+class DriverDispatchPlansNotifier
+    extends AsyncNotifier<List<DispatchPlanModel>> {
+  @override
+  Future<List<DispatchPlanModel>> build() =>
+      ref.read(orderRemoteDataSourceProvider).getDriverDispatchPlans();
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(orderRemoteDataSourceProvider).getDriverDispatchPlans(),
+    );
+  }
+
+  Future<void> acknowledge(String planId) async {
+    await ref
+        .read(orderRemoteDataSourceProvider)
+        .acknowledgeDispatchPlan(planId);
+    await refresh();
+    await ref.read(driverOrdersProvider.notifier).refreshOrders();
+  }
+
+  Future<void> decline(String planId, String reason) async {
+    await ref
+        .read(orderRemoteDataSourceProvider)
+        .declineDispatchPlan(planId: planId, reason: reason);
+    await refresh();
+    await ref.read(driverOrdersProvider.notifier).refreshOrders();
+  }
+}
+
+final driverDispatchPlansProvider =
+    AsyncNotifierProvider<DriverDispatchPlansNotifier, List<DispatchPlanModel>>(
+      DriverDispatchPlansNotifier.new,
     );

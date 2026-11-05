@@ -1,31 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { CheckCircle2, LoaderCircle, MailWarning, Route } from 'lucide-react';
 import Link from 'next/link';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
-import { Button } from '@/components/ui/button';
+
+type State = 'checking' | 'verified' | 'invalid';
 
 export default function VerifyEmailPage() {
-  const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
-  const [verified, setVerified] = useState(false);
+  return <Suspense fallback={<main className="flex min-h-dvh items-center justify-center bg-[#eef1f4]"><LoaderCircle className="animate-spin text-blue-700"/></main>}><VerificationContent/></Suspense>;
+}
 
-  useEffect(() => { setToken(new URLSearchParams(window.location.search).get('token') || ''); }, []);
-
-  async function verify() {
-    setBusy(true);
-    setMessage('');
-    try {
-      await api.post('/auth/email/verify', { token });
-      setToken('');
-      setVerified(true);
-      window.history.replaceState(null, '', '/verify-email');
-      setMessage('Email đã được xác minh. Bạn có thể tạo tổ chức mới.');
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Không thể xác minh email');
-    } finally { setBusy(false); }
-  }
-
-  return <main className="mx-auto mt-20 max-w-lg space-y-5 rounded-xl border border-gray-200 bg-white p-8"><h1 className="text-2xl font-semibold text-gray-950">Xác minh email SwiftRoute</h1><p role="status" className="text-gray-700">{message || 'Xác nhận để hoàn tất email. Liên kết có hiệu lực trong 24 giờ và chỉ được sử dụng một lần.'}</p>{token && <Button onClick={verify} isLoading={busy}>Xác minh email</Button>}{!token && !verified && <p className="text-sm text-gray-500">Liên kết không có token. Hãy yêu cầu gửi lại từ trang tổ chức.</p>}<p><Link className="font-medium text-blue-700 underline underline-offset-4" href="/organizations">Tiếp tục đến tổ chức</Link></p></main>;
+function VerificationContent() {
+  const token=useSearchParams().get('token');
+  const [state,setState]=useState<State>(token?'checking':'invalid');
+  const [message,setMessage]=useState(token?'Đang xác minh liên kết an toàn…':'Liên kết xác minh không có token.');
+  useEffect(()=>{
+    if(!token)return;
+    api.post('/auth/email/verify',{token}).then(()=>{window.history.replaceState(null,'','/verify-email');setState('verified');setMessage('Email đã được xác minh. Bạn có thể đăng nhập và tạo workspace.');}).catch((error)=>{setState('invalid');setMessage(error instanceof Error?error.message:'Liên kết không hợp lệ hoặc đã hết hạn.');});
+  },[token]);
+  const Icon=state==='checking'?LoaderCircle:state==='verified'?CheckCircle2:MailWarning;
+  return <main className="flex min-h-dvh items-center justify-center bg-[#eef1f4] p-4"><section className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center sm:p-12"><div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-slate-950 text-white"><Route size={22}/></div><div className={`mx-auto mt-8 flex h-16 w-16 items-center justify-center rounded-full ${state==='verified'?'bg-emerald-50 text-emerald-700':state==='invalid'?'bg-red-50 text-red-700':'bg-blue-50 text-blue-700'}`}><Icon size={30} className={state==='checking'?'animate-spin':''}/></div><h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-950">{state==='checking'?'Xác minh email':state==='verified'?'Xác minh thành công':'Chưa thể xác minh'}</h1><p role="status" className="mt-3 text-sm leading-6 text-slate-600">{message}</p>{state==='verified'&&<Link href="/login" className="mt-8 inline-flex min-h-11 items-center rounded-lg bg-slate-950 px-5 text-sm font-medium text-white">Đăng nhập và tiếp tục</Link>}{state==='invalid'&&<div className="mt-8 space-y-3"><Link href="/login" className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-5 text-sm font-medium text-slate-800">Đăng nhập để gửi lại email</Link><p className="text-xs text-slate-500">Nếu liên kết đã dùng hoặc quá 24 giờ, hãy yêu cầu một email mới.</p></div>}</section></main>;
 }

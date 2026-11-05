@@ -203,8 +203,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         : null;
 
     final hasDriver =
-        order.assignedDriverId != null &&
-        order.assignedDriverId!.isNotEmpty;
+        order.assignedDriverId != null && order.assignedDriverId!.isNotEmpty;
 
     state = OrderTrackingState(
       order: order,
@@ -231,15 +230,19 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
       // If order was just placed, backend RabbitMQ auto-dispatch will assign a driver shortly
       Future.delayed(const Duration(milliseconds: 1500), () async {
         if (state.order?.id == order.id &&
-            (state.order?.assignedDriverId == null || state.order!.assignedDriverId!.isEmpty)) {
+            (state.order?.assignedDriverId == null ||
+                state.order!.assignedDriverId!.isEmpty)) {
           try {
             final refreshed = await _orderDataSource.getOrderById(order.id);
-            if (refreshed.assignedDriverId != null && refreshed.assignedDriverId!.isNotEmpty) {
+            if (refreshed.assignedDriverId != null &&
+                refreshed.assignedDriverId!.isNotEmpty) {
               state = state.copyWith(order: refreshed);
               _loadLiveDriverInfo(refreshed.assignedDriverId!);
             }
           } catch (e) {
-            debugPrint('[OrderTrackingNotifier] Auto-refresh assigned driver: $e');
+            debugPrint(
+              '[OrderTrackingNotifier] Auto-refresh assigned driver: $e',
+            );
           }
         }
       });
@@ -263,7 +266,9 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         destLng: order.deliveryLng,
       );
       if (dir.points.isNotEmpty && state.order?.id == order.id) {
-        if (state.isDelivered || state.order?.status == OrderStatus.delivered) return;
+        if (state.isDelivered || state.order?.status == OrderStatus.delivered) {
+          return;
+        }
         final isRunningLocal = _simulationTimer != null;
         state = state.copyWith(
           routePoints: dir.points,
@@ -342,7 +347,8 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
           );
 
           // Check if order finished while fetching leg directions
-          if (state.isDelivered || state.order?.status == OrderStatus.delivered) {
+          if (state.isDelivered ||
+              state.order?.status == OrderStatus.delivered) {
             state = state.copyWith(driverInfo: info);
             return;
           }
@@ -407,13 +413,17 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         _simulationTimer = null;
         state = state.copyWith(
           isSimulating: false,
-          currentRouteIndex: state.routePoints.isNotEmpty ? state.routePoints.length - 1 : 0,
+          currentRouteIndex: state.routePoints.isNotEmpty
+              ? state.routePoints.length - 1
+              : 0,
           sseStep: state.routePoints.length,
           status: OrderStatus.delivered,
           routePoints: const [],
           driverPosition: state.order != null
               ? LatLngPoint(state.order!.deliveryLat, state.order!.deliveryLng)
-              : (state.routePoints.isNotEmpty ? state.routePoints.last : state.driverPosition),
+              : (state.routePoints.isNotEmpty
+                    ? state.routePoints.last
+                    : state.driverPosition),
         );
         // Synchronize DELIVERED status to the backend database
         final currentOrder = state.order;
@@ -547,7 +557,9 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
             } else if (eventType == 'status_update') {
               final statusStr = data['status'] as String?;
               final driverId = data['driver_id'] as String?;
-              if (driverId != null && driverId.isNotEmpty && state.driverInfo == null) {
+              if (driverId != null &&
+                  driverId.isNotEmpty &&
+                  state.driverInfo == null) {
                 _loadLiveDriverInfo(driverId);
               }
               if (statusStr == 'DELIVERED') {
@@ -559,10 +571,13 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
                   status: OrderStatus.delivered,
                   routePoints: const [],
                   driverPosition: state.order != null
-                      ? LatLngPoint(state.order!.deliveryLat, state.order!.deliveryLng)
+                      ? LatLngPoint(
+                          state.order!.deliveryLat,
+                          state.order!.deliveryLng,
+                        )
                       : (state.routePoints.isNotEmpty
-                          ? state.routePoints.last
-                          : state.driverPosition),
+                            ? state.routePoints.last
+                            : state.driverPosition),
                 );
               }
             }

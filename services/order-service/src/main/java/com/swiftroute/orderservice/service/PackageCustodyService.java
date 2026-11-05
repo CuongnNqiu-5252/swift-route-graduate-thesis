@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.swiftroute.orderservice.dto.request.CreatePackageHandoverRequest;
 import com.swiftroute.orderservice.dto.response.PackageHandoverResponse;
 import com.swiftroute.orderservice.dto.response.PackageUnitResponse;
-import com.swiftroute.orderservice.entity.DeliveryTask;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.PackageCustodyEvent;
 import com.swiftroute.orderservice.entity.PackageHandover;
@@ -46,12 +45,13 @@ public class PackageCustodyService {
         List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
         if (units.isEmpty()) {
             int count = order.getPackageCount() == null ? 1 : order.getPackageCount();
+            String tokenPrefix = order.getTrackingToken() != null ? order.getTrackingToken() : order.getId().toString().substring(0, 8);
             for (int index = 1; index <= count; index++) {
                 units.add(packageUnits.save(PackageUnit.builder()
                         .order(order)
                         .tenantId(order.getTenant().getId())
                         .packageNumber(index)
-                        .packageCode(order.getTrackingToken() + "-P" + String.format("%02d", index))
+                        .packageCode(tokenPrefix + "-P" + String.format("%02d", index))
                         .build()));
             }
         }
@@ -81,11 +81,25 @@ public class PackageCustodyService {
     @Transactional
     public void startReturn(Order order, UUID actorId) {
         List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
+        if (units.isEmpty() && order.getAssignedDriverId() != null) {
+            int count = order.getPackageCount() == null ? 1 : order.getPackageCount();
+            String tokenPrefix = order.getTrackingToken() != null ? order.getTrackingToken() : order.getId().toString().substring(0, 8);
+            for (int index = 1; index <= count; index++) {
+                units.add(packageUnits.save(PackageUnit.builder()
+                        .order(order)
+                        .tenantId(order.getTenant().getId())
+                        .packageNumber(index)
+                        .packageCode(tokenPrefix + "-P" + String.format("%02d", index))
+                        .currentCustodianId(order.getAssignedDriverId())
+                        .status("IN_CUSTODY")
+                        .build()));
+            }
+        }
         if (units.isEmpty() || units.stream().anyMatch(unit -> unit.getCurrentCustodianId() == null)) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         for (PackageUnit unit : units) {
-            if (!"IN_CUSTODY".equals(unit.getStatus())) {
+            if (!Set.of("IN_CUSTODY", "RETURNING").contains(unit.getStatus())) {
                 throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
             }
             unit.setStatus("RETURNING");
@@ -299,7 +313,7 @@ public class PackageCustodyService {
     }
 
     private boolean isOperator(String role) {
-        return Set.of("ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "SYSTEM_ADMIN")
+        return Set.of("ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "SYSTEM_ADMIN", "WAREHOUSE_STAFF")
                 .contains(role == null ? "" : role.toUpperCase(Locale.ROOT));
     }
 

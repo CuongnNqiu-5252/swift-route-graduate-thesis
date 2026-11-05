@@ -58,6 +58,23 @@ public class DriverLocationCache {
         }
     }
 
+    public Driver enrichWithCachedLocation(Driver driver) {
+        if (driver == null || driver.getUserId() == null) {
+            return driver;
+        }
+        String stateKey = "driver:location:" + driver.getUserId();
+        try {
+            List<Object> coords = redis.opsForHash().multiGet(stateKey, List.of("lat", "lng"));
+            if (coords != null && coords.size() == 2 && coords.get(0) != null && coords.get(1) != null) {
+                driver.setCurrentLat(Double.parseDouble(coords.get(0).toString()));
+                driver.setCurrentLng(Double.parseDouble(coords.get(1).toString()));
+            }
+        } catch (RuntimeException error) {
+            log.debug("Unable to read cached GPS location for driver {}: {}", driver.getUserId(), error.getMessage());
+        }
+        return driver;
+    }
+
     private String value(Double value) {
         return value == null ? "" : Double.toString(value);
     }

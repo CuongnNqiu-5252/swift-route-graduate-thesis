@@ -17,6 +17,7 @@ export interface TenantMember {
 export interface TenantInvitation {
   id: string;
   tenant_id: string;
+  driver_id?: string;
   email: string;
   role: TenantMembershipRole;
   status: TenantInvitationStatus;
@@ -28,6 +29,7 @@ export interface TenantInvitation {
 export interface InviteMemberResponse {
   id: string;
   tenant_id: string;
+  driver_id?: string;
   email: string;
   role: TenantMembershipRole;
   status: TenantInvitationStatus;
@@ -59,4 +61,3 @@ export const MEMBER_STATUS_COLOR: Record<TenantMembershipStatus, string> = {
   INACTIVE: 'bg-gray-100 text-gray-700 border-gray-200',
   REVOKED: 'bg-gray-100 text-gray-700 border-gray-200',
 };
-

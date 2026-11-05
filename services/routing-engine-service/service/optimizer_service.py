@@ -22,6 +22,11 @@ from api.schemas import (
     BatchOptimizationResponse,
     LocationPoint,
     OrderedStop,
+    RouteInsertRequest,
+    RouteInsertResponse,
+    RouteReoptimizeRequest,
+    RouteReoptimizeResponse,
+    StopItem,
     WhatIfOptimizationRequest,
     WhatIfOptimizationResponse,
     WhatIfScenario,
@@ -181,3 +186,229 @@ def simulate_what_if(request: WhatIfOptimizationRequest) -> WhatIfOptimizationRe
         completion_delta_percent=percent_change(scenario.completion_minutes, baseline.completion_minutes),
         late_risk_delta=scenario.late_risk_orders - baseline.late_risk_orders,
     )
+
+
+def solve_insert(request: RouteInsertRequest) -> RouteInsertResponse:
+    """
+    Dynamically inserts a new stop into an ongoing route while preserving all
+    completed stops in their exact sequence (P3.1).
+    """
+    start_ns = time.perf_counter_ns()
+    completed = [s for s in request.current_stops if s.is_completed]
+    remaining = [
+        StopItem(
+            id=s.id,
+            name=s.name,
+            location=s.location,
+            demand_kg=s.demand_kg,
+            time_window_start=s.time_window_start,
+            time_window_end=s.time_window_end,
+        )
+        for s in request.current_stops
+        if not s.is_completed
+    ]
+
+    # Baseline cost of remaining stops without the new stop
+    baseline_dist = 0.0
+    baseline_dur = 0.0
+    if remaining:
+        base_res = solve_batch(
+            BatchOptimizationRequest(
+                depot=request.driver_location,
+                stops=remaining,
+                algorithm="ortools",
+                time_weight=request.time_weight,
+                cost_weight=request.cost_weight,
+            )
+        )
+        baseline_dist = base_res.total_distance_km
+        baseline_dur = base_res.total_duration_minutes
+
+    # Solve remaining stops + new_stop starting from driver's current GPS position
+    candidate_stops = remaining + [request.new_stop]
+    candidate_res = solve_batch(
+        BatchOptimizationRequest(
+            depot=request.driver_location,
+            stops=candidate_stops,
+            algorithm="ortools",
+            time_weight=request.time_weight,
+            cost_weight=request.cost_weight,
+        )
+    )
+
+    added_dist = round(max(0.0, candidate_res.total_distance_km - baseline_dist), 3)
+    added_dur = round(max(0.0, candidate_res.total_duration_minutes - baseline_dur), 1)
+    feasible = added_dur <= request.max_added_duration_minutes
+
+    combined_stops: List[OrderedStop] = []
+    for idx, s in enumerate(completed, start=1):
+        combined_stops.append(
+            OrderedStop(
+                stop_index=idx,
+                stop_id=s.id,
+                location=s.location,
+                cumulative_distance_km=0.0,
+                estimated_arrival_minutes=0.0,
+            )
+        )
+
+    inserted_index = len(completed) + 1
+    offset = len(completed)
+    for stop in candidate_res.ordered_stops:
+        global_idx = offset + stop.stop_index
+        if stop.stop_id == request.new_stop.id:
+            inserted_index = global_idx
+        combined_stops.append(
+            OrderedStop(
+                stop_index=global_idx,
+                stop_id=stop.stop_id,
+                location=stop.location,
+                cumulative_distance_km=stop.cumulative_distance_km,
+                estimated_arrival_minutes=stop.estimated_arrival_minutes,
+            )
+        )
+
+    elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+    return RouteInsertResponse(
+        job_id=str(uuid.uuid4()),
+        algorithm_used=candidate_res.algorithm_used,
+        feasible=feasible,
+        inserted_stop_index=inserted_index,
+        added_distance_km=added_dist,
+        added_duration_minutes=added_dur,
+        total_distance_km=candidate_res.total_distance_km,
+        total_duration_minutes=candidate_res.total_duration_minutes,
+        ordered_stops=combined_stops,
+        execution_time_ms=round(elapsed_ms, 2),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse:
+    """
+    Safely reoptimizes only the uncompleted stops of an active route from the
+    driver's current GPS location while preserving completed stops (P3.2).
+    """
+    start_ns = time.perf_counter_ns()
+    completed = [s for s in request.current_stops if s.is_completed]
+    remaining_states = [s for s in request.current_stops if not s.is_completed]
+
+    if len(remaining_states) <= 1:
+        combined: List[OrderedStop] = []
+        for idx, s in enumerate(completed + remaining_states, start=1):
+            combined.append(
+                OrderedStop(
+                    stop_index=idx,
+                    stop_id=s.id,
+                    location=s.location,
+                    cumulative_distance_km=0.0,
+                    estimated_arrival_minutes=0.0,
+                )
+            )
+        elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+        return RouteReoptimizeResponse(
+            job_id=str(uuid.uuid4()),
+            algorithm_used="ortools",
+            stops_changed=False,
+            distance_saved_km=0.0,
+            total_distance_km=0.0,
+            total_duration_minutes=0.0,
+            ordered_stops=combined,
+            execution_time_ms=round(elapsed_ms, 2),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # Calculate current open-path sequence distance from driver_location through remaining_states
+    seq_coords: List[Tuple[float, float]] = [
+        (request.driver_location.lat, request.driver_location.lng)
+    ] + [(s.location.lat, s.location.lng) for s in remaining_states]
+    seq_dist_matrix = build_distance_matrix(seq_coords)
+    seq_time_matrix = build_time_matrix(seq_dist_matrix, avg_speed_kmh=28.0)
+    current_remaining_dist = sum(
+        seq_dist_matrix[i][i + 1] for i in range(len(seq_coords) - 1)
+    )
+
+    time_w = request.time_weight if request.time_weight is not None else 0.5
+    cost_w = request.cost_weight if request.cost_weight is not None else 0.5
+    cost_matrix = build_multi_objective_matrix(seq_dist_matrix, seq_time_matrix, time_w, cost_w)
+    # Open-path formulation from driver's current GPS position: zero cost to return to node 0
+    for row in cost_matrix:
+        row[0] = 0.0
+
+    route, _ = ortools_tsp(cost_matrix, start=0)
+
+    reopt_stops: List[OrderedStop] = []
+    cum_dist = 0.0
+    cum_time = 0.0
+    prev_idx = 0
+    for pos, matrix_idx in enumerate(route[1:], start=1):
+        if matrix_idx == 0:
+            break
+        cum_dist += seq_dist_matrix[prev_idx][matrix_idx]
+        cum_time += seq_time_matrix[prev_idx][matrix_idx]
+        st = remaining_states[matrix_idx - 1]
+        reopt_stops.append(
+            OrderedStop(
+                stop_index=pos,
+                stop_id=st.id,
+                location=st.location,
+                cumulative_distance_km=round(cum_dist, 3),
+                estimated_arrival_minutes=round(cum_time, 1),
+            )
+        )
+        prev_idx = matrix_idx
+
+    old_ids = [s.id for s in remaining_states]
+    new_ids = [s.stop_id for s in reopt_stops]
+    distance_saved = round(max(0.0, current_remaining_dist - cum_dist), 3)
+    stops_changed = (old_ids != new_ids) and (distance_saved >= request.min_improvement_km)
+
+    combined_stops: List[OrderedStop] = []
+    for idx, s in enumerate(completed, start=1):
+        combined_stops.append(
+            OrderedStop(
+                stop_index=idx,
+                stop_id=s.id,
+                location=s.location,
+                cumulative_distance_km=0.0,
+                estimated_arrival_minutes=0.0,
+            )
+        )
+
+    offset = len(completed)
+    if stops_changed:
+        for stop in reopt_stops:
+            combined_stops.append(
+                OrderedStop(
+                    stop_index=offset + stop.stop_index,
+                    stop_id=stop.stop_id,
+                    location=stop.location,
+                    cumulative_distance_km=stop.cumulative_distance_km,
+                    estimated_arrival_minutes=stop.estimated_arrival_minutes,
+                )
+            )
+    else:
+        for idx, s in enumerate(remaining_states, start=1):
+            combined_stops.append(
+                OrderedStop(
+                    stop_index=offset + idx,
+                    stop_id=s.id,
+                    location=s.location,
+                    cumulative_distance_km=0.0,
+                    estimated_arrival_minutes=0.0,
+                )
+            )
+
+    elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+    return RouteReoptimizeResponse(
+        job_id=str(uuid.uuid4()),
+        algorithm_used="ortools",
+        stops_changed=stops_changed,
+        distance_saved_km=distance_saved if stops_changed else 0.0,
+        total_distance_km=round(cum_dist, 3) if stops_changed else round(current_remaining_dist, 3),
+        total_duration_minutes=round(cum_time, 1),
+        ordered_stops=combined_stops,
+        execution_time_ms=round(elapsed_ms, 2),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+

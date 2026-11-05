@@ -42,6 +42,8 @@ public class DeliveryTask {
     private UUID tenantId;
     @Column(name = "driver_id", nullable = false)
     private UUID driverId;
+    @Column(name = "dispatch_plan_id")
+    private UUID dispatchPlanId;
     @Column(name = "task_type", nullable = false)
     @Builder.Default
     private String taskType = "DELIVERY";

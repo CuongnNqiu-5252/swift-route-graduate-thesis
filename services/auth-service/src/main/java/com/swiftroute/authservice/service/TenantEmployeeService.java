@@ -46,18 +46,42 @@ public class TenantEmployeeService {
     private final TenantInvitationRepository tenantInvitationRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final DriverOnboardingClient driverOnboarding;
+    private final VerificationCipher invitationCipher;
+    private final TenantDetailsClient tenantDetails;
+    @org.springframework.beans.factory.annotation.Value("${verification.web-url:http://localhost:3000}")
+    private String invitationWebUrl;
 
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
+    public record InvitationPreview(String email, UUID tenantId, String businessName, String role, Instant expiresAt, String status) {}
+
+    @Transactional
+    public InvitationPreview previewInvitation(String token) {
+        if (token == null || token.length() != 64) throw new AppException(ErrorCode.INVITATION_NOT_FOUND);
+        var invitation = tenantInvitationRepository.findByTokenHash(hashToken(token))
+                .orElseThrow(() -> new AppException(ErrorCode.INVITATION_NOT_FOUND));
+        String status = invitation.getStatus().name();
+        if (status.equals("PENDING") && !invitation.getExpiresAt().isAfter(Instant.now())) status = "EXPIRED";
+        return new InvitationPreview(invitation.getEmail(), invitation.getTenantId(), invitation.getBusinessName(), invitation.getRole().name(),
+                invitation.getExpiresAt(), status);
+    }
+
     @Transactional
     public InviteMemberResponse inviteMember(UUID tenantId, UUID inviterUserId, InviteMemberRequest request) {
         // Enforce inviter has OWNER or ADMIN role
         verifyAdminAccess(tenantId, inviterUserId);
+        if (jdbc != null) jdbc.execute("SELECT pg_advisory_xact_lock(" + (long) tenantId.hashCode() + ")");
 
         String email = request.email().trim().toLowerCase();
+        String businessName = tenantDetails.businessName(tenantId);
+        if (request.driverId() != null) {
+            if (request.role() != TenantMembershipRole.DRIVER) throw new AppException(ErrorCode.VALIDATION_ERROR);
+            driverOnboarding.validate(tenantId, request.driverId());
+        }
 
         // Prevent inviting existing active member
         Optional<TenantMembership> existingActive = tenantMembershipRepository
@@ -86,6 +110,8 @@ public class TenantEmployeeService {
 
         TenantInvitation invitation = TenantInvitation.builder()
                 .tenantId(tenantId)
+                .driverId(request.driverId())
+                .businessName(businessName)
                 .email(email)
                 .role(request.role())
                 .tokenHash(tokenHash)
@@ -95,11 +121,18 @@ public class TenantEmployeeService {
                 .build();
 
         TenantInvitation saved = tenantInvitationRepository.save(invitation);
+        String invitationLink = invitationWebUrl + "/invitations?token=" + rawToken;
+        if (request.role() == TenantMembershipRole.DRIVER) {
+            jdbc.update("INSERT INTO auth_notification_outbox(event_id,user_id,email,encrypted_body,event_type) VALUES (?,?,?,?,?)",
+                    UUID.randomUUID(), inviterUserId, email,
+                    invitationCipher.encrypt(businessName + "\n" + invitationLink), "tenant.driver_invited.v1");
+        }
         log.info("Created tenant invitation id={} for email={} to tenantId={}", saved.getId(), email, tenantId);
 
         return new InviteMemberResponse(
                 saved.getId(),
                 saved.getTenantId(),
+                saved.getDriverId(),
                 saved.getEmail(),
                 saved.getRole(),
                 saved.getStatus(),
@@ -169,21 +202,10 @@ public class TenantEmployeeService {
 
         String email = invitation.getEmail();
         User user = userRepository.findByEmail(email).orElse(null);
-        Role invitedRole = mapUserRole(invitation.getRole());
 
-        if (user == null) {
-            if (request.password() == null || request.password().length() < 6) {
-                throw new AppException(ErrorCode.VALIDATION_ERROR);
-            }
-            user = User.builder()
-                    .email(email)
-                    .passwordHash(passwordEncoder.encode(request.password()))
-                    .fullName(request.fullName() != null && !request.fullName().isBlank() ? request.fullName().trim() : "Member")
-                    .role(Role.CUSTOMER)
-                    .emailVerified(true)
-                    .build();
-            user = userRepository.save(user);
-            log.info("Created new user id={} from accepted invitation", user.getId());
+        if (user == null || !user.isEmailVerified()) {
+            // Registration and email verification must finish before explicit acceptance.
+            throw new AppException(ErrorCode.ACCESS_DENIED);
         } else {
             var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
             if (authentication == null || !authentication.isAuthenticated()
@@ -197,6 +219,12 @@ public class TenantEmployeeService {
         }
 
         final User finalUser = user;
+        if (invitation.getRole() == TenantMembershipRole.DRIVER) {
+            boolean otherBusiness = tenantMembershipRepository.findByUser_IdAndStatus(user.getId(), TenantMembershipStatus.ACTIVE)
+                    .stream().anyMatch(m -> m.getMembershipRole() == TenantMembershipRole.DRIVER
+                            && !m.getTenantId().equals(invitation.getTenantId()));
+            if (otherBusiness) throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         TenantMembership membership = tenantMembershipRepository
                 .findByTenantIdAndUser_Id(invitation.getTenantId(), user.getId())
                 .orElseGet(() -> TenantMembership.builder()
@@ -207,15 +235,38 @@ public class TenantEmployeeService {
                         .lastEventVersion(0L)
                         .build());
 
+        if (membership.getId() != null && membership.getMembershipRole() != invitation.getRole()) {
+            throw new AppException(ErrorCode.TENANT_MEMBERSHIP_ALREADY_EXISTS);
+        }
         membership.setMembershipRole(invitation.getRole());
         membership.setStatus(TenantMembershipStatus.ACTIVE);
         TenantMembership savedMembership = tenantMembershipRepository.save(membership);
+
+        if (invitation.getDriverId() != null) {
+            driverOnboarding.link(invitation.getTenantId(), invitation.getDriverId(), user.getId());
+        } else if (invitation.getRole() == TenantMembershipRole.DRIVER) {
+            driverOnboarding.provision(invitation.getTenantId(), user.getId(), user.getFullName(), user.getPhone());
+        }
 
         invitation.setStatus(TenantInvitationStatus.ACCEPTED);
         tenantInvitationRepository.save(invitation);
 
         log.info("Accepted invitation id={} for user id={} into tenantId={}", invitation.getId(), finalUser.getId(), invitation.getTenantId());
         return TenantMemberResponse.fromEntity(savedMembership);
+    }
+
+    @Transactional
+    public void revokeInvitation(UUID tenantId, UUID invitationId, UUID requesterId) {
+        verifyAdminAccess(tenantId, requesterId);
+        if (jdbc != null) jdbc.execute("SELECT pg_advisory_xact_lock(" + (long) tenantId.hashCode() + ")");
+        var invitation = tenantInvitationRepository.findById(invitationId)
+                .orElseThrow(() -> new AppException(ErrorCode.INVITATION_NOT_FOUND));
+        if (!invitation.getTenantId().equals(tenantId)) throw new AppException(ErrorCode.ACCESS_DENIED);
+        if (invitation.getStatus() != TenantInvitationStatus.PENDING) {
+            throw new AppException(ErrorCode.INVITATION_ALREADY_PROCESSED);
+        }
+        invitation.setStatus(TenantInvitationStatus.REVOKED);
+        tenantInvitationRepository.save(invitation);
     }
 
     private Role mapUserRole(TenantMembershipRole membershipRole) {

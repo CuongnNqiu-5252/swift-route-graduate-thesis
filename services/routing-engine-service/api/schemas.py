@@ -184,3 +184,58 @@ class DispatchPlanResponse(BaseModel):
     dispatched_orders_count: int
     assignments: List[dict]
     message: str
+
+
+class RouteStopState(BaseModel):
+    id: str = Field(..., description="Stop / order UUID")
+    name: Optional[str] = None
+    location: LocationPoint
+    demand_kg: float = Field(0.0, ge=0.0)
+    time_window_start: Optional[str] = None
+    time_window_end: Optional[str] = None
+    is_completed: bool = Field(False, description="True if driver already completed this stop")
+
+
+class RouteInsertRequest(BaseModel):
+    driver_location: LocationPoint = Field(..., description="Current GPS position of the active driver")
+    current_stops: List[RouteStopState] = Field(..., description="Existing route stops with completion flags")
+    new_stop: StopItem = Field(..., description="New order stop to dynamically insert into remaining route")
+    max_added_duration_minutes: float = Field(30.0, gt=0.0, description="Max acceptable ETA increase in minutes")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+
+
+class RouteInsertResponse(BaseModel):
+    job_id: str
+    algorithm_used: str
+    feasible: bool
+    inserted_stop_index: int
+    added_distance_km: float
+    added_duration_minutes: float
+    total_distance_km: float
+    total_duration_minutes: float
+    ordered_stops: List[OrderedStop]
+    execution_time_ms: float
+    timestamp: str
+
+
+class RouteReoptimizeRequest(BaseModel):
+    driver_location: LocationPoint = Field(..., description="Current GPS position of the active driver")
+    current_stops: List[RouteStopState] = Field(..., min_length=1, description="Route stops with is_completed flags")
+    reason: Optional[str] = Field("DELAY_DETECTED", description="Reason for reoptimization")
+    min_improvement_km: float = Field(0.2, ge=0.0, description="Minimum distance saved to justify changing route")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+
+
+class RouteReoptimizeResponse(BaseModel):
+    job_id: str
+    algorithm_used: str
+    stops_changed: bool
+    distance_saved_km: float
+    total_distance_km: float
+    total_duration_minutes: float
+    ordered_stops: List[OrderedStop]
+    execution_time_ms: float
+    timestamp: str
+

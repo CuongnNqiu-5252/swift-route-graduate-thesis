@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_earning_model.dart';
 
@@ -11,14 +13,8 @@ class DriverEarningsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(driverEarningsProvider);
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7F9),
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF6F7F9),
-        surfaceTintColor: Colors.transparent,
-        title: const Text(
-          'Thu nhập',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
+        title: const Text('Thu nhập'),
         actions: [
           IconButton(
             tooltip: 'Làm mới',
@@ -56,15 +52,8 @@ class _EarningsContent extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: AppColors.primary,
+            color: AppColors.primaryDark,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x332F3C7E),
-                blurRadius: 22,
-                offset: Offset(0, 10),
-              ),
-            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -72,7 +61,7 @@ class _EarningsContent extends StatelessWidget {
               Text(
                 'Tổng thu nhập tháng ${summary.periodStart.month}',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
+                  color: Colors.white.withValues(alpha: 0.82),
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -80,19 +69,18 @@ class _EarningsContent extends StatelessWidget {
               const SizedBox(height: 5),
               Text(
                 _currency(summary.totalAmount),
-                style: const TextStyle(
+                style: AppTheme.numStyle(
                   color: Colors.white,
                   fontSize: 30,
                   height: 1.15,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.7,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 '${summary.deliveryCount} nhiệm vụ đã ghi nhận · ${summary.currency}',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.7),
+                  color: Colors.white.withValues(alpha: 0.8),
                   fontSize: 12,
                 ),
               ),
@@ -178,14 +166,14 @@ class _SummaryAmount extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.62),
-              fontSize: 10,
+              color: Colors.white.withValues(alpha: 0.78),
+              fontSize: 11.5,
             ),
           ),
           const SizedBox(height: 3),
           Text(
             _compactCurrency(amount),
-            style: const TextStyle(
+            style: AppTheme.numStyle(
               color: Colors.white,
               fontSize: 14,
               fontWeight: FontWeight.w800,
@@ -226,7 +214,7 @@ class _EarningRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Đơn #${_shortId(earning.orderId)}',
+                  AppFormatters.shortCode(null, earning.orderId),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -248,10 +236,9 @@ class _EarningRow extends StatelessWidget {
             children: [
               Text(
                 _currency(earning.netAmount),
-                style: const TextStyle(
+                style: AppTheme.numStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 4),
@@ -356,7 +343,7 @@ class _EarningsError extends StatelessWidget {
     switch (status) {
       'APPROVED' => (
         label: 'Đã duyệt',
-        color: const Color(0xFF2563EB),
+        color: AppColors.primary,
         icon: Icons.verified_outlined,
       ),
       'PAID' => (
@@ -371,20 +358,14 @@ class _EarningsError extends StatelessWidget {
       ),
       _ => (
         label: 'Chờ duyệt',
-        color: const Color(0xFFB76E12),
+        color: AppColors.warning,
         icon: Icons.schedule_rounded,
       ),
     };
 
-String _shortId(String value) => value.length > 8
-    ? value.substring(0, 8).toUpperCase()
-    : value.toUpperCase();
 String _date(DateTime value) =>
     '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')} · ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 String _compactCurrency(double value) => value >= 1000000
     ? '${(value / 1000000).toStringAsFixed(1)} tr'
     : '${(value / 1000).round()}k';
-String _currency(double value) {
-  final digits = value.round().toString();
-  return '${digits.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => '.')} đ';
-}
+String _currency(double value) => AppFormatters.currency(value);

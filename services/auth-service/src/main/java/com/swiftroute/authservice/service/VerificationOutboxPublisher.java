@@ -23,9 +23,14 @@ public class VerificationOutboxPublisher {
         for (var row: jdbc.queryForList("SELECT * FROM auth_notification_outbox WHERE published_at IS NULL AND next_attempt_at <= now() ORDER BY created_at LIMIT 20 FOR UPDATE SKIP LOCKED")) {
             try {
                 var correlation=new CorrelationData(row.get("event_id").toString());
-                rabbit.convertAndSend("swiftroute.events","user.email_verification.v1",Map.of(
-                    "eventId",row.get("event_id"),"eventType","user.email_verification.v1","userId",row.get("user_id"),
-                    "email",row.get("email"),"verificationUrl",cipher.decrypt(row.get("encrypted_body").toString()),
+                String eventType = row.get("event_type").toString();
+                String decrypted = cipher.decrypt(row.get("encrypted_body").toString());
+                String[] invitation = decrypted.split("\\n", 2);
+                rabbit.convertAndSend("swiftroute.events",eventType,Map.of(
+                    "eventId",row.get("event_id"),"eventType",eventType,"userId",row.get("user_id"),
+                    "email",row.get("email"),
+                    "businessName", eventType.equals("tenant.driver_invited.v1") ? invitation[0] : "",
+                    "verificationUrl", eventType.equals("tenant.driver_invited.v1") && invitation.length > 1 ? invitation[1] : decrypted,
                     "occurredAt",java.time.Instant.now().toString()),correlation);
                 var confirm=correlation.getFuture().get(5,TimeUnit.SECONDS);
                 if (!confirm.isAck() || correlation.getReturned()!=null) throw new IllegalStateException("Email event not routed");

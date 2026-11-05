@@ -57,6 +57,40 @@ class DriverRemoteDataSource {
     return DriverModel.fromJson(Map<String, dynamic>.from(map));
   }
 
+  Future<DriverModel> updateMyProfile({
+    required String fullName,
+    required String phone,
+    required String licensePlate,
+    required String vehicleType,
+    required int capacity,
+  }) async {
+    final response = await _dio.put(
+      '/drivers/me/profile',
+      data: {
+        'full_name': fullName,
+        'phone': phone,
+        'license_plate': licensePlate,
+        'vehicle_type': vehicleType,
+        'capacity': capacity,
+        'driver_type': 'DEDICATED',
+      },
+    );
+    final raw = response.data;
+    final map = raw is Map && raw['data'] is Map
+        ? raw['data'] as Map
+        : raw as Map;
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
+  }
+
+  Future<DriverModel> submitMyProfile() async {
+    final response = await _dio.post('/drivers/me/submit');
+    final raw = response.data;
+    final map = raw is Map && raw['data'] is Map
+        ? raw['data'] as Map
+        : raw as Map;
+    return DriverModel.fromJson(Map<String, dynamic>.from(map));
+  }
+
   /// Report current authenticated driver's GPS coordinates to the backend.
   Future<DriverModel> updateMyLocation({
     required double lat,
@@ -67,7 +101,7 @@ class DriverRemoteDataSource {
     required DateTime recordedAt,
     required int sequence,
   }) async {
-    final response = await _dio.patch(
+    final response = await _dio.post(
       '/drivers/me/location',
       data: {
         'lat': lat,

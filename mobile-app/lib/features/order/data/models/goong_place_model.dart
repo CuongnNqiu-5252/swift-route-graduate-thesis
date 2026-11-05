@@ -19,7 +19,8 @@ class GoongPrediction {
     return GoongPrediction(
       placeId: json['place_id'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      mainText: structured?['main_text'] as String? ?? json['description'] ?? '',
+      mainText:
+          structured?['main_text'] as String? ?? json['description'] ?? '',
       secondaryText: structured?['secondary_text'] as String? ?? '',
     );
   }

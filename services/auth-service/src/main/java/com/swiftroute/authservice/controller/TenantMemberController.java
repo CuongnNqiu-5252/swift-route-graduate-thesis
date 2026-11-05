@@ -36,6 +36,14 @@ public class TenantMemberController {
 
     private final TenantEmployeeService tenantEmployeeService;
 
+    @PostMapping("/invitations/{invitationId}/revoke")
+    public ResponseEntity<ApiResponse<Void>> revokeInvitation(@PathVariable UUID tenantId,
+            @PathVariable UUID invitationId,
+            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
+        tenantEmployeeService.revokeInvitation(tenantId, invitationId, resolveUserId(headerUserId));
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
     @Operation(summary = "Mời nhân viên vận hành / thành viên mới vào doanh nghiệp")
     @PostMapping("/invite")
     public ResponseEntity<ApiResponse<InviteMemberResponse>> inviteMember(
