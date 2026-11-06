@@ -33,6 +33,9 @@ class AuthServiceImplTest {
     private PasswordEncoder passwordEncoder;
 
     @Mock
+    private com.swiftroute.authservice.repository.TenantMembershipRepository tenantMembershipRepository;
+
+    @Mock
     private JwtServiceTest jwtService;
 
     @InjectMocks

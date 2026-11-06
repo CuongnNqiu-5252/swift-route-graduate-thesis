@@ -19,7 +19,7 @@ public record UpdateDriverRequest(
 
         VehicleType vehicleType,
 
-        Integer capacity,
+        @jakarta.validation.constraints.Positive Integer capacity,
 
         DriverType driverType,
 

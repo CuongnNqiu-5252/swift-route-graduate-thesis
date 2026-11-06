@@ -37,7 +37,8 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
       }
       if (!state.hasValidDelivery) {
         notifier.setDeliveryLocation(
-          address: 'Đại học Cần Thơ, Đường 3 Tháng 2, P. Xuân Khánh, Q. Ninh Kiều',
+          address:
+              'Đại học Cần Thơ, Đường 3 Tháng 2, P. Xuân Khánh, Q. Ninh Kiều',
           lat: 10.0299,
           lng: 105.7706,
         );
@@ -562,7 +563,8 @@ class _CreateOrderScreenState extends ConsumerState<CreateOrderScreen> {
                             ),
                           );
                         } else if (context.mounted) {
-                          final errorMsg = ref.read(orderFormProvider).errorMessage ??
+                          final errorMsg =
+                              ref.read(orderFormProvider).errorMessage ??
                               'Không thể tạo đơn hàng. Vui lòng thử lại.';
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(

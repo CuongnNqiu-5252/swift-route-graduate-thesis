@@ -9,7 +9,8 @@ class AvatarFloatingToolbar extends ConsumerStatefulWidget {
   const AvatarFloatingToolbar({super.key});
 
   @override
-  ConsumerState<AvatarFloatingToolbar> createState() => _AvatarFloatingToolbarState();
+  ConsumerState<AvatarFloatingToolbar> createState() =>
+      _AvatarFloatingToolbarState();
 }
 
 class _AvatarFloatingToolbarState extends ConsumerState<AvatarFloatingToolbar>
@@ -98,10 +99,9 @@ class _AvatarFloatingToolbarState extends ConsumerState<AvatarFloatingToolbar>
               Navigator.pop(dialogCtx);
               await ref.read(authProvider.notifier).logout();
               if (mounted) {
-                Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/login',
-                  (route) => false,
-                );
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/login', (route) => false);
               }
             },
             child: const Text('Đăng xuất'),
@@ -198,7 +198,12 @@ class _ItemData {
   final String tooltip;
   final int badgeCount;
   final bool isDestructive;
-  const _ItemData(this.icon, this.tooltip, this.badgeCount, {this.isDestructive = false});
+  const _ItemData(
+    this.icon,
+    this.tooltip,
+    this.badgeCount, {
+    this.isDestructive = false,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -244,11 +249,7 @@ class _AvatarButton extends ConsumerWidget {
                   colors: [Color(0xFF2F3C7E), Color(0xFF1E2756)],
                 ),
                 border: Border.all(
-                  color: Color.lerp(
-                    Colors.white,
-                    const Color(0xFF00E5FF),
-                    v,
-                  )!,
+                  color: Color.lerp(Colors.white, const Color(0xFF00E5FF), v)!,
                   width: 2.0,
                 ),
                 boxShadow: [

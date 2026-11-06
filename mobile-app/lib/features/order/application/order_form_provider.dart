@@ -272,13 +272,8 @@ class OrderFormNotifier extends StateNotifier<OrderFormState> {
       );
 
       // Auto-confirm payment so that the order immediately enters PAID state
-      // and appears on the Web Admin Dispatch optimization board
-      OrderModel paidOrder = order;
-      try {
-        paidOrder = await _orderDataSource.confirmPayment(order);
-      } catch (payError) {
-        debugPrint('[OrderFormNotifier] Auto-pay warning: $payError');
-      }
+      // and triggers the automated RabbitMQ dispatch pipeline
+      final paidOrder = await _orderDataSource.confirmPayment(order);
 
       state = state.copyWith(isSubmitting: false, createdOrder: paidOrder);
 

@@ -3,9 +3,15 @@ import 'package:swiftroute_app/core/theme/app_colors.dart';
 
 /// Predefined incident types as specified in thesis driver design document
 enum IncidentType {
-  customerUnavailable('Khách không nghe máy / Không liên lạc được', Icons.phone_missed_rounded),
+  customerUnavailable(
+    'Khách không nghe máy / Không liên lạc được',
+    Icons.phone_missed_rounded,
+  ),
   trafficDelay('Kẹt xe nghiêm trọng / Trễ giờ', Icons.traffic_rounded),
-  wrongAddress('Sai địa chỉ giao hàng / Không tìm thấy nhà', Icons.wrong_location_rounded),
+  wrongAddress(
+    'Sai địa chỉ giao hàng / Không tìm thấy nhà',
+    Icons.wrong_location_rounded,
+  ),
   vehicleProblem('Sự cố xe cộ / Hàng hóa gặp sự cố', Icons.car_crash_rounded),
   other('Lý do khác', Icons.report_problem_rounded);
 
@@ -67,7 +73,11 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
               color: AppColors.error.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 24),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.error,
+              size: 24,
+            ),
           ),
           const SizedBox(width: 12),
           const Expanded(
@@ -85,19 +95,29 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
           children: [
             Text(
               'Đơn hàng #${widget.orderId.length > 8 ? widget.orderId.substring(0, 8) : widget.orderId}',
-              style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               widget.deliveryAddress,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
             ),
             const SizedBox(height: 16),
             const Text(
               'Chọn nguyên nhân sự cố:',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
             ...IncidentType.values.map((type) {
@@ -107,9 +127,14 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: isSelected ? AppColors.error.withValues(alpha: 0.08) : Colors.transparent,
+                    color: isSelected
+                        ? AppColors.error.withValues(alpha: 0.08)
+                        : Colors.transparent,
                     border: Border.all(
                       color: isSelected ? AppColors.error : AppColors.divider,
                       width: isSelected ? 1.5 : 1.0,
@@ -121,7 +146,9 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
                       Icon(
                         type.icon,
                         size: 18,
-                        color: isSelected ? AppColors.error : AppColors.textSecondary,
+                        color: isSelected
+                            ? AppColors.error
+                            : AppColors.textSecondary,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -129,13 +156,21 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
                           type.label,
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                            color: isSelected ? AppColors.error : AppColors.textPrimary,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? AppColors.error
+                                : AppColors.textPrimary,
                           ),
                         ),
                       ),
                       if (isSelected)
-                        const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.error),
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          size: 18,
+                          color: AppColors.error,
+                        ),
                     ],
                   ),
                 ),
@@ -144,7 +179,11 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
             const SizedBox(height: 12),
             const Text(
               'Ghi chú bổ sung (tuỳ chọn):',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
             ),
             const SizedBox(height: 6),
             TextField(
@@ -152,9 +191,17 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
               maxLines: 2,
               decoration: InputDecoration(
                 hintText: 'Nhập chi tiết tình huống...',
-                hintStyle: const TextStyle(fontSize: 12, color: AppColors.textHint),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                hintStyle: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textHint,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
               ),
             ),
           ],
@@ -163,14 +210,16 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(null),
-          child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary)),
+          child: const Text(
+            'Hủy',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
         ),
         FilledButton(
           onPressed: () {
-            Navigator.of(context).pop((
-              type: _selectedType,
-              note: _noteController.text.trim(),
-            ));
+            Navigator.of(
+              context,
+            ).pop((type: _selectedType, note: _noteController.text.trim()));
           },
           style: FilledButton.styleFrom(backgroundColor: AppColors.error),
           child: const Text('Xác nhận báo lỗi'),
@@ -179,4 +228,3 @@ class _IncidentReportDialogState extends State<IncidentReportDialog> {
     );
   }
 }
-

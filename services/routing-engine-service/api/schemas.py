@@ -30,12 +30,17 @@ class StopItem(BaseModel):
 class BatchOptimizationRequest(BaseModel):
     depot: LocationPoint
     stops: List[StopItem] = Field(..., min_length=1)
-    algorithm: str = Field("auto", description="held_karp | nearest_neighbor | genetic | auto")
+    algorithm: str = Field("auto", description="auto | ortools")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for delivery time in multi-objective function")
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for distance/cost in multi-objective function")
 
     @field_validator("algorithm")
     @classmethod
     def validate_algorithm(cls, v: str) -> str:
-        allowed = {"held_karp", "nearest_neighbor", "genetic", "auto"}
+        # Gracefully normalize any legacy algorithm names to ortools for backward compatibility
+        if v in {"held_karp", "nearest_neighbor", "genetic"}:
+            return "ortools"
+        allowed = {"ortools", "auto"}
         if v not in allowed:
             raise ValueError(f"algorithm must be one of {allowed}")
         return v
@@ -94,11 +99,50 @@ class PendingOrder(BaseModel):
     delivery_lng: float
     delivery_address: Optional[str] = None
     weight_kg: float = 1.0
+    priority: str = "NORMAL"  # NORMAL | HIGH | URGENT
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
     status: str = "PENDING_PAYMENT"
     shift: str = "MORNING"  # MORNING | AFTERNOON | EVENING | ALL
     received_at: str
+
+
+class TenantDispatchConfig(BaseModel):
+    auto_dispatch_enabled: bool = True
+    batch_size_threshold: int = Field(5, ge=1, le=50)
+    max_wait_time_seconds: int = Field(300, ge=30, le=3600)
+    urgent_order_mode: str = Field("IMMEDIATE_SINGLE", description="IMMEDIATE_SINGLE | BATCH_IMMEDIATE")
+    require_approval: bool = False
+    max_orders_per_driver: int = Field(5, ge=1, le=20)
+    algorithm: str = Field("auto", description="auto | ortools")
+    allow_pool_drivers: bool = Field(False, description="Enable platform driver pool fallback")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+
+
+class AutoDispatchEvaluationResult(BaseModel):
+    tenant_id: str
+    triggered: bool
+    reason: Optional[str] = None
+    order_count: int = 0
+    plan_id: Optional[str] = None
+    dispatched: bool = False
+    message: str
+
+
+class TenantQueueStatus(BaseModel):
+    tenant_id: str
+    pending_paid_orders: int
+    oldest_order_age_seconds: float
+    has_urgent_order: bool
+    is_optimizing: bool
+    config: TenantDispatchConfig
+
+
+class AutoDispatchStatusResponse(BaseModel):
+    is_running: bool
+    tenants: List[TenantQueueStatus]
+    timestamp: str
 
 
 class ShiftOptimizationRequest(BaseModel):
@@ -109,7 +153,7 @@ class ShiftOptimizationRequest(BaseModel):
         default=None,
         description="Optional list of driver UUIDs to partition deliveries across"
     )
-    algorithm: str = Field("auto", description="held_karp | nearest_neighbor | genetic | auto")
+    algorithm: str = Field("auto", description="auto | ortools")
 
 
 class DriverRoutePlan(BaseModel):
@@ -140,3 +184,58 @@ class DispatchPlanResponse(BaseModel):
     dispatched_orders_count: int
     assignments: List[dict]
     message: str
+
+
+class RouteStopState(BaseModel):
+    id: str = Field(..., description="Stop / order UUID")
+    name: Optional[str] = None
+    location: LocationPoint
+    demand_kg: float = Field(0.0, ge=0.0)
+    time_window_start: Optional[str] = None
+    time_window_end: Optional[str] = None
+    is_completed: bool = Field(False, description="True if driver already completed this stop")
+
+
+class RouteInsertRequest(BaseModel):
+    driver_location: LocationPoint = Field(..., description="Current GPS position of the active driver")
+    current_stops: List[RouteStopState] = Field(..., description="Existing route stops with completion flags")
+    new_stop: StopItem = Field(..., description="New order stop to dynamically insert into remaining route")
+    max_added_duration_minutes: float = Field(30.0, gt=0.0, description="Max acceptable ETA increase in minutes")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+
+
+class RouteInsertResponse(BaseModel):
+    job_id: str
+    algorithm_used: str
+    feasible: bool
+    inserted_stop_index: int
+    added_distance_km: float
+    added_duration_minutes: float
+    total_distance_km: float
+    total_duration_minutes: float
+    ordered_stops: List[OrderedStop]
+    execution_time_ms: float
+    timestamp: str
+
+
+class RouteReoptimizeRequest(BaseModel):
+    driver_location: LocationPoint = Field(..., description="Current GPS position of the active driver")
+    current_stops: List[RouteStopState] = Field(..., min_length=1, description="Route stops with is_completed flags")
+    reason: Optional[str] = Field("DELAY_DETECTED", description="Reason for reoptimization")
+    min_improvement_km: float = Field(0.2, ge=0.0, description="Minimum distance saved to justify changing route")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+
+
+class RouteReoptimizeResponse(BaseModel):
+    job_id: str
+    algorithm_used: str
+    stops_changed: bool
+    distance_saved_km: float
+    total_distance_km: float
+    total_duration_minutes: float
+    ordered_stops: List[OrderedStop]
+    execution_time_ms: float
+    timestamp: str
+

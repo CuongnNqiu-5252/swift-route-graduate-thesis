@@ -41,6 +41,33 @@ public class DriverController {
 
     private final DriverService driverService;
 
+    public record ReviewProfileRequest(boolean approved,
+            @jakarta.validation.constraints.Size(max = 1000) String note) {
+    }
+
+    @PutMapping("/me/profile")
+    @PreAuthorize("hasRole('DRIVER')")
+    public ResponseEntity<ApiResponse<DriverResponse>> completeMyProfile(
+            @Valid @RequestBody UpdateDriverRequest request,
+            @RequestHeader("X-User-Id") UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success(driverService.completeMyProfile(userId, request)));
+    }
+
+    @PostMapping("/me/submit")
+    @PreAuthorize("hasRole('DRIVER')")
+    public ResponseEntity<ApiResponse<DriverResponse>> submitMyProfile(@RequestHeader("X-User-Id") UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success(driverService.submitMyProfile(userId)));
+    }
+
+    @PostMapping("/{driverId}/review")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OWNER')")
+    public ResponseEntity<ApiResponse<DriverResponse>> reviewProfile(@PathVariable UUID driverId,
+            @Valid @RequestBody ReviewProfileRequest request,
+            @RequestHeader("X-User-Id") UUID userId, @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.reviewProfile(driverId, request.approved(), request.note(), userId, role)));
+    }
+
     /**
      * GET /api/drivers
      * List all drivers (or filtered by tenant).
@@ -72,7 +99,7 @@ public class DriverController {
      */
     @Operation(summary = "Register a new driver for a tenant")
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPS_STAFF', 'OWNER')")
     public ResponseEntity<ApiResponse<DriverResponse>> registerDriver(
             @Valid @RequestBody RegisterDriverRequest request,
             @RequestHeader("X-User-Id") String userId,
@@ -114,24 +141,9 @@ public class DriverController {
     }
 
     /**
-     * PATCH /api/drivers/me/location
-     * Update current authenticated driver's real-time GPS coordinates.
-     * Role: DRIVER
-     */
-    @Operation(summary = "Update current driver GPS coordinates (PATCH)")
-    @PatchMapping("/me/location")
-    @PreAuthorize("hasRole('DRIVER')")
-    public ResponseEntity<ApiResponse<DriverResponse>> updateMyLocationPatch(
-            @Valid @RequestBody UpdateLocationRequest request,
-            @RequestHeader("X-User-Id") String userId) {
-
-        DriverResponse response = driverService.updateMyLocation(UUID.fromString(userId), request);
-        return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    /**
      * POST /api/drivers/me/location
-     * Update current authenticated driver's real-time GPS coordinates (POST alias for background sync).
+     * Update current authenticated driver's real-time GPS coordinates (POST alias
+     * for background sync).
      * Role: DRIVER
      */
     @Operation(summary = "Update current driver GPS coordinates (POST)")
@@ -163,7 +175,8 @@ public class DriverController {
 
     /**
      * GET /api/drivers/{driverId}/public
-     * Get basic public profile (name, phone, license plate, coordinates) for customer tracking.
+     * Get basic public profile (name, phone, license plate, coordinates) for
+     * customer tracking.
      */
     @Operation(summary = "Get basic public driver info for order tracking")
     @GetMapping("/{driverId}/public")
@@ -187,7 +200,8 @@ public class DriverController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
 
         UUID requesterTenantId = (tenantId != null && !tenantId.isBlank()) ? UUID.fromString(tenantId) : null;
-        DriverResponse response = driverService.getDriverById(driverId, UUID.fromString(userId), userRole, requesterTenantId);
+        DriverResponse response = driverService.getDriverById(driverId, UUID.fromString(userId), userRole,
+                requesterTenantId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -198,7 +212,7 @@ public class DriverController {
      */
     @Operation(summary = "List all drivers in a tenant")
     @GetMapping("/tenant/{tenantId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPS_STAFF', 'OWNER')")
     public ResponseEntity<ApiResponse<List<DriverResponse>>> getDriversByTenant(
             @PathVariable UUID tenantId,
             @RequestHeader("X-User-Id") String userId,
@@ -227,7 +241,7 @@ public class DriverController {
      */
     @Operation(summary = "Update driver details")
     @PutMapping("/{driverId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF', 'OWNER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPS_STAFF', 'OWNER')")
     public ResponseEntity<ApiResponse<DriverResponse>> updateDriver(
             @PathVariable UUID driverId,
             @Valid @RequestBody UpdateDriverRequest request,
@@ -276,7 +290,7 @@ public class DriverController {
      */
     @Operation(summary = "Change driver operational status")
     @PatchMapping("/{driverId}/status")
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPS_STAFF')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SYSTEM_ADMIN', 'TENANT_ADMIN', 'OWNER')")
     public ResponseEntity<ApiResponse<DriverResponse>> changeStatus(
             @PathVariable UUID driverId,
             @RequestBody DriverStatus newStatus,

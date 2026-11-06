@@ -168,39 +168,42 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     final isAlreadyDelivered = order.status == OrderStatus.delivered;
 
     // Default route points from Goong direction, or fallback interpolation
-    List<LatLngPoint> points = List.from(direction?.points ?? []);
-    if (points.isEmpty) {
-      points = _interpolatePoints(
-        LatLngPoint(order.pickupLat, order.pickupLng),
-        LatLngPoint(order.deliveryLat, order.deliveryLng),
-        24,
-      );
-      // Fetch street-level polyline in background
-      _fetchDirectionForOrder(order);
-    } else if (points.length == 2) {
-      points = _interpolatePoints(points[0], points[1], 24);
-      _fetchDirectionForOrder(order);
-    } else if (points.length >= 2) {
-      // Ensure orientation: points.first must be closest to pickup, not delivery
-      final dStartToPickup =
-          (points.first.latitude - order.pickupLat).abs() +
-          (points.first.longitude - order.pickupLng).abs();
-      final dStartToDelivery =
-          (points.first.latitude - order.deliveryLat).abs() +
-          (points.first.longitude - order.deliveryLng).abs();
-      if (dStartToDelivery < dStartToPickup) {
-        points = points.reversed.toList();
+    List<LatLngPoint> points = isAlreadyDelivered
+        ? const []
+        : List.from(direction?.points ?? []);
+
+    if (!isAlreadyDelivered) {
+      if (points.isEmpty) {
+        points = _interpolatePoints(
+          LatLngPoint(order.pickupLat, order.pickupLng),
+          LatLngPoint(order.deliveryLat, order.deliveryLng),
+          24,
+        );
+        // Fetch street-level polyline in background
+        _fetchDirectionForOrder(order);
+      } else if (points.length == 2) {
+        points = _interpolatePoints(points[0], points[1], 24);
+        _fetchDirectionForOrder(order);
+      } else if (points.length >= 2) {
+        // Ensure orientation: points.first must be closest to pickup, not delivery
+        final dStartToPickup =
+            (points.first.latitude - order.pickupLat).abs() +
+            (points.first.longitude - order.pickupLng).abs();
+        final dStartToDelivery =
+            (points.first.latitude - order.deliveryLat).abs() +
+            (points.first.longitude - order.deliveryLng).abs();
+        if (dStartToDelivery < dStartToPickup) {
+          points = points.reversed.toList();
+        }
       }
     }
 
     final initialDriverPos = isAlreadyDelivered
-        ? (points.isNotEmpty ? points.last : null)
+        ? LatLngPoint(order.deliveryLat, order.deliveryLng)
         : null;
 
     final hasDriver =
-        order.assignedDriverId != null &&
-        order.assignedDriverId!.isNotEmpty &&
-        order.assignedDriverId != 'mock-driver-uuid';
+        order.assignedDriverId != null && order.assignedDriverId!.isNotEmpty;
 
     state = OrderTrackingState(
       order: order,
@@ -223,6 +226,26 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
     // If real backend driverId is available, load live public profile
     if (hasDriver) {
       _loadLiveDriverInfo(order.assignedDriverId!);
+    } else {
+      // If order was just placed, backend RabbitMQ auto-dispatch will assign a driver shortly
+      Future.delayed(const Duration(milliseconds: 1500), () async {
+        if (state.order?.id == order.id &&
+            (state.order?.assignedDriverId == null ||
+                state.order!.assignedDriverId!.isEmpty)) {
+          try {
+            final refreshed = await _orderDataSource.getOrderById(order.id);
+            if (refreshed.assignedDriverId != null &&
+                refreshed.assignedDriverId!.isNotEmpty) {
+              state = state.copyWith(order: refreshed);
+              _loadLiveDriverInfo(refreshed.assignedDriverId!);
+            }
+          } catch (e) {
+            debugPrint(
+              '[OrderTrackingNotifier] Auto-refresh assigned driver: $e',
+            );
+          }
+        }
+      });
     }
 
     // Automatically connect to real-time location stream if order is active
@@ -235,6 +258,7 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
 
   Future<void> _fetchDirectionForOrder(OrderModel order) async {
     try {
+      if (state.isDelivered || order.status == OrderStatus.delivered) return;
       final dir = await _goongDataSource.getDirections(
         originLat: order.pickupLat,
         originLng: order.pickupLng,
@@ -242,6 +266,9 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         destLng: order.deliveryLng,
       );
       if (dir.points.isNotEmpty && state.order?.id == order.id) {
+        if (state.isDelivered || state.order?.status == OrderStatus.delivered) {
+          return;
+        }
         final isRunningLocal = _simulationTimer != null;
         state = state.copyWith(
           routePoints: dir.points,
@@ -296,6 +323,12 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
       final info = await _driverDataSource.getDriverPublicInfo(driverId);
       final order = state.order;
       if (info.isNotEmpty && order != null) {
+        // If order is already delivered, only attach driver profile without overwriting routes
+        if (state.isDelivered || order.status == OrderStatus.delivered) {
+          state = state.copyWith(driverInfo: info);
+          return;
+        }
+
         final driverLat = (info['current_lat'] as num?)?.toDouble();
         final driverLng = (info['current_lng'] as num?)?.toDouble();
         if (driverLat != null && driverLng != null) {
@@ -312,6 +345,14 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
             destLat: order.deliveryLat,
             destLng: order.deliveryLng,
           );
+
+          // Check if order finished while fetching leg directions
+          if (state.isDelivered ||
+              state.order?.status == OrderStatus.delivered) {
+            state = state.copyWith(driverInfo: info);
+            return;
+          }
+
           final combinedPoints = [...leg1.points, ...leg2.points];
           state = state.copyWith(
             driverInfo: info,
@@ -372,9 +413,17 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
         _simulationTimer = null;
         state = state.copyWith(
           isSimulating: false,
-          currentRouteIndex: state.routePoints.length - 1,
+          currentRouteIndex: state.routePoints.isNotEmpty
+              ? state.routePoints.length - 1
+              : 0,
           sseStep: state.routePoints.length,
           status: OrderStatus.delivered,
+          routePoints: const [],
+          driverPosition: state.order != null
+              ? LatLngPoint(state.order!.deliveryLat, state.order!.deliveryLng)
+              : (state.routePoints.isNotEmpty
+                    ? state.routePoints.last
+                    : state.driverPosition),
         );
         // Synchronize DELIVERED status to the backend database
         final currentOrder = state.order;
@@ -507,6 +556,12 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
               }
             } else if (eventType == 'status_update') {
               final statusStr = data['status'] as String?;
+              final driverId = data['driver_id'] as String?;
+              if (driverId != null &&
+                  driverId.isNotEmpty &&
+                  state.driverInfo == null) {
+                _loadLiveDriverInfo(driverId);
+              }
               if (statusStr == 'DELIVERED') {
                 _simulationTimer?.cancel();
                 _simulationTimer = null;
@@ -514,9 +569,15 @@ class OrderTrackingNotifier extends StateNotifier<OrderTrackingState> {
                   isSimulating: false,
                   isSseConnected: false,
                   status: OrderStatus.delivered,
-                  driverPosition: state.routePoints.isNotEmpty
-                      ? state.routePoints.last
-                      : state.driverPosition,
+                  routePoints: const [],
+                  driverPosition: state.order != null
+                      ? LatLngPoint(
+                          state.order!.deliveryLat,
+                          state.order!.deliveryLng,
+                        )
+                      : (state.routePoints.isNotEmpty
+                            ? state.routePoints.last
+                            : state.driverPosition),
                 );
               }
             }

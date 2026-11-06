@@ -49,14 +49,18 @@ public class User {
     @Builder.Default
     private Role role = Role.CUSTOMER;
 
-    @Column(name = "tenant_id")
-    private UUID tenantId;
-
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private String status = "ACTIVE"; // Trạng thái mặc định
+    private String status = "ACTIVE";
 
-    @CreationTimestamp // Tự động lấy giờ hệ thống lúc Insert
+    @Column(name = "is_email_verified", nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    @Column(name = "email_verified_at")
+    private LocalDateTime emailVerifiedAt;
+
+    @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 }

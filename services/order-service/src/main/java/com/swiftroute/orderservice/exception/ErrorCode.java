@@ -35,8 +35,25 @@ public enum ErrorCode {
     TENANT_PENDING(403, "Tài khoản doanh nghiệp chưa được phê duyệt", HttpStatus.FORBIDDEN),
     TENANT_REJECTED(403, "Yêu cầu tạo doanh nghiệp đã bị từ chối", HttpStatus.FORBIDDEN),
     INVALID_TENANT_STATUS_TRANSITION(409, "Không thể chuyển trạng thái doanh nghiệp theo yêu cầu", HttpStatus.CONFLICT),
+    EMAIL_NOT_VERIFIED(403, "Verify email before creating an organization", HttpStatus.FORBIDDEN),
+    CONCURRENT_UPDATE(409, "Data changed concurrently; refresh and retry", HttpStatus.CONFLICT),
+    IDEMPOTENCY_CONFLICT(409, "Idempotency key was already used for a different request", HttpStatus.CONFLICT),
+    VERIFICATION_INCOMPLETE(422, "Complete business profile, pickup point and delivery settings before submission", HttpStatus.UNPROCESSABLE_ENTITY),
+    VERIFICATION_NOT_FOUND(404, "Verification request not found", HttpStatus.NOT_FOUND),
+    INVALID_VERIFICATION_TRANSITION(409, "Invalid or concurrent verification decision", HttpStatus.CONFLICT),
+    OPERATIONS_NOT_READY(409, "Tenant is not ready for this operation; check operational-readiness", HttpStatus.CONFLICT),
     OWNER_NOT_ACTIVE(400, "Chủ doanh nghiệp không tồn tại hoặc không hoạt động", HttpStatus.BAD_REQUEST),
-    AUTH_SERVICE_UNAVAILABLE(503, "Không thể xác minh chủ doanh nghiệp vào lúc này", HttpStatus.SERVICE_UNAVAILABLE);
+    AUTH_SERVICE_UNAVAILABLE(503, "Không thể xác minh chủ doanh nghiệp vào lúc này", HttpStatus.SERVICE_UNAVAILABLE),
+
+    // ===== Lỗi nghiệp vụ Dispatch Plan =====
+    PLAN_NOT_FOUND(404, "Không tìm thấy kế hoạch điều phối", HttpStatus.NOT_FOUND),
+    INVALID_PLAN_STATUS(400, "Trạng thái kế hoạch không hợp lệ hoặc không thể chuyển đổi", HttpStatus.BAD_REQUEST),
+    PLAN_ALREADY_CANCELLED(400, "Kế hoạch điều phối đã bị huỷ, không thể cập nhật", HttpStatus.BAD_REQUEST),
+
+    // ===== Lỗi nghiệp vụ Pickup Locations =====
+    PICKUP_LOCATION_NOT_FOUND(404, "Điểm lấy hàng không tồn tại hoặc không thuộc doanh nghiệp của bạn", HttpStatus.NOT_FOUND),
+    PICKUP_LOCATION_INACTIVE(400, "Điểm lấy hàng đang ngừng hoạt động", HttpStatus.BAD_REQUEST),
+    CANNOT_DELETE_DEFAULT_PICKUP_LOCATION(400, "Không thể xoá điểm lấy hàng mặc định duy nhất đang hoạt động", HttpStatus.BAD_REQUEST);
 
     private final int code;
     private final String message;

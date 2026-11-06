@@ -21,7 +21,8 @@ class MultiStopRouteScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<MultiStopRouteScreen> createState() => _MultiStopRouteScreenState();
+  ConsumerState<MultiStopRouteScreen> createState() =>
+      _MultiStopRouteScreenState();
 }
 
 class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
@@ -43,8 +44,12 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
       _errorMessage = null;
     });
 
-    debugPrint('🚀 [MultiStopRoute] Bắt đầu tối ưu hóa tuyến đường cho ${widget.orders.length} điểm dừng');
-    debugPrint('📍 [MultiStopRoute] Kho xuất phát: (${widget.depot.lat}, ${widget.depot.lng})');
+    debugPrint(
+      '🚀 [MultiStopRoute] Bắt đầu tối ưu hóa tuyến đường cho ${widget.orders.length} điểm dừng',
+    );
+    debugPrint(
+      '📍 [MultiStopRoute] Kho xuất phát: (${widget.depot.lat}, ${widget.depot.lng})',
+    );
     debugPrint('🧠 [MultiStopRoute] Thuật toán: $_selectedAlgorithm');
 
     try {
@@ -68,7 +73,9 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
         algorithm: _selectedAlgorithm,
       );
 
-      debugPrint('✅ [MultiStopRoute] Nhận kết quả: ${res.algorithmUsed} | Quãng đường: ${res.totalDistanceKm} km | Thời gian: ${res.totalDurationMinutes} phút');
+      debugPrint(
+        '✅ [MultiStopRoute] Nhận kết quả: ${res.algorithmUsed} | Quãng đường: ${res.totalDistanceKm} km | Thời gian: ${res.totalDurationMinutes} phút',
+      );
 
       // Fetch street polyline via Goong for consecutive optimized stops
       final combinedPoints = await _buildMultiStopPolyline(res);
@@ -87,14 +94,16 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
           _isLoading = false;
           _errorMessage = 'Lỗi tối ưu hóa lộ trình: $e';
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_errorMessage!)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_errorMessage!)));
       }
     }
   }
 
-  Future<List<LatLngPoint>> _buildMultiStopPolyline(OptimizationResultModel res) async {
+  Future<List<LatLngPoint>> _buildMultiStopPolyline(
+    OptimizationResultModel res,
+  ) async {
     final goongSource = ref.read(goongRemoteDataSourceProvider);
     final allPoints = <LatLngPoint>[];
 
@@ -147,8 +156,12 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
             child: Stack(
               children: [
                 GoongMapWidget(
-                  pickupLocation: LatLngPoint(widget.depot.lat, widget.depot.lng),
-                  deliveryLocation: _result != null && _result!.orderedStops.isNotEmpty
+                  pickupLocation: LatLngPoint(
+                    widget.depot.lat,
+                    widget.depot.lng,
+                  ),
+                  deliveryLocation:
+                      _result != null && _result!.orderedStops.isNotEmpty
                       ? LatLngPoint(
                           _result!.orderedStops.last.location.lat,
                           _result!.orderedStops.last.location.lng,
@@ -183,15 +196,24 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
                     segments: const [
                       ButtonSegment(
                         value: 'auto',
-                        label: Text('Auto (DP/NN)', style: TextStyle(fontSize: 11)),
+                        label: Text(
+                          'Auto (DP/NN)',
+                          style: TextStyle(fontSize: 11),
+                        ),
                       ),
                       ButtonSegment(
                         value: 'held_karp',
-                        label: Text('Held-Karp DP', style: TextStyle(fontSize: 11)),
+                        label: Text(
+                          'Held-Karp DP',
+                          style: TextStyle(fontSize: 11),
+                        ),
                       ),
                       ButtonSegment(
                         value: 'nearest_neighbor',
-                        label: Text('Nearest Neighbor', style: TextStyle(fontSize: 11)),
+                        label: Text(
+                          'Nearest Neighbor',
+                          style: TextStyle(fontSize: 11),
+                        ),
                       ),
                     ],
                     selected: {_selectedAlgorithm},
@@ -243,7 +265,8 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
                   ),
                   _buildMetric(
                     label: 'TỔNG THỜI GIAN',
-                    value: '${_result!.totalDurationMinutes.toStringAsFixed(0)} p',
+                    value:
+                        '${_result!.totalDurationMinutes.toStringAsFixed(0)} p',
                     icon: Icons.schedule_rounded,
                     color: const Color(0xFF7C3AED),
                   ),
@@ -293,7 +316,8 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    stop.location.address ?? 'Điểm giao #${stop.stopId}',
+                                    stop.location.address ??
+                                        'Điểm giao #${stop.stopId}',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 13,
@@ -377,4 +401,3 @@ class _MultiStopRouteScreenState extends ConsumerState<MultiStopRouteScreen> {
     }
   }
 }
-

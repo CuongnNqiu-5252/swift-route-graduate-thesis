@@ -1,270 +1,302 @@
+// features/driver/presentation/widgets/driver_stop_card.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
+import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
+import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
-import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_detail_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-/// Card representing a delivery stop along the driver's daily route (D05)
-class DriverStopCard extends ConsumerStatefulWidget {
-  const DriverStopCard({
-    super.key,
-    required this.stop,
-    required this.sequence,
-  });
+/// Field-Ops card for a single stop on the driver's route timeline (D05).
+///
+/// For packages already on the vehicle the primary CTA is a one-tap
+/// "Giao xong" that opens the POD/COD sheet directly — no intermediate states.
+class DriverStopCard extends ConsumerWidget {
+  const DriverStopCard({super.key, required this.stop, required this.sequence});
 
   final OrderModel stop;
   final int sequence;
 
   @override
-  ConsumerState<DriverStopCard> createState() => _DriverStopCardState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = stop.deliveryTaskStatus ?? DeliveryTaskStatus.assigned;
+    final isDone = status == DeliveryTaskStatus.completed;
+    final isFailed = status == DeliveryTaskStatus.failed;
+    final isCancelled =
+        status == DeliveryTaskStatus.cancelled ||
+        stop.status == OrderStatus.cancelled;
+    final isClosed = isDone || isFailed || isCancelled;
+    final canDeliver = stop.isOutForDelivery;
 
-class _DriverStopCardState extends ConsumerState<DriverStopCard> {
-  var _isUpdating = false;
+    final badgeColor = isDone
+        ? AppColors.success
+        : isFailed
+        ? AppColors.error
+        : (stop.needsPickup ? AppColors.accent : AppColors.primary);
 
-  Future<void> _advance() async {
-    final nextStatus = widget.stop.status == OrderStatus.planned
-        ? OrderStatus.inTransit
-        : OrderStatus.delivered;
+    final address = stop.isReturnTask || stop.needsPickup
+        ? stop.pickupAddress
+        : stop.deliveryAddress;
+    final title = stop.isReturnTask
+        ? 'Hoàn về ${stop.pickupDisplayName}'
+        : (stop.recipientName?.trim().isNotEmpty == true
+              ? stop.recipientName!.trim()
+              : 'Khách nhận hàng');
 
-    setState(() => _isUpdating = true);
-    try {
-      await ref.read(driverOrdersProvider.notifier).updateOrderStatus(
-            orderId: widget.stop.id,
-            nextStatus: nextStatus,
-          );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              nextStatus == OrderStatus.inTransit
-                  ? 'Bắt đầu giao đơn #${widget.stop.id.substring(0, 8)}'
-                  : 'Đã hoàn thành điểm giao #${widget.stop.id.substring(0, 8)}',
-            ),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không thể cập nhật đơn. Hãy thử lại.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final stop = widget.stop;
-    final isInTransit = stop.status == OrderStatus.inTransit;
-    final isDelivered = stop.status == OrderStatus.delivered;
-    final isFailed = stop.status == OrderStatus.failed;
-
-    final statusColor = switch (stop.status) {
-      OrderStatus.planned => Colors.blue.shade700,
-      OrderStatus.inTransit => AppColors.accent,
-      OrderStatus.delivered => AppColors.success,
-      OrderStatus.failed => AppColors.error,
-      _ => AppColors.textSecondary,
-    };
-
-    final actionLabel = isInTransit ? 'Đã giao xong' : 'Bắt đầu giao';
-    final actionIcon = isInTransit ? Icons.check_circle_rounded : Icons.two_wheeler_rounded;
-
-    return InkWell(
-      onTap: () => DriverStopDetailSheet.show(
-        context,
-        order: stop,
-        sequenceNumber: widget.sequence,
-      ),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isInTransit ? AppColors.accent.withValues(alpha: 0.5) : AppColors.divider,
-            width: isInTransit ? 1.5 : 1.0,
-          ),
-          boxShadow: isInTransit
-              ? [
-                  BoxShadow(
-                    color: AppColors.accent.withValues(alpha: 0.08),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
+    return Material(
+      color: AppColors.card,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => DriverStopDetailSheet.show(
+          context,
+          order: stop,
+          sequenceNumber: sequence,
         ),
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Row 1: Index + Order ID + Status
-            Row(
-              children: [
-                Container(
-                  width: 26,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: isDelivered
-                        ? AppColors.success
-                        : (isInTransit ? AppColors.accent : AppColors.primary),
-                    shape: BoxShape.circle,
-                  ),
-                  child: isDelivered
-                      ? const Icon(Icons.check, size: 14, color: Colors.white)
-                      : Text(
-                          '${widget.sequence}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Đơn #${stop.id.length > 8 ? stop.id.substring(0, 8) : stop.id}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      decoration: isDelivered ? TextDecoration.lineThrough : null,
-                      color: isDelivered ? AppColors.textSecondary : AppColors.textPrimary,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    stop.status.displayName,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: statusColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            // Address
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.location_on_outlined, size: 16, color: AppColors.textSecondary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    stop.deliveryAddress,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: isDelivered ? AppColors.textSecondary : AppColors.textPrimary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // Window & weight
-            Row(
-              children: [
-                const Icon(Icons.access_time_rounded, size: 13, color: AppColors.textSecondary),
-                const SizedBox(width: 4),
-                Text(
-                  '${_formatTime(stop.timeWindowStart)} - ${_formatTime(stop.timeWindowEnd)}',
-                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                ),
-                const SizedBox(width: 12),
-                const Icon(Icons.scale_rounded, size: 13, color: AppColors.textSecondary),
-                const SizedBox(width: 4),
-                Text(
-                  '${stop.weightKg.toStringAsFixed(1)} kg',
-                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                ),
-              ],
-            ),
-            // Actions (only if not completed/failed)
-            if (!isDelivered && !isFailed) ...[
-              const Divider(height: 20, color: AppColors.divider),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.divider),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: isDone
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 18,
+                            color: Colors.white,
+                          )
+                        : Text(
+                            '$sequence',
+                            style: AppTheme.numStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
-                    flex: 4,
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => DriverNavigationScreen(order: stop),
-                        ),
-                      ),
-                      icon: const Icon(Icons.directions_outlined, size: 16),
-                      label: const Text('Bản đồ'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    child: Text(
+                      stop.displayCode,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.numStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: isClosed
+                            ? AppColors.textSecondary
+                            : AppColors.textPrimary,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: () => DriverIncidentSheet.show(context, stop),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-                      side: const BorderSide(color: AppColors.error, width: 1.2),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: const Tooltip(
-                      message: 'Báo sự cố đơn hàng',
-                      child: Icon(Icons.report_problem_outlined, color: AppColors.error, size: 16),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 6,
-                    child: FilledButton.icon(
-                      onPressed: _isUpdating ? null : _advance,
-                      icon: _isUpdating
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : Icon(actionIcon, size: 16),
-                      label: Text(actionLabel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: isInTransit ? AppColors.success : AppColors.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                    ),
-                  ),
+                  _StatusPillFor(status: status, isReturn: stop.isReturnTask),
                 ],
               ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w800,
+                  color: isClosed
+                      ? AppColors.textSecondary
+                      : AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                address,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  height: 1.35,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  _MetaText(
+                    icon: Icons.schedule_rounded,
+                    text: AppFormatters.timeWindow(
+                      stop.timeWindowStart,
+                      stop.timeWindowEnd,
+                    ),
+                  ),
+                  _MetaText(
+                    icon: Icons.inventory_2_outlined,
+                    text:
+                        '${stop.packageCount} kiện · ${stop.weightKg.toStringAsFixed(1)} kg',
+                  ),
+                  if (!stop.isReturnTask) CodBadge(amount: stop.codAmount),
+                ],
+              ),
+              if (!isClosed) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    PhoneCallButton(
+                      phone: stop.needsPickup || stop.isReturnTask
+                          ? stop.senderPhone
+                          : stop.recipientPhone,
+                      compact: true,
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: IconButton.outlined(
+                        tooltip: 'Mở bản đồ dẫn đường',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => DriverNavigationScreen(order: stop),
+                          ),
+                        ),
+                        style: IconButton.styleFrom(
+                          side: const BorderSide(color: AppColors.divider),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.navigation_rounded,
+                          size: 20,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SizedBox(
+                        height: 48,
+                        child: canDeliver
+                            ? FilledButton.icon(
+                                onPressed: () =>
+                                    DriverDeliveryPodSheet.show(context, stop),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.success,
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                icon: const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 19,
+                                ),
+                                label: const Text('Giao xong'),
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: () => DriverStopDetailSheet.show(
+                                  context,
+                                  order: stop,
+                                  sequenceNumber: sequence,
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48),
+                                ),
+                                icon: Icon(
+                                  stop.needsPickup
+                                      ? Icons.warehouse_outlined
+                                      : Icons.more_horiz_rounded,
+                                  size: 19,
+                                ),
+                                label: Text(
+                                  stop.needsPickup ? 'Lấy tại kho' : 'Chi tiết',
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
+}
 
-  String _formatTime(DateTime dt) {
-    final local = dt.toLocal();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+class _MetaText extends StatelessWidget {
+  const _MetaText({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: AppColors.textSecondary),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: AppTheme.numStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
   }
 }
 
+class _StatusPillFor extends StatelessWidget {
+  const _StatusPillFor({required this.status, required this.isReturn});
+
+  final DeliveryTaskStatus status;
+  final bool isReturn;
+
+  @override
+  Widget build(BuildContext context) {
+    final (fg, bg, border) = switch (status) {
+      DeliveryTaskStatus.completed => (
+        AppColors.success,
+        AppColors.successSoft,
+        AppColors.successBorder,
+      ),
+      DeliveryTaskStatus.failed || DeliveryTaskStatus.cancelled => (
+        AppColors.errorDark,
+        AppColors.errorSoft,
+        AppColors.errorBorder,
+      ),
+      DeliveryTaskStatus.pickedUp || DeliveryTaskStatus.outForDelivery => (
+        AppColors.primary,
+        AppColors.primarySoft,
+        AppColors.primaryBorder,
+      ),
+      _ => (AppColors.warning, AppColors.warningSoft, AppColors.warningBorder),
+    };
+    return StatusPill(
+      label: isReturn && status == DeliveryTaskStatus.outForDelivery
+          ? 'Đang hoàn về'
+          : status.displayName,
+      foreground: fg,
+      background: bg,
+      borderColor: border,
+    );
+  }
+}

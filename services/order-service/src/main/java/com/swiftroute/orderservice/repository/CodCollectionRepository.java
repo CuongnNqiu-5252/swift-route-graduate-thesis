@@ -1,0 +1,2 @@
+package com.swiftroute.orderservice.repository; import java.util.*; import org.springframework.data.jpa.repository.JpaRepository; import com.swiftroute.orderservice.entity.CodCollection;
+public interface CodCollectionRepository extends JpaRepository<CodCollection,UUID>{ Optional<CodCollection> findByOrder_Id(UUID orderId); List<CodCollection> findByTenantIdAndStatusOrderByCollectedAtDesc(UUID tenantId,String status); List<CodCollection> findByTenantIdAndDriverIdAndStatusOrderByCollectedAtDesc(UUID tenantId,UUID driverId,String status); }

@@ -32,12 +32,12 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
         password: password,
         fullName: username,
-        phoneNumber: phoneNumber,
-        address: address,
-        city: city,
-        state: state,
-        zipCode: zipCode,
-        country: country,
+        phoneNumber: phoneNumber.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zipCode: zipCode.trim(),
+        country: country.trim(),
       );
       // POST /api/auth/register → 201 { data: null }
       await _dio.post('/auth/register', data: request.toJson());
@@ -67,11 +67,14 @@ class AuthRepositoryImpl implements AuthRepository {
       try {
         final meResponse = await _dio.get('/auth/me');
         final meData = meResponse.data['data'] as Map<String, dynamic>;
+        final tokenUser = _decodeUserFromToken(loginResponse.accessToken);
         return UserModel(
           id: meData['id'] as String? ?? '',
           email: meData['email'] as String? ?? identifier,
           name: meData['full_name'] as String? ?? '',
-          role: (meData['role'] as String? ?? 'CUSTOMER').toUpperCase(),
+          // The signed access token carries the active tenant membership role.
+          // account_role from /auth/me is platform-scoped and must not drive the Driver app.
+          role: tokenUser.role,
         );
       } catch (_) {
         // Fallback: decode user info from the access token payload (JWT)
@@ -93,7 +96,8 @@ class AuthRepositoryImpl implements AuthRepository {
       final padded = payload.padRight((payload.length + 3) & ~3, '=');
       final decoded = utf8.decode(base64Url.decode(padded));
       final claims = jsonDecode(decoded) as Map<String, dynamic>;
-      final rawRole = claims['_ROLE'] ?? claims['role'] ?? claims['roles'] ?? 'CUSTOMER';
+      final rawRole =
+          claims['_ROLE'] ?? claims['role'] ?? claims['roles'] ?? 'CUSTOMER';
       final role = (rawRole is List)
           ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'CUSTOMER')
           : rawRole.toString();
@@ -136,11 +140,13 @@ class AuthRepositoryImpl implements AuthRepository {
       try {
         final response = await _dio.get('/auth/me');
         final data = response.data['data'] as Map<String, dynamic>;
+        final effectiveToken = await _tokenStorage.getAccessToken() ?? token;
+        final tokenUser = _decodeUserFromToken(effectiveToken);
         return UserModel(
           id: data['id'] as String? ?? '',
           email: data['email'] as String? ?? '',
           name: data['full_name'] as String? ?? '',
-          role: (data['role'] as String? ?? 'CUSTOMER').toUpperCase(),
+          role: tokenUser.role,
         );
       } catch (_) {
         return _decodeUserFromToken(token);

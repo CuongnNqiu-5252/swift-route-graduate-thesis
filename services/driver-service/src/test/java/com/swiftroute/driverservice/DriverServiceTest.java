@@ -31,6 +31,7 @@ import com.swiftroute.driverservice.entity.enums.VehicleType;
 import com.swiftroute.driverservice.exception.AppException;
 import com.swiftroute.driverservice.repository.DriverRepository;
 import com.swiftroute.driverservice.repository.OutboxEventRepository;
+import com.swiftroute.driverservice.service.DriverLocationCache;
 import com.swiftroute.driverservice.service.DriverService;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +43,9 @@ class DriverServiceTest {
     @Mock
     private OutboxEventRepository outboxEventRepository;
 
+    @Mock
+    private DriverLocationCache locationCache;
+
     private DriverService driverService;
 
     private Driver sampleDriver;
@@ -51,7 +55,7 @@ class DriverServiceTest {
 
     @BeforeEach
     void setUp() {
-        driverService = new DriverService(driverRepository, outboxEventRepository);
+        driverService = new DriverService(driverRepository, outboxEventRepository, locationCache);
 
         sampleDriverId = UUID.randomUUID();
         sampleUserId = UUID.randomUUID();
@@ -121,6 +125,7 @@ class DriverServiceTest {
     void updateMyLocation_Success() {
         when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
         when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(locationCache.accept(any(Driver.class), any(UpdateLocationRequest.class))).thenReturn(true);
 
         UpdateLocationRequest request = new UpdateLocationRequest(10.8231, 106.6297);
         DriverResponse response = driverService.updateMyLocation(sampleUserId, request);

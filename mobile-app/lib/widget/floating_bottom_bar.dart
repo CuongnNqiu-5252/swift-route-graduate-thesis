@@ -11,11 +11,7 @@ import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 import 'package:swiftroute_app/widget/profile_bottom_sheet.dart';
 
 class FloatingBottomBar extends ConsumerWidget {
-  const FloatingBottomBar({
-    super.key,
-    this.currentIndex = 0,
-    this.onTap,
-  });
+  const FloatingBottomBar({super.key, this.currentIndex = 0, this.onTap});
 
   final int currentIndex;
   final ValueChanged<int>? onTap;
@@ -47,10 +43,7 @@ class FloatingBottomBar extends ConsumerWidget {
             offset: const Offset(0, 2),
           ),
         ],
-        border: Border.all(
-          color: Colors.grey.shade200,
-          width: 1,
-        ),
+        border: Border.all(color: Colors.grey.shade200, width: 1),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -66,10 +59,9 @@ class FloatingBottomBar extends ConsumerWidget {
               if (onTap != null) {
                 onTap!(0);
               } else if (currentIndex != 0) {
-                Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/customer/home',
-                  (route) => false,
-                );
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/customer/home', (route) => false);
               }
             },
           ),
@@ -86,7 +78,9 @@ class FloatingBottomBar extends ConsumerWidget {
                 onTap!(1);
               } else if (currentIndex != 1) {
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const CustomerOrdersScreen(),
+                  ),
                 );
               }
             },
@@ -175,10 +169,7 @@ class FloatingBottomBar extends ConsumerWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: AppColors.accent.withValues(alpha: 0.15),
-                      border: Border.all(
-                        color: AppColors.accent,
-                        width: 1.5,
-                      ),
+                      border: Border.all(color: AppColors.accent, width: 1.5),
                     ),
                     child: Center(
                       child: Text(
@@ -244,4 +235,3 @@ class FloatingBottomBar extends ConsumerWidget {
     );
   }
 }
-

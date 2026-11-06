@@ -1,11 +1,14 @@
+// features/driver/presentation/widgets/driver_status_card.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/utils/location_helper.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
 
-/// Card managing driver availability (online/offline) and real-time GPS sync (D02)
+/// Compact, high-contrast Shift Availability & GPS Sync card for outdoor one-handed toggling.
 class DriverStatusCard extends ConsumerStatefulWidget {
   const DriverStatusCard({super.key, required this.driver});
 
@@ -16,28 +19,44 @@ class DriverStatusCard extends ConsumerStatefulWidget {
 }
 
 class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
-  var _isSyncingLocation = false;
+  bool _isSyncingLocation = false;
   DateTime? _lastSyncTime;
 
   Future<void> _handleGpsSync() async {
     setState(() => _isSyncingLocation = true);
     try {
       final position = await LocationHelper.getCurrentPosition();
-      final lat = position?.latitude ?? widget.driver?.currentLat ?? 10.0371;
-      final lng = position?.longitude ?? widget.driver?.currentLng ?? 105.7828;
-
-      final success = await ref.read(driverProvider.notifier).reportLocation(lat: lat, lng: lng);
+      if (position == null) throw StateError('Không lấy được vị trí GPS');
+      final ok = await ref
+          .read(driverProvider.notifier)
+          .reportLocation(
+            lat: position.latitude,
+            lng: position.longitude,
+            accuracyM: position.accuracy < 0 ? 0 : position.accuracy,
+            speedMps: position.speed < 0 ? 0 : position.speed,
+            bearing: position.heading < 0 ? 0 : position.heading,
+            recordedAt: position.timestamp,
+            sequence: DateTime.now().millisecondsSinceEpoch,
+          );
       if (mounted) {
-        setState(() => _lastSyncTime = DateTime.now());
+        if (ok) setState(() => _lastSyncTime = DateTime.now());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
+            backgroundColor: ok ? AppColors.success : AppColors.error,
             content: Text(
-              success
-                  ? 'Đã đồng bộ toạ độ GPS: (${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)})'
-                  : 'Không thể đồng bộ GPS. Vui lòng thử lại.',
+              ok
+                  ? 'Đã đồng bộ vị trí GPS lúc ${AppFormatters.time(DateTime.now())}'
+                  : 'Không đồng bộ được GPS. Kiểm tra mạng và thử lại.',
             ),
-            duration: const Duration(seconds: 2),
-            backgroundColor: success ? AppColors.success : AppColors.error,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Chưa cấp quyền vị trí GPS cho ứng dụng.'),
           ),
         );
       }
@@ -50,138 +69,154 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
   Widget build(BuildContext context) {
     final driver = widget.driver;
     final isAvailable = driver?.isAvailable ?? false;
-    final statusColor = isAvailable ? AppColors.success : AppColors.textSecondary;
+    final isApproved = driver?.status == 'ACTIVE';
+
+    final surfaceColor = isAvailable
+        ? AppColors.successSoft
+        : (isApproved ? AppColors.card : AppColors.warningSoft);
+    final borderColor = isAvailable
+        ? AppColors.successBorder
+        : (isApproved ? AppColors.divider : AppColors.warningBorder);
+    final titleColor = isAvailable
+        ? AppColors.success
+        : (isApproved ? AppColors.textPrimary : AppColors.warning);
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Availability Toggle Row
           Row(
             children: [
               Container(
-                width: 12,
-                height: 12,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: statusColor,
-                  shape: BoxShape.circle,
-                  boxShadow: isAvailable
-                      ? [
-                          BoxShadow(
-                            color: AppColors.success.withValues(alpha: 0.4),
-                            blurRadius: 8,
-                            spreadRadius: 2,
-                          ),
-                        ]
-                      : null,
+                  color: isAvailable
+                      ? AppColors.success
+                      : (isApproved
+                            ? AppColors.surface
+                            : AppColors.warning.withValues(alpha: 0.14)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  isAvailable
+                      ? Icons.sensors_rounded
+                      : (isApproved
+                            ? Icons.pause_circle_outline_rounded
+                            : Icons.verified_user_outlined),
+                  color: isAvailable
+                      ? Colors.white
+                      : (isApproved
+                            ? AppColors.textSecondary
+                            : AppColors.warning),
+                  size: 22,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isAvailable ? 'SẴN SÀNG NHẬN ĐƠN' : 'TẠM NGHỈ (OFFLINE)',
+                      isAvailable
+                          ? 'Đang trực tuyến nhận chuyến'
+                          : (isApproved
+                                ? 'Đang nghỉ ca (Offline)'
+                                : 'Hồ sơ chờ doanh nghiệp duyệt'),
                       style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
-                        letterSpacing: 0.5,
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w800,
+                        color: titleColor,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       isAvailable
-                          ? 'Đang trực tuyến trên hệ thống điều phối'
-                          : 'Bật để nhận điều phối tuyến đường hôm nay',
-                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                          ? (_lastSyncTime != null
+                                ? 'GPS cập nhật lúc ${AppFormatters.time(_lastSyncTime!)}'
+                                : 'Tự động gửi vị trí về trung tâm điều phối')
+                          : (isApproved
+                                ? 'Gạt công tắc để bắt đầu ca giao hôm nay'
+                                : 'Hoàn thiện biển số xe và hồ sơ ở tab Tài khoản'),
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
               ),
               Switch(
                 value: isAvailable,
-                activeThumbColor: AppColors.success,
-                activeTrackColor: AppColors.success.withValues(alpha: 0.2),
-                inactiveThumbColor: AppColors.textSecondary,
-                inactiveTrackColor: AppColors.surfaceVariant,
-                onChanged: (val) {
-                  ref.read(driverProvider.notifier).toggleAvailability();
-                },
+                activeThumbColor: Colors.white,
+                activeTrackColor: AppColors.success,
+                onChanged: !isApproved
+                    ? null
+                    : (_) => ref
+                          .read(driverProvider.notifier)
+                          .toggleAvailability(),
               ),
             ],
           ),
-          const Divider(height: 24, color: AppColors.divider),
-          // Vehicle & GPS info row
-          Row(
-            children: [
-              // Vehicle badge
-              Expanded(
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.two_wheeler_rounded, size: 20, color: AppColors.primary),
+          if (isAvailable) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (driver?.licensePlate != null &&
+                    driver!.licensePlate.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            driver?.licensePlate.isNotEmpty == true ? driver!.licensePlate : '59-X1 111.11',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                          ),
-                          Text(
-                            '${driver?.vehicleTypeLabel ?? "Xe máy"} · ${driver?.driverTypeLabel ?? "Toàn thời gian"}',
-                            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                    decoration: BoxDecoration(
+                      color: AppColors.card,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.successBorder),
+                    ),
+                    child: Text(
+                      driver.licensePlate,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                  ],
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _isSyncingLocation ? null : _handleGpsSync,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.success,
+                    minimumSize: const Size(64, 38),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                  icon: _isSyncingLocation
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location_rounded, size: 16),
+                  label: Text(
+                    _isSyncingLocation ? 'Đang gửi…' : 'Cập nhật GPS ngay',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
-              // GPS Update action button
-              OutlinedButton.icon(
-                onPressed: _isSyncingLocation ? null : _handleGpsSync,
-                icon: _isSyncingLocation
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                      )
-                    : const Icon(Icons.my_location_rounded, size: 16),
-                label: Text(
-                  _lastSyncTime != null ? 'Đã sync GPS' : 'Gửi GPS',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  side: const BorderSide(color: AppColors.divider),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );

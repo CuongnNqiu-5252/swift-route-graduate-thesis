@@ -17,7 +17,8 @@ class OrderTrackingScreen extends ConsumerStatefulWidget {
   const OrderTrackingScreen({super.key, this.targetOrder});
 
   @override
-  ConsumerState<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
+  ConsumerState<OrderTrackingScreen> createState() =>
+      _OrderTrackingScreenState();
 }
 
 class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
@@ -26,7 +27,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.targetOrder != null) {
-        ref.read(orderTrackingProvider.notifier).selectOrderForTracking(widget.targetOrder!);
+        ref
+            .read(orderTrackingProvider.notifier)
+            .selectOrderForTracking(widget.targetOrder!);
       }
       final state = ref.read(orderTrackingProvider);
       if (state.order != null && !state.isDelivered && !state.isSseConnected) {
@@ -57,7 +60,10 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
               pickupLocation: pickupPoint,
               deliveryLocation: deliveryPoint,
               driverLocation: trackingState.driverPosition,
-              routePoints: trackingState.routePoints,
+              routePoints: trackingState.isDelivered
+                  ? const []
+                  : trackingState.routePoints,
+              isDelivered: trackingState.isDelivered,
             ),
           ),
 
@@ -73,7 +79,10 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   backgroundColor: Colors.white,
                   child: IconButton(
                     tooltip: 'Quay lại',
-                    icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+                    icon: const Icon(
+                      Icons.arrow_back,
+                      color: AppColors.textPrimary,
+                    ),
                     onPressed: () {
                       if (Navigator.of(context).canPop()) {
                         Navigator.of(context).pop();
@@ -91,7 +100,10 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                 // Order Code & Status Badge
                 Expanded(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(25),
@@ -105,7 +117,11 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.receipt_long, color: AppColors.primary, size: 18),
+                        const Icon(
+                          Icons.receipt_long,
+                          color: AppColors.primary,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -129,9 +145,14 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                   backgroundColor: Colors.white,
                   child: IconButton(
                     tooltip: 'Về trang chủ',
-                    icon: const Icon(Icons.home_rounded, color: AppColors.primary),
+                    icon: const Icon(
+                      Icons.home_rounded,
+                      color: AppColors.primary,
+                    ),
                     onPressed: () {
-                      ref.read(orderTrackingProvider.notifier).fetchActiveOrder();
+                      ref
+                          .read(orderTrackingProvider.notifier)
+                          .fetchActiveOrder();
                       Navigator.of(context).pushNamedAndRemoveUntil(
                         '/customer/home',
                         (route) => false,
@@ -263,10 +284,11 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: (trackingState.isDelivered
-                                        ? AppColors.success
-                                        : AppColors.primary)
-                                    .withAlpha(25),
+                                color:
+                                    (trackingState.isDelivered
+                                            ? AppColors.success
+                                            : AppColors.primary)
+                                        .withAlpha(25),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -329,7 +351,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: () {
-                          ref.read(orderTrackingProvider.notifier).fetchActiveOrder();
+                          ref
+                              .read(orderTrackingProvider.notifier)
+                              .fetchActiveOrder();
                           Navigator.of(context).pushNamedAndRemoveUntil(
                             '/customer/home',
                             (route) => false,
@@ -422,12 +446,17 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
             children: [
               CircleAvatar(
                 radius: 10,
-                backgroundColor: isPassed ? AppColors.success : AppColors.divider,
+                backgroundColor: isPassed
+                    ? AppColors.success
+                    : AppColors.divider,
                 child: isPassed
                     ? const Icon(Icons.check, size: 12, color: Colors.white)
                     : Text(
                         '${stepIndex + 1}',
-                        style: const TextStyle(fontSize: 10, color: Colors.white),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.white,
+                        ),
                       ),
               ),
               const SizedBox(height: 4),
@@ -436,7 +465,9 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: isPassed ? FontWeight.bold : FontWeight.normal,
-                  color: isPassed ? AppColors.textPrimary : AppColors.textSecondary,
+                  color: isPassed
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
                 ),
               ),
             ],

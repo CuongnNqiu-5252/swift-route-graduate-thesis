@@ -49,11 +49,18 @@ public class JwtService {
         return Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("_ROLE", user.getRole().toString())
-                .claim("tenant_id", user.getTenantId() != null ? user.getTenantId().toString() : null)
+                .claim("tenant_id", null)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + ttlMinutes * 60 * 1000))
                 .signWith(secretKey)
                 .compact();
+    }
+
+    public String generateTenantAccessToken(User user, java.util.UUID tenantId, String role, long ttlMinutes) {
+        return Jwts.builder().subject(user.getId().toString()).claim("_ROLE", role)
+            .claim("system_role", user.getRole().name()).claim("tenant_id", tenantId.toString())
+            .issuedAt(new Date()).expiration(new Date(System.currentTimeMillis() + ttlMinutes * 60000))
+            .signWith(secretKey).compact();
     }
 
     private String generateSecureRandomToken() {

@@ -9,7 +9,10 @@ class CustomButton extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: () {},
       icon: icon,
-      label: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+      label: Text(
+        text,
+        style: const TextStyle(color: Colors.white70, fontSize: 16),
+      ),
       style: OutlinedButton.styleFrom(
         minimumSize: const Size(double.infinity, 50),
         backgroundColor: const Color(0xFF16213E),

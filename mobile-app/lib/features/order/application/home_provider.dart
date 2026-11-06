@@ -16,7 +16,8 @@ class HomeState {
   final String? errorMessage;
 
   const HomeState({
-    this.currentAddress = 'Bến Ninh Kiều, Đường Hai Bà Trưng, Quận Ninh Kiều, Cần Thơ',
+    this.currentAddress =
+        'Bến Ninh Kiều, Đường Hai Bà Trưng, Quận Ninh Kiều, Cần Thơ',
     this.currentLat = 10.0341,
     this.currentLng = 105.7876,
     this.allTenants = const [],
@@ -56,8 +57,9 @@ class HomeState {
       currentLat: currentLat ?? this.currentLat,
       currentLng: currentLng ?? this.currentLng,
       allTenants: allTenants ?? this.allTenants,
-      selectedCategory:
-          clearCategory ? null : (selectedCategory ?? this.selectedCategory),
+      selectedCategory: clearCategory
+          ? null
+          : (selectedCategory ?? this.selectedCategory),
       searchQuery: searchQuery ?? this.searchQuery,
       isLoading: isLoading ?? this.isLoading,
       errorMessage: errorMessage,
@@ -153,4 +155,3 @@ final homeProvider = StateNotifierProvider<HomeNotifier, HomeState>((ref) {
   final dataSource = ref.watch(tenantRemoteDataSourceProvider);
   return HomeNotifier(dataSource);
 });
-

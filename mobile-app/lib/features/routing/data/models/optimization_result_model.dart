@@ -48,10 +48,9 @@ class OrderedStopModel {
       location: LocationPointModel.fromJson(
         json['location'] as Map<String, dynamic>,
       ),
-      cumulativeDistanceKm:
-          (json['cumulative_distance_km'] as num).toDouble(),
-      estimatedArrivalMinutes:
-          (json['estimated_arrival_minutes'] as num).toDouble(),
+      cumulativeDistanceKm: (json['cumulative_distance_km'] as num).toDouble(),
+      estimatedArrivalMinutes: (json['estimated_arrival_minutes'] as num)
+          .toDouble(),
     );
   }
 }
@@ -91,4 +90,3 @@ class OptimizationResultModel {
     );
   }
 }
-

@@ -26,7 +26,8 @@ public record DriverResponse(
         Double currentLat,
         Double currentLng,
         Boolean isAvailable,
-        DriverStatus status) {
+        DriverStatus status,
+        String reviewNote) {
     public static DriverResponse fromEntity(Driver driver) {
         return DriverResponse.builder()
                 .id(driver.getId())
@@ -44,6 +45,7 @@ public record DriverResponse(
                 .currentLng(driver.getCurrentLng())
                 .isAvailable(driver.getIsAvailable())
                 .status(driver.getStatus())
+                .reviewNote(driver.getReviewNote())
                 .build();
     }
 }

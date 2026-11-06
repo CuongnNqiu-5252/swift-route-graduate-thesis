@@ -12,6 +12,9 @@ import com.swiftroute.driverservice.entity.Driver;
 
 @Repository
 public interface DriverRepository extends JpaRepository<Driver, UUID> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM Driver d WHERE d.id = :id")
+    Optional<Driver> findLockedById(UUID id);
     @Query("SELECT d FROM Driver d WHERE d.driverType = :driverType")
     List<Driver> findByDriverType(String driverType);
 

@@ -502,7 +502,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        Icon(Icons.list_alt_rounded, size: 14, color: AppColors.primary),
+                        Icon(
+                          Icons.list_alt_rounded,
+                          size: 14,
+                          color: AppColors.primary,
+                        ),
                         SizedBox(width: 4),
                         Text(
                           'Xem tất cả đơn hàng',
@@ -513,7 +517,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ),
                         SizedBox(width: 2),
-                        Icon(Icons.arrow_forward_ios_rounded, size: 10, color: AppColors.primary),
+                        Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 10,
+                          color: AppColors.primary,
+                        ),
                       ],
                     ),
                   ),
@@ -760,14 +768,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.receipt_long_rounded, size: 16, color: Colors.white),
+                      icon: const Icon(
+                        Icons.receipt_long_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                       label: const Text(
                         'Tất cả đơn',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Colors.white70),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),

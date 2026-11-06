@@ -11,12 +11,15 @@ class PaymentRemoteDataSource {
     required String orderId,
     required double amount,
   }) async {
-    final response = await _dio.post('/payments/create', data: {
-      'order_id': orderId,
-      'amount': amount,
-      'gateway': 'MOCK',
-      'mode': 'MOCK',
-    });
+    final response = await _dio.post(
+      '/payments/create',
+      data: {
+        'order_id': orderId,
+        'amount': amount,
+        'gateway': 'MOCK',
+        'mode': 'MOCK',
+      },
+    );
     return PaymentModel.fromJson(response.data['data'] as Map<String, dynamic>);
   }
 
@@ -26,6 +29,8 @@ class PaymentRemoteDataSource {
   }
 }
 
-final paymentRemoteDataSourceProvider = Provider<PaymentRemoteDataSource>((ref) {
+final paymentRemoteDataSourceProvider = Provider<PaymentRemoteDataSource>((
+  ref,
+) {
   return PaymentRemoteDataSource(ref.read(dioProvider));
 });

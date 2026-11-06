@@ -46,10 +46,13 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
     private static final List<String> PUBLIC_PATHS = List.of(
             "/api/auth/login",
             "/api/auth/register",
+            "/api/auth/email/verify",
             "/api/auth/refresh",
+            "/api/auth/invitations/accept",
+            "/api/auth/invitations/preview",
             "/actuator/health",
             "/api/drivers/*/public",
-            "/api/orders/*/tracking/stream");
+            "/api/orders/track/*");
 
     private final JwtVerifier jwtVerifier;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -80,6 +83,38 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         return jwtVerifier.verify(token)
                 .flatMap(claims -> {
                     String clientTenant = exchange.getRequest().getHeaders().getFirst("X-Tenant-Id");
+                    String effectiveTenantId = null;
+
+                    if (claims.tenantId() != null && !claims.tenantId().isBlank()) {
+                        // User belongs to a specific tenant
+                        if (!"ADMIN".equalsIgnoreCase(claims.role())) {
+                            // Non-admin cannot switch or spoof another tenant
+                            if (clientTenant != null && !clientTenant.isBlank() && !clientTenant.equalsIgnoreCase(claims.tenantId())) {
+                                log.warn("Cross-tenant attempt by user {}: claims.tenantId={}, requested={}",
+                                        claims.userId(), claims.tenantId(), clientTenant);
+                                return writeForbiddenResponse(exchange, "Forbidden: Cross-tenant access denied");
+                            }
+                            effectiveTenantId = claims.tenantId();
+                        } else {
+                            // ADMIN can operate in specific tenant context if provided, else their own
+                            if (clientTenant != null && !clientTenant.isBlank()) {
+                                if (!isValidUuid(clientTenant)) {
+                                    return writeBadRequestResponse(exchange, "Invalid X-Tenant-Id header format");
+                                }
+                                effectiveTenantId = clientTenant;
+                            } else {
+                                effectiveTenantId = claims.tenantId();
+                            }
+                        }
+                    } else if (clientTenant != null && !clientTenant.isBlank()) {
+                        // User has no tenant claim (e.g. CUSTOMER); target tenant must be a valid UUID
+                        if (!isValidUuid(clientTenant)) {
+                            return writeBadRequestResponse(exchange, "Invalid X-Tenant-Id header format");
+                        }
+                        effectiveTenantId = clientTenant;
+                    }
+
+                    final String finalTenantId = effectiveTenantId;
                     // Inject user context vào header cho downstream services
                     ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
                             .headers(headers -> {
@@ -90,28 +125,54 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                                 headers.set("X-User-Id", claims.userId());
                                 headers.set("X-User-Role", claims.role());
 
-                                // For tenant: if JWT claims has a tenant (ADMIN/OPERATOR/DRIVER), enforce it.
-                                // If claims has no tenant (CUSTOMER), allow the target tenant requested by
-                                // client.
-                                if (claims.tenantId() != null && !claims.tenantId().isBlank()) {
-                                    headers.set("X-Tenant-Id", claims.tenantId());
-                                } else if (clientTenant != null && !clientTenant.isBlank()) {
-                                    headers.set("X-Tenant-Id", clientTenant);
-                                } else {
-                                    headers.set("X-Tenant-Id", "a1111111-1111-1111-1111-111111111111");
+                                if (finalTenantId != null) {
+                                    headers.set("X-Tenant-Id", finalTenantId);
                                 }
                             })
-                            // Xoá Authorization header để downstream không nhận raw JWT
-                            // (tùy chính sách bảo mật — hiện tại giữ lại để tương thích)
                             .build();
 
-                    log.debug("JWT verified for user: {}, role: {}", claims.userId(), claims.role());
+                    log.debug("JWT verified for user: {}, role: {}, tenant: {}", claims.userId(), claims.role(), finalTenantId);
                     return chain.filter(exchange.mutate().request(mutatedRequest).build());
                 })
                 .onErrorResume(e -> {
                     log.warn("JWT verification failed for path {}: {}", path, e.getMessage());
                     return writeUnauthorizedResponse(exchange, "Invalid or expired token");
                 });
+    }
+
+    private boolean isValidUuid(String val) {
+        try {
+            java.util.UUID.fromString(val);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private Mono<Void> writeForbiddenResponse(ServerWebExchange exchange, String message) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.FORBIDDEN);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+
+        String body = String.format(
+                "{\"status\":403,\"error\":\"Forbidden\",\"message\":\"%s\",\"path\":\"%s\"}",
+                message,
+                exchange.getRequest().getPath().value());
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
+    }
+
+    private Mono<Void> writeBadRequestResponse(ServerWebExchange exchange, String message) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(HttpStatus.BAD_REQUEST);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+
+        String body = String.format(
+                "{\"status\":400,\"error\":\"Bad Request\",\"message\":\"%s\",\"path\":\"%s\"}",
+                message,
+                exchange.getRequest().getPath().value());
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        return response.writeWith(Mono.just(response.bufferFactory().wrap(bytes)));
     }
 
     private boolean isPublicPath(String path) {

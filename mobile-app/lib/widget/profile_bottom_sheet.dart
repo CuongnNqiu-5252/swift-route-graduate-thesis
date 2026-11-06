@@ -174,7 +174,9 @@ class ProfileBottomSheet extends ConsumerWidget {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const CustomerOrdersScreen(),
+                  ),
                 );
               },
             ),
@@ -205,10 +207,7 @@ class ProfileBottomSheet extends ConsumerWidget {
                 icon: const Icon(Icons.logout_rounded, size: 20),
                 label: const Text(
                   'Đăng xuất',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 onPressed: () => _confirmLogout(context, ref),
               ),
@@ -282,10 +281,9 @@ class ProfileBottomSheet extends ConsumerWidget {
 
               // Chuyển về màn hình Login
               if (context.mounted) {
-                Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/login',
-                  (route) => false,
-                );
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/login', (route) => false);
               }
             },
             child: const Text('Đăng xuất'),
@@ -295,4 +293,3 @@ class ProfileBottomSheet extends ConsumerWidget {
     );
   }
 }
-

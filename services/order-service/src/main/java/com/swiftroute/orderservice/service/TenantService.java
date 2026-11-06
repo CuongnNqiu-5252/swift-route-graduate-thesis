@@ -33,7 +33,7 @@ import lombok.RequiredArgsConstructor;
 public class TenantService {
     private static final Set<String> CREATE_ROLES = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN", "OWNER",
             "TENANT_ADMIN", "CUSTOMER");
-    private static final Set<String> REVIEW_ROLES = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN", "CUSTOMER");
+    private static final Set<String> REVIEW_ROLES = Set.of("SYSTEM_ADMIN", "ADMIN");
 
     private final TenantRepository tenantRepository;
     private final OutboxEventRepository outboxEventRepository;
@@ -81,6 +81,31 @@ public class TenantService {
                 .stream()
                 .map(TenantResponse::fromEntity)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public com.swiftroute.orderservice.entity.TenantDispatchConfig getDispatchConfig(UUID tenantId) {
+        Tenant tenant = findTenant(tenantId);
+        return tenant.getDispatchConfig() != null
+                ? tenant.getDispatchConfig()
+                : new com.swiftroute.orderservice.entity.TenantDispatchConfig();
+    }
+
+    @Transactional
+    public com.swiftroute.orderservice.entity.TenantDispatchConfig updateDispatchConfig(
+            UUID tenantId,
+            com.swiftroute.orderservice.entity.TenantDispatchConfig config,
+            UUID requesterId,
+            String requesterRole) {
+        Tenant tenant = findTenant(tenantId);
+        boolean isPrivileged = Set.of("SYSTEM_ADMIN", "OPS_STAFF", "ADMIN").contains(requesterRole);
+        boolean isOwner = requesterId.equals(tenant.getOwnerUserId());
+        if (!isPrivileged && !isOwner) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        tenant.setDispatchConfig(config);
+        tenantRepository.save(tenant);
+        return tenant.getDispatchConfig();
     }
 
     @Transactional
@@ -141,8 +166,14 @@ public class TenantService {
 
     private void createOutboxEvent(Tenant tenant, String eventType) {
         UUID eventId = UUID.randomUUID();
-        TenantEventPayload payload = new TenantEventPayload(eventId, eventType, tenant.getId(), tenant.getOwnerUserId(),
-                Instant.now(clock));
+        Long version = tenant.getVersion() != null ? tenant.getVersion() : 1L;
+        TenantEventPayload payload = new TenantEventPayload(
+                eventId,
+                eventType,
+                tenant.getId(),
+                tenant.getOwnerUserId(),
+                Instant.now(clock),
+                version);
         outboxEventRepository.save(OutboxEvent.builder()
                 .eventId(eventId)
                 .aggregateType("tenant")

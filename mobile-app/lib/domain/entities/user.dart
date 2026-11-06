@@ -2,7 +2,8 @@ class User {
   final String id; // UUID from backend
   final String email;
   final String name;
-  final String role; // CUSTOMER | DRIVER | SYSTEM_ADMIN | OPS_STAFF
+  final String
+  role; // Effective role for the active JWT/workspace (for example DRIVER)
   final String? avatar;
 
   const User({
