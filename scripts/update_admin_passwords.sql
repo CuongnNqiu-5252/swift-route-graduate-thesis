@@ -47,3 +47,11 @@ AND NOT EXISTS (
     WHERE tm.user_id = u.user_id AND tm.tenant_id = 'a1111111-1111-1111-1111-111111111111'
 );
 
+-- Ensure registered admin accounts keep their ADMIN role and active status
+UPDATE users
+SET role = 'ADMIN',
+    status = 'ACTIVE',
+    is_email_verified = true
+WHERE email = 'admin123@swiftroute.vn';
+
+
