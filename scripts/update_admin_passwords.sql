@@ -1,9 +1,25 @@
 UPDATE users
 SET password_hash = '$2a$10$LuxS4Tym8CH9ZwLDX8fHru7fUWkITTcrUsykZO/dlohMNzMsms9n6',
     role = 'ADMIN',
-    tenant_id = 'a1111111-1111-1111-1111-111111111111',
     status = 'ACTIVE'
-WHERE email IN ('admin@swiftroute.vn', 'admin@gmail.com');
+WHERE email IN ('admin@swiftroute.vn', 'admin@gmail.com', 'superadmin@swiftroute.vn');
+
+INSERT INTO users (user_id, email, phone, password_hash, full_name, role, status, is_email_verified, email_verified_at, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000099',
+    'superadmin@swiftroute.vn',
+    '0909000099',
+    '$2a$10$LuxS4Tym8CH9ZwLDX8fHru7fUWkITTcrUsykZO/dlohMNzMsms9n6',
+    'Quản Trị Viên Cấp Cao (Super Admin)',
+    'ADMIN',
+    'ACTIVE',
+    true,
+    now(),
+    now()
+) ON CONFLICT (email) DO UPDATE
+SET password_hash = EXCLUDED.password_hash,
+    role = EXCLUDED.role,
+    status = 'ACTIVE';
 
 INSERT INTO users (user_id, email, phone, password_hash, full_name, role, tenant_id, status, created_at)
 VALUES (
