@@ -52,6 +52,20 @@ public class OrderController {
 
     private final OrderService orderService;
     private final TrackingSimulationService trackingSimulationService;
+    private final com.swiftroute.orderservice.service.planning.DispatchOrchestrationService orchestration;
+
+    @PostMapping("/assign-batch")
+    @Operation(summary = "Assign ready orders through authoritative dispatch plans")
+    public ResponseEntity<ApiResponse<Void>> assignBatch(
+            @RequestHeader("X-Tenant-Id") UUID tenantId,
+            @RequestHeader("X-User-Id") UUID operatorId,
+            @RequestHeader("X-User-Role") String role,
+            @Valid @RequestBody com.swiftroute.orderservice.dto.request.ManualAssignmentRequest request) {
+        if (!java.util.Set.of("OWNER", "TENANT_ADMIN", "ADMIN", "SYSTEM_ADMIN", "OPS_STAFF", "MANAGER", "OPERATOR").contains(role))
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        orchestration.assignManualBatch(tenantId, operatorId, request);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
 
     /**
      * GET /api/orders

@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import com.swiftroute.orderservice.entity.enums.PlanStatus;
 import com.swiftroute.orderservice.entity.enums.PlanTriggerType;
@@ -73,6 +75,7 @@ public class DispatchPlan {
      * Full route waypoints JSON returned by the routing engine.
      * Stored as text to avoid mapping complexity; parsed at read time when needed.
      */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "route_waypoints", columnDefinition = "jsonb")
     private String routeWaypoints;
 

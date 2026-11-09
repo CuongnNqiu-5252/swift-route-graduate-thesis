@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -223,17 +224,34 @@ class OrderRemoteDataSource {
     return OrderModel.fromJson(Map<String, dynamic>.from(map));
   }
 
-  /// Records the exact COD amount collected for a delivered assigned order.
+  String _operationId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  /// Records the exact COD outcome separately from delivery completion.
   Future<void> collectCod({
     required String orderId,
     required double amount,
-    String? notes,
+    required String outcome,
+    String? reason,
+    String? evidenceUrl,
   }) async {
     await _dio.post(
-      '/operations/orders/$orderId/cod-collections',
+      '/cod/orders/$orderId/collections',
       data: {
+        'operation_id': _operationId(),
         'amount': amount,
-        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        'outcome': outcome,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+        if (evidenceUrl != null && evidenceUrl.isNotEmpty)
+          'evidence_url': evidenceUrl,
       },
     );
   }
@@ -253,29 +271,29 @@ class OrderRemoteDataSource {
     );
   }
 
-  Future<List<DriverCodCollectionModel>> getPendingCodHandover() async {
-    final response = await _dio.get('/operations/cod-collections/mine');
+  Future<DriverCodCustodyModel> getCodCustody() async {
+    final response = await _dio.get('/cod/mine/custody');
     final data = response.data;
-    final raw = data is Map && data['data'] is List
-        ? data['data'] as List
-        : <dynamic>[];
-    return raw
-        .whereType<Map>()
-        .map(
-          (item) => DriverCodCollectionModel.fromJson(
-            Map<String, dynamic>.from(item),
-          ),
-        )
-        .toList();
+    final raw = data is Map && data['data'] is Map
+        ? data['data'] as Map
+        : (data is Map ? data : <dynamic, dynamic>{});
+    return DriverCodCustodyModel.fromJson(Map<String, dynamic>.from(raw));
   }
 
-  Future<void> declareCodHandover({
-    required String collectionId,
-    required double amount,
+  Future<void> submitCodHandover({
+    required List<String> collectionIds,
+    required double declaredTotal,
+    String? notes,
   }) async {
-    await _dio.patch(
-      '/operations/cod-collections/$collectionId/declare',
-      data: {'amount': amount},
+    await _dio.post(
+      '/cod/handovers',
+      data: {
+        'operation_id': _operationId(),
+        'collection_ids': collectionIds,
+        'order_ids': collectionIds,
+        'declared_total': declaredTotal,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+      },
     );
   }
 

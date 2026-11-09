@@ -46,6 +46,30 @@ _Avoid_: Tiền tài xế, tiền công
 Khoản tài xế thu hộ cho doanh nghiệp khi giao hàng; COD không phải thu nhập của tài xế.
 _Avoid_: Doanh thu tài xế, tiền công
 
+**Nghĩa vụ COD**:
+Số tiền người nhận được yêu cầu thanh toán cho một đơn giao hàng theo thỏa thuận đã chốt.
+_Avoid_: Tiền đã thu, tiền tài xế đang giữ
+
+**Khoản thu COD**:
+Số tiền mặt thực tế tài xế nhận từ người trả tiền cho một nghĩa vụ COD tại một thời điểm.
+_Avoid_: Nghĩa vụ COD, phiếu bàn giao
+
+**Tiền COD đang giữ**:
+Tổng các khoản thu COD mà một tài xế đang chịu trách nhiệm bảo quản nhưng chưa được thủ quỹ xác nhận đã nhận.
+_Avoid_: Thu nhập tài xế, số dư ví
+
+**Phiếu bàn giao COD**:
+Một lần tài xế kê khai và bàn giao một nhóm khoản thu COD cho thủ quỹ để kiểm đếm, xác nhận.
+_Avoid_: Đối soát tài xế, bảng lương
+
+**Chênh lệch COD**:
+Khoản lệch giữa số tiền phải chịu trách nhiệm và số tiền được kiểm đếm, hoặc giữa nghĩa vụ COD và số thực thu từ người trả tiền.
+_Avoid_: Phí phạt tài xế, thu nhập âm
+
+**Đối soát COD**:
+Quá trình xác nhận khoản tiền thực thu đã được bàn giao đúng cho doanh nghiệp và xử lý mọi chênh lệch phát sinh.
+_Avoid_: Đối soát tài xế, xác nhận giao hàng
+
 **Thu nhập tài xế**:
 Khoản thù lao được ghi nhận cho một nhiệm vụ vận chuyển theo chính sách đã chốt tại thời điểm hoàn tất.
 _Avoid_: COD, cước giao hàng, lương

@@ -61,6 +61,19 @@ public class TrackingSimulationService {
     private final Map<UUID, List<SseEmitter>> orderEmitters = new ConcurrentHashMap<>();
     private final Map<UUID, DriverPositionSnapshot> latestDriverPositions = new ConcurrentHashMap<>();
     private final Map<UUID, ScheduledFuture<?>> activeSimulations = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> simulationDrivers = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> pausePoints = new ConcurrentHashMap<>();
+    private final Set<UUID> pausedSimulations = ConcurrentHashMap.newKeySet();
+
+    public void pauseAt(UUID stream, Integer index) {
+        if (index != null && index >= 0) pausePoints.put(stream, index);
+    }
+
+    public void resume(UUID stream) {
+        pausePoints.remove(stream);
+        pausedSimulations.remove(stream);
+        broadcastStatus(stream, "SIMULATION_RESUMED", "Simulation resumed", stream);
+    }
     private final Set<UUID> simulatingStreams = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService simulationScheduler = Executors.newScheduledThreadPool(2);
     private final StringRedisTemplate redis;
@@ -88,6 +101,7 @@ public class TrackingSimulationService {
                             "order_id", streamKey.toString(),
                             "status", "CONNECTED",
                             "simulating", isSimulationActive(streamKey),
+                            "paused", pausedSimulations.contains(streamKey),
                             "server_time", Instant.now().toString())));
             readSnapshot(STREAM_KEY_PREFIX + streamKey).ifPresent(snapshot -> {
                 try {
@@ -144,6 +158,11 @@ public class TrackingSimulationService {
         }
 
         stopRouteSimulation(primaryStreamKey, companionStreamKeys);
+        if (simulationDrivers.containsValue(effectiveDriverId)) {
+            throw new IllegalStateException("Driver already has an active simulation");
+        }
+        simulationDrivers.put(primaryStreamKey, effectiveDriverId);
+        setSimulationLock(effectiveDriverId, true);
 
         int intervalMs = requestedIntervalMs != null ? Math.clamp(requestedIntervalMs, 250, 5_000) : 1_000;
         int totalSteps = waypoints.size();
@@ -156,6 +175,7 @@ public class TrackingSimulationService {
         AtomicInteger indexRef = new AtomicInteger(0);
         ScheduledFuture<?> future = simulationScheduler.scheduleAtFixedRate(() -> {
             try {
+                if (pausedSimulations.contains(primaryStreamKey)) return;
                 int idx = indexRef.getAndIncrement();
                 if (idx >= totalSteps) {
                     stopRouteSimulation(primaryStreamKey, companionStreamKeys);
@@ -196,7 +216,10 @@ public class TrackingSimulationService {
                             totalSteps);
                 }
 
-                if (idx == totalSteps - 1) {
+                if (Integer.valueOf(idx).equals(pausePoints.get(primaryStreamKey))) {
+                    pausedSimulations.add(primaryStreamKey);
+                    broadcastStatus(primaryStreamKey, "SIMULATION_PAUSED", "Waiting at pickup", effectiveDriverId);
+                } else if (idx == totalSteps - 1) {
                     stopRouteSimulation(primaryStreamKey, companionStreamKeys);
                 }
             } catch (Exception ex) {
@@ -213,11 +236,18 @@ public class TrackingSimulationService {
      * Stops an active route simulation and releases the simulation lock on all associated streams.
      */
     public void stopRouteSimulation(UUID primaryStreamKey, List<UUID> companionStreamKeys) {
+        pausePoints.remove(primaryStreamKey);
+        pausedSimulations.remove(primaryStreamKey);
+        UUID simulatedDriver = simulationDrivers.remove(primaryStreamKey);
+        if (simulatedDriver != null) {
+            setSimulationLock(simulatedDriver, false);
+        }
         ScheduledFuture<?> existing = activeSimulations.remove(primaryStreamKey);
         if (existing != null) {
             existing.cancel(false);
         }
         setSimulationLock(primaryStreamKey, false);
+        broadcastStatus(primaryStreamKey, "SIMULATION_STOPPED", "Simulation stopped", simulatedDriver);
         if (companionStreamKeys != null) {
             for (UUID key : companionStreamKeys) {
                 if (key != null) {

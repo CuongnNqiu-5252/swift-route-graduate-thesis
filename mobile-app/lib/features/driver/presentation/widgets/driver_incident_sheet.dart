@@ -16,6 +16,8 @@ class DriverIncidentSheet extends ConsumerStatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) => DriverIncidentSheet(order: order),
     );
   }
@@ -32,7 +34,6 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
   var _isSubmitting = false;
   var _contactAttempts = 1;
   var _canContinueDelivery = true;
-  var _needsImmediateAssistance = false;
 
   Uint8List? _evidenceImageBytes;
   String? _uploadedEvidenceUrl;
@@ -155,7 +156,7 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
             notes: notes.isNotEmpty ? notes : null,
             evidenceUrls: evidenceUrls,
             canContinueDelivery: _canContinueDelivery,
-            needsImmediateAssistance: _needsImmediateAssistance,
+            needsImmediateAssistance: _selectedSeverity == 'CRITICAL',
             contactAttempts: _contactAttempts,
           );
 
@@ -189,13 +190,14 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.9,
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
       ),
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        top: 16,
+        bottom: bottomInset > 0 ? bottomInset + 12 : 16,
+        top: 14,
         left: 20,
         right: 20,
       ),
@@ -203,7 +205,8 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
         color: AppColors.card,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: SingleChildScrollView(
+      child: SafeArea(
+        top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,7 +221,7 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Container(
@@ -260,283 +263,332 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
-            // Mức độ nghiêm trọng
-            Row(
-              children: [
-                const Text(
-                  'Mức độ:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(width: 10),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    _severityChip('MEDIUM', 'Thường'),
-                    _severityChip('HIGH', 'Nghiêm trọng'),
-                    _severityChip('CRITICAL', 'Khẩn cấp'),
-                  ],
-                ),
-              ],
-            ),
             const SizedBox(height: 14),
 
-            const Text(
-              'Chọn nguyên nhân sự cố:',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-
-            ..._incidentOptions.map((opt) {
-              final isSelected = _selectedType == opt['code'];
-              return InkWell(
-                onTap: () =>
-                    setState(() => _selectedType = opt['code'] as String),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.error.withValues(alpha: 0.06)
-                        : AppColors.card,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSelected ? AppColors.error : AppColors.divider,
-                      width: isSelected ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        opt['icon'] as IconData,
-                        color: opt['color'] as Color,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          opt['label'] as String,
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Mức độ nghiêm trọng
+                    Row(
+                      children: [
+                        const Text(
+                          'Mức độ:',
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: isSelected
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            color: isSelected
-                                ? AppColors.textPrimary
-                                : AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                      Icon(
-                        isSelected
-                            ? Icons.radio_button_checked_rounded
-                            : Icons.radio_button_off_rounded,
-                        color: isSelected
-                            ? AppColors.error
-                            : AppColors.textHint,
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _severityChip('MEDIUM', 'Thường'),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: _severityChip('HIGH', 'Nghiêm trọng'),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: _severityChip('CRITICAL', 'Khẩn cấp'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
 
-            const SizedBox(height: 12),
-
-            // Số lần liên lạc
-            if (_selectedType == 'CUSTOMER_UNREACHABLE') ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Số lần gọi cho khách:',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline, size: 20),
-                        onPressed: _contactAttempts > 1
-                            ? () => setState(() => _contactAttempts--)
-                            : null,
-                      ),
-                      Text(
-                        '$_contactAttempts lần',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle_outline, size: 20),
-                        onPressed: () => setState(() => _contactAttempts++),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-            ],
-
-            // Photo Evidence Picker (Cloudinary)
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isUploadingImage
-                        ? null
-                        : () => _pickAndUploadImage(ImageSource.camera),
-                    icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                    label: const Text(
-                      'Chụp ảnh bằng chứng',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isUploadingImage
-                        ? null
-                        : () => _pickAndUploadImage(ImageSource.gallery),
-                    icon: const Icon(Icons.photo_library_outlined, size: 18),
-                    label: const Text(
-                      'Chọn từ thư viện',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            if (_isUploadingImage) ...[
-              const SizedBox(height: 8),
-              const Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Đang tải ảnh lên Cloudinary...',
+                    const Text(
+                      'Chọn nguyên nhân sự cố:',
                       style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
                       ),
                     ),
+                    const SizedBox(height: 8),
+
+                    ..._incidentOptions.map((opt) {
+                      final isSelected = _selectedType == opt['code'];
+                      return InkWell(
+                        onTap: () => setState(
+                          () => _selectedType = opt['code'] as String,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.error.withValues(alpha: 0.06)
+                                : AppColors.card,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.error
+                                  : AppColors.divider,
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                opt['icon'] as IconData,
+                                color: opt['color'] as Color,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  opt['label'] as String,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isSelected
+                                        ? AppColors.textPrimary
+                                        : AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                isSelected
+                                    ? Icons.radio_button_checked_rounded
+                                    : Icons.radio_button_off_rounded,
+                                color: isSelected
+                                    ? AppColors.error
+                                    : AppColors.textHint,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 10),
+
+                    // Số lần liên lạc
+                    if (_selectedType == 'CUSTOMER_UNREACHABLE') ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Số lần gọi cho khách:',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  size: 20,
+                                ),
+                                onPressed: _contactAttempts > 1
+                                    ? () => setState(() => _contactAttempts--)
+                                    : null,
+                              ),
+                              Text(
+                                '$_contactAttempts lần',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(
+                                  Icons.add_circle_outline,
+                                  size: 20,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _contactAttempts++),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                    ],
+
+                    // Photo Evidence Picker (Cloudinary)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isUploadingImage
+                                ? null
+                                : () => _pickAndUploadImage(ImageSource.camera),
+                            icon: const Icon(
+                              Icons.camera_alt_outlined,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Chụp ảnh bằng chứng',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 8,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isUploadingImage
+                                ? null
+                                : () =>
+                                      _pickAndUploadImage(ImageSource.gallery),
+                            icon: const Icon(
+                              Icons.photo_library_outlined,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Chọn từ thư viện',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 8,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (_isUploadingImage) ...[
+                      const SizedBox(height: 8),
+                      const Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Đang tải ảnh lên Cloudinary...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else if (_evidenceImageBytes != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              _evidenceImageBytes!,
+                              width: 60,
+                              height: 60,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              '✓ Đã gắn ảnh bằng chứng vào báo cáo sự cố',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.success,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 8),
+
+                    // Toggles
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text(
+                        'Vẫn có thể tiếp tục giao các đơn khác',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Bật nếu sự cố chỉ ảnh hưởng đơn này',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: _canContinueDelivery,
+                      onChanged: (val) =>
+                          setState(() => _canContinueDelivery = val),
+                    ),
+
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _notesController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Ghi chú cho điều phối viên (tuỳ chọn)',
+                        hintText: 'VD: Khách hẹn giao sau 18h...',
+                        hintStyle: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                        filled: true,
+                        fillColor: AppColors.card,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.divider,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
-            ] else if (_evidenceImageBytes != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      _evidenceImageBytes!,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      '✓ Đã gắn ảnh bằng chứng vào báo cáo sự cố',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.success,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
 
             const SizedBox(height: 12),
-
-            // Toggles
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text(
-                'Vẫn có thể tiếp tục giao các đơn khác',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-              ),
-              subtitle: const Text(
-                'Bật nếu sự cố chỉ ảnh hưởng đơn này',
-                style: TextStyle(fontSize: 11),
-              ),
-              value: _canContinueDelivery,
-              onChanged: (val) => setState(() => _canContinueDelivery = val),
-            ),
-
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text(
-                'Cần hỗ trợ khẩn cấp',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.error,
-                ),
-              ),
-              subtitle: const Text(
-                'Báo động cho điều phối viên can thiệp ngay',
-                style: TextStyle(fontSize: 11),
-              ),
-              value: _needsImmediateAssistance,
-              onChanged: (val) =>
-                  setState(() => _needsImmediateAssistance = val),
-            ),
-
-            const SizedBox(height: 8),
-            TextField(
-              controller: _notesController,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: 'Ghi chú cho điều phối viên (tuỳ chọn)',
-                hintText: 'VD: Khách hẹn giao sau 18h...',
-                hintStyle: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
-                filled: true,
-                fillColor: AppColors.card,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.divider),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
@@ -592,21 +644,36 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
 
   Widget _severityChip(String code, String label) {
     final isSelected = _selectedSeverity == code;
-    return ChoiceChip(
-      label: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          color: isSelected ? Colors.white : AppColors.textPrimary,
+    final activeColor = code == 'CRITICAL'
+        ? AppColors.error
+        : (code == 'HIGH' ? AppColors.accent : AppColors.primary);
+
+    return InkWell(
+      onTap: () => setState(() => _selectedSeverity = code),
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? activeColor : AppColors.card,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? activeColor : AppColors.divider,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? Colors.white : AppColors.textPrimary,
+          ),
         ),
       ),
-      selected: isSelected,
-      selectedColor: code == 'CRITICAL'
-          ? AppColors.error
-          : (code == 'HIGH' ? AppColors.accent : AppColors.primary),
-      onSelected: (val) {
-        if (val) setState(() => _selectedSeverity = code);
-      },
     );
   }
 }

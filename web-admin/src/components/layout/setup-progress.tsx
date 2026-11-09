@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Circle, Rocket } from 'lucide-react';
+import { Check, Circle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/application/contexts/auth-context';
@@ -9,9 +9,26 @@ import { Progress, tenantWorkflow } from '@/infrastructure/repositories/tenant-w
 export function SetupProgress() {
   const { user } = useAuth();
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     if (!user?.tenantId) return;
-    tenantWorkflow.progress(user.tenantId).then(setProgress).catch(() => setProgress(null));
+    let active = true;
+    tenantWorkflow.progress(user.tenantId)
+      .then((data) => {
+        if (active) {
+          setProgress(data);
+          setLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setProgress(null);
+          setLoaded(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [user?.tenantId]);
 
   const steps = useMemo(() => [
@@ -23,7 +40,7 @@ export function SetupProgress() {
   ], [progress, user]);
   const completed = steps.filter(step => step.done).length;
   const ready = Boolean(progress?.readiness.ready_for_operations);
-  if (ready) return <div className="mb-6 flex items-center justify-between rounded-xl bg-emerald-950 px-4 py-3 text-white"><div className="flex items-center gap-3"><Rocket size={18}/><div><p className="text-sm font-semibold">Workspace sẵn sàng vận hành</p><p className="text-xs text-emerald-200">Bạn có thể tạo đơn và điều phối tài xế.</p></div></div><Link href="/orders" className="text-sm font-medium underline underline-offset-4">Tạo đơn</Link></div>;
+  if (!user?.tenantId || !loaded || ready) return null;
 
   return <section className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="Tiến độ thiết lập workspace">
     <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-sm font-semibold text-slate-950">Thiết lập workspace</p><p className="mt-1 text-xs text-slate-600">Hoàn tất các bước để mở toàn bộ chức năng vận hành.</p></div><p className="text-sm font-semibold tabular-nums text-slate-950">{completed}/5 bước</p></div>

@@ -141,7 +141,6 @@ export default function OperationsPage() {
   const [discrepancyModalOpen, setDiscrepancyModalOpen] = useState(false);
   const [discrepancyType, setDiscrepancyType] = useState('DAMAGED');
   const [actualQuantity, setActualQuantity] = useState<number>(1);
-  const [packageCondition, setPackageCondition] = useState('Hộp bị rách/hỏng niêm phong');
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
   const [discrepancyFile, setDiscrepancyFile] = useState<File | null>(null);
 
@@ -248,7 +247,6 @@ export default function OperationsPage() {
       const params: ReportDiscrepancyParams = {
         discrepancy_type: discrepancyType,
         actual_quantity: actualQuantity,
-        package_condition: packageCondition,
         discrepancy_notes: discrepancyNotes.trim() || undefined,
         evidence_url: evidenceUrl,
       };
@@ -1007,7 +1005,7 @@ export default function OperationsPage() {
                 <div className="mt-2 rounded border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
                   <div className="font-semibold">⚠️ Hàng hoàn có chênh lệch / hư hỏng:</div>
                   <div className="mt-1">
-                    Loại: {selectedReturn.discrepancy_type} · Tình trạng: {selectedReturn.package_condition}
+                    Loại: {selectedReturn.discrepancy_type}{selectedReturn.actual_quantity !== null && selectedReturn.actual_quantity !== undefined ? ` · Thực nhận: ${selectedReturn.actual_quantity} kiện` : ''}
                   </div>
                   {selectedReturn.discrepancy_notes && <div className="mt-0.5">Ghi chú: {selectedReturn.discrepancy_notes}</div>}
                   {selectedReturn.discrepancy_evidence_url && (
@@ -1097,28 +1095,18 @@ export default function OperationsPage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Số lượng thực nhận:</label>
-              <input
-                type="number"
-                min={0}
-                max={selectedReturn?.package_count || 10}
-                value={actualQuantity}
-                onChange={(e) => setActualQuantity(parseInt(e.target.value) || 0)}
-                className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Tình trạng gói hàng:</label>
-              <input
-                type="text"
-                value={packageCondition}
-                onChange={(e) => setPackageCondition(e.target.value)}
-                placeholder="Rách hộp, ướt, vỡ tem..."
-                className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
-              />
-            </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-700 block mb-1">
+              Số lượng kiện thực nhận (Gốc: {selectedReturn?.package_count || 1} kiện):
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={selectedReturn?.package_count || 10}
+              value={actualQuantity}
+              onChange={(e) => setActualQuantity(parseInt(e.target.value) || 0)}
+              className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
+            />
           </div>
 
           <div>
@@ -1127,7 +1115,7 @@ export default function OperationsPage() {
               rows={2}
               value={discrepancyNotes}
               onChange={(e) => setDiscrepancyNotes(e.target.value)}
-              placeholder="Mô tả cụ thể sự cố để bộ phận điều tra xử lý..."
+              placeholder="Mô tả cụ thể lý do chênh lệch hoặc tình trạng hàng (VD: Hộp rách vỡ, thiếu 1 sản phẩm bên trong...)"
               className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
             />
           </div>

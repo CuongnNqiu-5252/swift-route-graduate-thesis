@@ -57,9 +57,11 @@ public class DriverLocationEventListener {
             Double bearing = nullableNumber(root, "bearing");
             Instant recordedAt = instant(root, "recorded_at", "recordedAt");
 
-            if (!tracking.isSimulationActive(userId)) {
-                tracking.recordDriverPosition(userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+            if (tracking.isSimulationActive(userId)) {
+                return;
             }
+            tracking.recordDriverPosition(userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+            tracking.broadcastDriverLocation(userId, userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
 
             deliveryTasks.findActiveOrderIdsByDriverId(userId, ACTIVE).forEach(orderId -> {
                 if (tracking.isSimulationActive(orderId)) {

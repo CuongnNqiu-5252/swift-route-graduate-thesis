@@ -72,7 +72,6 @@ export interface CreateReturnParams {
 export interface ReportDiscrepancyParams {
   discrepancy_type: string;
   actual_quantity?: number;
-  package_condition?: string;
   discrepancy_notes?: string;
   evidence_url?: string;
 }
@@ -86,7 +85,56 @@ export interface FileUploadResult {
   uploaded_at: string;
 }
 
+export interface CodHandoverLineDto {
+  collection_id: string;
+  order_id: string;
+  order_code: string | null;
+  amount: number;
+  outcome: string;
+}
+
+export interface CodHandoverDto {
+  id: string;
+  driver_id: string;
+  status: 'SUBMITTED' | 'VERIFIED' | 'DISCREPANCY' | 'RESOLVED';
+  ledger_total: number;
+  declared_total: number;
+  counted_total: number | null;
+  discrepancy_amount: number | null;
+  notes: string | null;
+  submitted_at: string;
+  verified_by: string | null;
+  verified_at: string | null;
+  lines: CodHandoverLineDto[];
+}
+
+export interface CodDashboardDto {
+  outstanding_from_customers: number;
+  in_driver_custody: number;
+  awaiting_cashier_count: number;
+  open_discrepancy_amount: number;
+  pending_payment_count: number;
+  custody_collection_count: number;
+  pending_handover_count: number;
+  open_dispute_count: number;
+  handovers: CodHandoverDto[];
+  disputes?: unknown[];
+}
+
 export const operationsRepository = {
+  async reportIncident(params: {
+    order_id?: string;
+    dispatch_plan_id?: string;
+    incident_type: string;
+    severity: string;
+    notes: string;
+    can_continue_delivery: boolean;
+    needs_immediate_assistance: boolean;
+  }): Promise<IncidentDto> {
+    const res = await api.post<IncidentDto>('/operations/incidents', params);
+    return res.data;
+  },
+
   async getIncidents(params?: { status?: string; severity?: string; driver_id?: string; order_id?: string }): Promise<IncidentDto[]> {
     const res = await api.get<IncidentDto[]>('/operations/incidents', { params });
     return res.data;
@@ -142,8 +190,22 @@ export const operationsRepository = {
     return res.data;
   },
 
-  async verifyCod(id: string, notes?: string): Promise<void> {
-    await api.patch(`/operations/cod-collections/${id}/verify`, { notes });
+  async getCodDashboard(): Promise<CodDashboardDto> {
+    const res = await api.get<CodDashboardDto>('/cod/dashboard');
+    return res.data;
+  },
+
+  async verifyCod(id: string, notes?: string): Promise<unknown> {
+    const res = await api.patch(`/operations/cod-collections/${id}/verify`, { notes });
+    return res.data;
+  },
+
+  async verifyCodHandover(id: string, params: {
+    operation_id: string;
+    counted_total: number;
+    notes?: string;
+  }): Promise<CodHandoverDto> {
+    const res = await api.post<CodHandoverDto>(`/cod/handovers/${id}/verify`, params);
+    return res.data;
   },
 };
-

@@ -10,6 +10,7 @@ import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.d
 import 'package:swiftroute_app/features/driver/data/models/driver_cod_collection_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/package_handover_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_earning_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
 import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
@@ -285,6 +286,8 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
     required String taskId,
     String? proofUrl,
     double? codAmount,
+    String? codOutcome,
+    String? codReason,
   }) async {
     await ref
         .read(orderRemoteDataSourceProvider)
@@ -294,10 +297,16 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
           proofUrl: proofUrl,
         );
     try {
-      if (codAmount != null && codAmount > 0) {
+      if (codAmount != null && codOutcome != null) {
         await ref
             .read(orderRemoteDataSourceProvider)
-            .collectCod(orderId: orderId, amount: codAmount);
+            .collectCod(
+              orderId: orderId,
+              amount: codAmount,
+              outcome: codOutcome,
+              reason: codReason,
+              evidenceUrl: proofUrl,
+            );
       }
     } finally {
       await refreshOrders();
@@ -311,33 +320,36 @@ final driverOrdersProvider =
       DriverOrdersNotifier.new,
     );
 
-class DriverCodHandoverNotifier
-    extends AsyncNotifier<List<DriverCodCollectionModel>> {
+class DriverCodHandoverNotifier extends AsyncNotifier<DriverCodCustodyModel> {
   @override
-  Future<List<DriverCodCollectionModel>> build() =>
-      ref.read(orderRemoteDataSourceProvider).getPendingCodHandover();
+  Future<DriverCodCustodyModel> build() =>
+      ref.read(orderRemoteDataSourceProvider).getCodCustody();
   Future<void> refresh() async {
     state = await AsyncValue.guard(
-      () => ref.read(orderRemoteDataSourceProvider).getPendingCodHandover(),
+      () => ref.read(orderRemoteDataSourceProvider).getCodCustody(),
     );
   }
 
-  Future<void> declare(DriverCodCollectionModel collection) async {
+  Future<void> submit({
+    required List<DriverCodCollectionModel> collections,
+    required double declaredTotal,
+    String? notes,
+  }) async {
     await ref
         .read(orderRemoteDataSourceProvider)
-        .declareCodHandover(
-          collectionId: collection.id,
-          amount: collection.amount,
+        .submitCodHandover(
+          collectionIds: collections.map((item) => item.id).toList(),
+          declaredTotal: declaredTotal,
+          notes: notes,
         );
     await refresh();
   }
 }
 
 final driverCodHandoverProvider =
-    AsyncNotifierProvider<
-      DriverCodHandoverNotifier,
-      List<DriverCodCollectionModel>
-    >(DriverCodHandoverNotifier.new);
+    AsyncNotifierProvider<DriverCodHandoverNotifier, DriverCodCustodyModel>(
+      DriverCodHandoverNotifier.new,
+    );
 
 class PackageHandoverNotifier
     extends AsyncNotifier<List<PackageHandoverModel>> {
@@ -415,4 +427,38 @@ class DriverDispatchPlansNotifier
 final driverDispatchPlansProvider =
     AsyncNotifierProvider<DriverDispatchPlansNotifier, List<DispatchPlanModel>>(
       DriverDispatchPlansNotifier.new,
+    );
+
+class DriverNotificationsNotifier
+    extends AsyncNotifier<List<DriverNotificationModel>> {
+  @override
+  Future<List<DriverNotificationModel>> build() =>
+      ref.read(driverRemoteDataSourceProvider).getMyNotifications();
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(driverRemoteDataSourceProvider).getMyNotifications(),
+    );
+  }
+}
+
+final driverNotificationsProvider =
+    AsyncNotifierProvider<
+      DriverNotificationsNotifier,
+      List<DriverNotificationModel>
+    >(DriverNotificationsNotifier.new);
+
+class DriverReadNotificationsNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => <String>{};
+
+  void markAllRead(Iterable<String> ids) {
+    state = {...state, ...ids};
+  }
+}
+
+final driverReadNotificationIdsProvider =
+    NotifierProvider<DriverReadNotificationsNotifier, Set<String>>(
+      DriverReadNotificationsNotifier.new,
     );

@@ -1,16 +1,11 @@
 'use client';
 
-import { useMemo } from 'react';
-import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-  ColumnDef,
-} from '@tanstack/react-table';
-import { Order, OrderStatus } from '@/domain/entities/order.entity';
+import { Order } from '@/domain/entities/order.entity';
 import { OrderStatusBadge } from './order-status-badge';
 import { formatVNDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Driver } from '@/domain/entities/driver.entity';
+import { MapPin, Navigation } from 'lucide-react';
 
 interface OrderTableProps {
   orders: Order[];
@@ -19,6 +14,16 @@ interface OrderTableProps {
   selectable?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (order: Order) => void;
+  drivers?: Driver[];
+  selectedId?: string;
+  onViewRoute?: (order: Order) => void;
+}
+
+export function formatShortOrderCode(orderCode?: string, fallbackId?: string): string {
+  const raw = (orderCode || fallbackId || '').trim();
+  if (!raw) return '—';
+  if (raw.length <= 14) return raw;
+  return `#${raw.slice(0, 8).toUpperCase()}`;
 }
 
 export function OrderTable({
@@ -28,167 +33,200 @@ export function OrderTable({
   selectable,
   selectedIds,
   onToggleSelect,
+  drivers = [],
+  selectedId,
+  onViewRoute,
 }: OrderTableProps) {
-  const columns = useMemo<ColumnDef<Order>[]>(
-    () => [
-      ...(selectable
-        ? [
-            {
-              id: 'select',
-              header: '',
-              cell: ({ row }: { row: { original: Order } }) => (
-                <input
-                  type="checkbox"
-                  checked={selectedIds?.has(row.original.id) ?? false}
-                  onChange={() => onToggleSelect?.(row.original)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600"
-                />
-              ),
-            } as ColumnDef<Order>,
-          ]
-        : []),
-      {
-        accessorKey: 'order_code',
-        header: 'Mã đơn',
-        cell: ({ getValue }) => (
-          <span className="font-mono text-sm font-medium text-blue-700">{getValue() as string}</span>
-        ),
-      },
-      {
-        accessorKey: 'tenant_name',
-        header: 'Cửa hàng',
-        cell: ({ row }) => (
-          <span className="text-sm text-gray-700">{row.original.tenant_name || '—'}</span>
-        ),
-      },
-      {
-        accessorKey: 'delivery_address',
-        header: 'Địa chỉ giao',
-        cell: ({ row }) => (
-          <div className="max-w-xs space-y-1">
-            <span className="truncate text-sm text-gray-700 block">{row.original.delivery_address}</span>
-            {row.original.notes && (
-              <span
-                className={`inline-block text-[11px] px-2 py-0.5 rounded font-medium ${
-                  row.original.status === 'FAILED'
-                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                    : row.original.status === 'CANCELLED'
-                    ? 'bg-gray-100 text-gray-700'
-                    : 'bg-amber-50 text-amber-700 border border-amber-200'
-                }`}
-              >
-                {row.original.notes}
-              </span>
-            )}
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'weight_kg',
-        header: 'Khối lượng',
-        cell: ({ getValue }) => <span className="text-sm">{getValue() as number} kg</span>,
-      },
-      {
-        accessorKey: 'status',
-        header: 'Trạng thái',
-        cell: ({ getValue }) => <OrderStatusBadge status={getValue() as OrderStatus} />,
-      },
-      {
-        accessorKey: 'created_at',
-        header: 'Tạo lúc',
-        cell: ({ getValue }) => (
-          <span className="text-xs text-gray-500">{formatVNDate(getValue() as string)}</span>
-        ),
-      },
-      ...(onCancelOrder
-        ? [
-            {
-              id: 'actions',
-              header: 'Thao tác',
-              cell: ({ row }: { row: { original: Order } }) => {
-                const order = row.original;
-                const canCancel =
-                  order.status === 'READY_FOR_DISPATCH' ||
-                  order.status === 'PLANNED' ||
-                  order.status === 'PENDING_PAYMENT';
-                return (
-                  <div className="flex items-center gap-2">
-                    {onCancelOrder && canCancel && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-600 hover:bg-red-50 hover:text-red-700 text-xs font-medium"
-                        onClick={() => {
-                          const reason = window.prompt(
-                            `Nhập lý do huỷ đơn hàng #${order.order_code || order.id.slice(0, 8)}:`,
-                            'Khách hàng yêu cầu huỷ đơn'
-                          );
-                          if (reason !== null && reason.trim().length > 0) {
-                            onCancelOrder(order.id, reason.trim());
-                          }
-                        }}
-                      >
-                        Huỷ đơn
-                      </Button>
-                    )}
-                  </div>
-                );
-              },
-            } as ColumnDef<Order>,
-          ]
-        : []),
-    ],
-    [selectable, selectedIds, onToggleSelect, onCancelOrder]
-  );
-
-  const table = useReactTable({ data: orders, columns, getCoreRowModel: getCoreRowModel() });
-
   if (isLoading) {
     return (
-      <div className="flex h-40 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      <div className="flex h-48 items-center justify-center">
+        <div className="h-7 w-7 animate-spin rounded-full border-3 border-slate-900 border-t-transparent" />
       </div>
     );
   }
 
   if (orders.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center text-sm text-gray-400">
-        Không có đơn hàng nào
+      <div className="flex h-44 flex-col items-center justify-center px-4 text-center text-sm text-slate-500">
+        Không tìm thấy đơn hàng nào khớp với bộ lọc hiện tại.
       </div>
     );
   }
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left">
+      <table className="w-full border-collapse text-left">
         <thead>
-          {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-gray-200">
-              {hg.headers.map((header) => (
-                <th
-                  key={header.id}
-                  className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500"
-                >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
-              ))}
-            </tr>
-          ))}
+          <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            {selectable && <th className="w-10 px-4 py-3" />}
+            <th className="px-4 py-3">Mã đơn</th>
+            <th className="px-4 py-3">Người nhận & Điểm giao</th>
+            <th className="px-4 py-3">Trạng thái</th>
+            <th className="px-4 py-3">Tài xế</th>
+            <th className="px-4 py-3">Hàng & COD</th>
+            {(onCancelOrder || onViewRoute) && <th className="px-4 py-3 text-right">Thao tác</th>}
+          </tr>
         </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr
-              key={row.id}
-              className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-4 py-3">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        <tbody className="divide-y divide-slate-100 text-sm">
+          {orders.map((order) => {
+            const isSelected = selectedId === order.id;
+            const driver = drivers.find(
+              (item) => item.id === order.assigned_driver_id || item.user_id === order.assigned_driver_id,
+            );
+            const driverName = order.assigned_driver_name || driver?.name;
+            const codAmount = Number(order.cod_amount ?? 0);
+            const canCancel =
+              order.status === 'READY_FOR_DISPATCH' ||
+              order.status === 'PLANNED' ||
+              order.status === 'PENDING_PAYMENT';
+            const shortCode = formatShortOrderCode(order.order_code, order.id);
+
+            return (
+              <tr
+                key={order.id}
+                onClick={() => onViewRoute?.(order)}
+                className={`transition-colors ${
+                  onViewRoute ? 'cursor-pointer' : ''
+                } ${
+                  isSelected
+                    ? 'bg-blue-50/75 hover:bg-blue-50'
+                    : 'hover:bg-slate-50/90'
+                }`}
+              >
+                {selectable && (
+                  <td
+                    className="px-4 py-3 align-top"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds?.has(order.id) ?? false}
+                      onChange={() => onToggleSelect?.(order)}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                  </td>
+                )}
+
+                <td className=" whitespace-nowrap px-4 py-3 align-top">
+                  <div
+                    className="font-mono text-sm font-semibold text-slate-900"
+                    title={`Mã đầy đủ: ${order.order_code}`}
+                  >
+                    {shortCode}
+                  </div>
+                  <div className="mt-0.5 text-xs tabular-nums text-slate-500">
+                    {formatVNDate(order.created_at)}
+                  </div>
                 </td>
-              ))}
-            </tr>
-          ))}
+
+                <td className="max-w-md px-4 py-3 align-top">
+                  <div className="font-medium text-slate-900">
+                    {order.customer_name || 'Khách nhận hàng'}
+                  </div>
+                  <div
+                    className="mt-0.5 line-clamp-1 text-xs text-slate-600"
+                    title={order.delivery_address}
+                  >
+                    {order.delivery_address}
+                  </div>
+                  <div
+                    className="mt-1 flex items-center gap-1 text-[11px] text-slate-500"
+                    title={order.pickup_address}
+                  >
+                    <MapPin size={11} className="shrink-0 text-teal-700" />
+                    <span className="truncate">
+                      Kho lấy: {order.pickup_location_name || order.pickup_address}
+                    </span>
+                  </div>
+                  {order.notes && (
+                    <span
+                      className={`mt-1.5 inline-block rounded px-2 py-0.5 text-[11px] font-medium ${
+                        order.status === 'FAILED'
+                          ? 'border border-rose-200 bg-rose-50 text-rose-700'
+                          : order.status === 'CANCELLED'
+                          ? 'bg-slate-100 text-slate-600'
+                          : 'border border-amber-200 bg-amber-50 text-amber-700'
+                      }`}
+                    >
+                      {order.notes}
+                    </span>
+                  )}
+                </td>
+
+                <td className="whitespace-nowrap px-4 py-3 align-top">
+                  <OrderStatusBadge status={order.status} />
+                </td>
+
+                <td className="whitespace-nowrap px-4 py-3 align-top">
+                  {order.assigned_driver_id ? (
+                    <div>
+                      <p className="font-medium text-slate-900">
+                        {driverName || 'Đã phân công'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {driver?.vehicle_plate || driver?.vehicle_type || '—'}
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-400">Chưa phân công</span>
+                  )}
+                </td>
+
+                <td className="whitespace-nowrap px-4 py-3 align-top tabular-nums">
+                  <div className="text-xs font-medium text-slate-700">
+                    {order.weight_kg} kg
+                  </div>
+                  {codAmount > 0 ? (
+                    <div className="mt-0.5 text-xs font-semibold text-emerald-700">
+                      COD {new Intl.NumberFormat('vi-VN').format(codAmount)} ₫
+                    </div>
+                  ) : (
+                    <div className="mt-0.5 text-[11px] text-slate-400">Không COD</div>
+                  )}
+                </td>
+
+                {(onCancelOrder || onViewRoute) && (
+                  <td
+                    className="whitespace-nowrap px-4 py-3 text-right align-top"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="inline-flex items-center justify-end gap-1.5">
+                      {onViewRoute && (
+                        <Button
+                          size="sm"
+                          variant={isSelected ? 'default' : 'outline'}
+                          className="h-8 px-2.5 text-xs font-medium"
+                          onClick={() => onViewRoute(order)}
+                          aria-label={`Xem lộ trình đơn ${shortCode}`}
+                        >
+                          <Navigation size={13} />
+                          {isSelected ? 'Đang xem' : 'Lộ trình'}
+                        </Button>
+                      )}
+                      {onCancelOrder && canCancel && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2 text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                          onClick={() => {
+                            const reason = window.prompt(
+                              `Nhập lý do huỷ đơn hàng ${shortCode}:`,
+                              'Khách hàng yêu cầu huỷ đơn',
+                            );
+                            if (reason !== null && reason.trim().length > 0) {
+                              onCancelOrder(order.id, reason.trim());
+                            }
+                          }}
+                        >
+                          Huỷ
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

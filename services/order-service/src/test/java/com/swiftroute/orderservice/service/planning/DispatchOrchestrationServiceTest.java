@@ -26,6 +26,8 @@ import com.swiftroute.orderservice.dto.routing.BatchOptimizationResponse.Locatio
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationResponse.OrderedStop;
 import com.swiftroute.orderservice.entity.DeliveryTask;
 import com.swiftroute.orderservice.entity.DispatchPlan;
+import com.swiftroute.orderservice.entity.DispatchPlanOrder;
+import com.swiftroute.orderservice.entity.DispatchPlanOrder.DispatchPlanOrderId;
 import com.swiftroute.orderservice.entity.OptimizationWeights;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.Tenant;
@@ -157,6 +159,207 @@ class DispatchOrchestrationServiceTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PLANNED);
         assertThat(order.getAssignedDriverId()).isEqualTo(driverId);
         verify(outboxEventRepository).save(any());
+    }
+
+    @Test
+    void executePlanningCycle_shouldUseOrderPickupLocationAsDepotAndGroupSameWarehouse() {
+        UUID tenantId = UUID.randomUUID();
+        UUID driverId = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+
+        com.swiftroute.orderservice.entity.PickupLocation warehouseB = com.swiftroute.orderservice.entity.PickupLocation.builder()
+                .id(UUID.randomUUID())
+                .tenant(tenant)
+                .name("Kho B Thu Duc")
+                .address("789 Vo Van Ngan, Thu Duc")
+                .lat(10.8505)
+                .lng(106.7718)
+                .build();
+
+        Order warehouseBOrder = buildOrder(tenant, OrderPriority.URGENT, Instant.now());
+        warehouseBOrder.setPickupLocation(warehouseB);
+        warehouseBOrder.setPickupLat(10.8505);
+        warehouseBOrder.setPickupLng(106.7718);
+        warehouseBOrder.setPickupAddress("789 Vo Van Ngan, Thu Duc");
+
+        Order warehouseAOrder = buildOrder(tenant, OrderPriority.NORMAL, Instant.now().plusSeconds(10));
+
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID))
+                .thenReturn(List.of(warehouseBOrder, warehouseAOrder));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(
+                        true, List.of(Map.of("user_id", driverId.toString()))));
+
+        OrderedStop stop = new OrderedStop(
+                0, warehouseBOrder.getId().toString(), new LocationPoint(10.77, 106.70, "Addr"), 3.2, 8.5);
+        BatchOptimizationResponse routingResponse = new BatchOptimizationResponse(
+                "job-2", "ortools", 3.2, 8.5, List.of(stop), 12.0, Instant.now().toString());
+        org.mockito.ArgumentCaptor<com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest> requestCaptor =
+                org.mockito.ArgumentCaptor.forClass(com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.class);
+        when(routingEngineClient.optimizeBatch(requestCaptor.capture())).thenReturn(Optional.of(routingResponse));
+
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> {
+            DispatchPlan p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(UUID.randomUUID());
+            }
+            return p;
+        });
+
+        DeliveryTask dummyTask = DeliveryTask.builder()
+                .id(UUID.randomUUID())
+                .order(warehouseBOrder)
+                .tenantId(tenantId)
+                .driverId(driverId)
+                .status(DeliveryTaskStatus.ASSIGNED)
+                .build();
+        when(deliveryExecutionService.assign(warehouseBOrder, driverId)).thenReturn(dummyTask);
+
+        Optional<DispatchPlan> result = orchestrationService.executePlanningCycle(
+                tenantId, PlanTriggerType.URGENT);
+
+        assertThat(result).isPresent();
+        com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest sentRequest = requestCaptor.getValue();
+        assertThat(sentRequest.depot().lat()).isEqualTo(10.8505);
+        assertThat(sentRequest.depot().lng()).isEqualTo(106.7718);
+        assertThat(sentRequest.depot().address()).isEqualTo("789 Vo Van Ngan, Thu Duc");
+        assertThat(sentRequest.stops()).hasSize(1);
+        assertThat(sentRequest.stops().get(0).id()).isEqualTo(warehouseBOrder.getId().toString());
+        assertThat(warehouseAOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+    }
+
+    @Test
+    void acknowledgementTimeout_shouldNotReassignToDriverWithAnotherActivePlan() {
+        UUID tenantId = UUID.randomUUID();
+        UUID timedOutPlanId = UUID.randomUUID();
+        UUID otherPlanId = UUID.randomUUID();
+        UUID currentDriverId = UUID.randomUUID();
+        UUID busyDriverId = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+
+        DispatchPlan timedOutPlan = DispatchPlan.builder()
+                .id(timedOutPlanId)
+                .tenant(tenant)
+                .driverId(currentDriverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .ackDeadlineAt(Instant.now().minusSeconds(60))
+                .plannedAt(Instant.now().minusSeconds(600))
+                .build();
+        DispatchPlan otherActivePlan = DispatchPlan.builder()
+                .id(otherPlanId)
+                .tenant(tenant)
+                .driverId(busyDriverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .plannedAt(Instant.now().minusSeconds(600))
+                .build();
+
+        when(dispatchPlanRepository.findById(timedOutPlanId)).thenReturn(Optional.of(timedOutPlan));
+        when(dispatchPlanRepository.findAllByTenantIdAndPlanStatusIn(
+                tenantId, List.of(PlanStatus.APPROVED, PlanStatus.DISPATCHED)))
+                .thenReturn(List.of(timedOutPlan, otherActivePlan));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(true, List.of(
+                        Map.of("user_id", currentDriverId.toString()),
+                        Map.of("user_id", busyDriverId.toString()))));
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DispatchPlan result = orchestrationService.handleAcknowledgementTimeout(timedOutPlanId);
+
+        assertThat(result.getPlanStatus()).isEqualTo(PlanStatus.CANCELLED);
+        assertThat(result.getDriverId()).isEqualTo(currentDriverId);
+    }
+
+    @Test
+    void acknowledgementTimeout_shouldUseAFreeDriverWhenBusyDriversAreExcluded() {
+        UUID tenantId = UUID.randomUUID();
+        UUID timedOutPlanId = UUID.randomUUID();
+        UUID currentDriverId = UUID.randomUUID();
+        UUID busyDriverId = UUID.randomUUID();
+        UUID freeDriverId = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+
+        DispatchPlan timedOutPlan = DispatchPlan.builder()
+                .id(timedOutPlanId)
+                .tenant(tenant)
+                .driverId(currentDriverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .ackDeadlineAt(Instant.now().minusSeconds(60))
+                .plannedAt(Instant.now().minusSeconds(600))
+                .build();
+        DispatchPlan otherActivePlan = DispatchPlan.builder()
+                .id(UUID.randomUUID())
+                .tenant(tenant)
+                .driverId(busyDriverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .plannedAt(Instant.now().minusSeconds(600))
+                .build();
+
+        when(dispatchPlanRepository.findById(timedOutPlanId)).thenReturn(Optional.of(timedOutPlan));
+        when(dispatchPlanRepository.findAllByTenantIdAndPlanStatusIn(
+                tenantId, List.of(PlanStatus.APPROVED, PlanStatus.DISPATCHED)))
+                .thenReturn(List.of(timedOutPlan, otherActivePlan));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(true, List.of(
+                        Map.of("user_id", currentDriverId.toString()),
+                        Map.of("user_id", busyDriverId.toString()),
+                        Map.of("user_id", freeDriverId.toString()))));
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DispatchPlan result = orchestrationService.handleAcknowledgementTimeout(timedOutPlanId);
+
+        assertThat(result.getPlanStatus()).isEqualTo(PlanStatus.DISPATCHED);
+        assertThat(result.getDriverId()).isEqualTo(freeDriverId);
+    }
+
+    @Test
+    void acknowledgementTimeout_shouldPreserveRouteWhenDeliveryAlreadyStarted() {
+        UUID tenantId = UUID.randomUUID();
+        UUID planId = UUID.randomUUID();
+        UUID driverId = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+        Order order = buildOrder(tenant, OrderPriority.NORMAL, Instant.now().minusSeconds(600));
+        order.setStatus(OrderStatus.IN_TRANSIT);
+        order.setFulfillmentStatus("IN_TRANSIT");
+        order.setAssignedDriverId(driverId);
+        order.setPlanId(planId);
+
+        DispatchPlan plan = DispatchPlan.builder()
+                .id(planId)
+                .tenant(tenant)
+                .driverId(driverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .ackDeadlineAt(Instant.now().minusSeconds(60))
+                .plannedAt(Instant.now().minusSeconds(600))
+                .build();
+        plan.getPlanOrders().add(DispatchPlanOrder.builder()
+                .id(new DispatchPlanOrderId(planId, order.getId()))
+                .plan(plan)
+                .order(order)
+                .stopIndex(0)
+                .build());
+        DeliveryTask task = DeliveryTask.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .tenantId(tenantId)
+                .driverId(driverId)
+                .dispatchPlanId(planId)
+                .status(DeliveryTaskStatus.OUT_FOR_DELIVERY)
+                .build();
+
+        when(dispatchPlanRepository.findById(planId)).thenReturn(Optional.of(plan));
+        when(deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY"))
+                .thenReturn(Optional.of(task));
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        DispatchPlan result = orchestrationService.handleAcknowledgementTimeout(planId);
+
+        assertThat(result.getPlanStatus()).isEqualTo(PlanStatus.DISPATCHED);
+        assertThat(result.getAcknowledgedAt()).isNotNull();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.IN_TRANSIT);
+        assertThat(order.getFulfillmentStatus()).isEqualTo("IN_TRANSIT");
+        assertThat(order.getAssignedDriverId()).isEqualTo(driverId);
+        assertThat(order.getPlanId()).isEqualTo(planId);
     }
 
     @Test

@@ -8,6 +8,14 @@ async def require_tenant_access(request: Request):
     path = request.url.path.removeprefix("/api/v1")
     if path == "/health" or request.method == "OPTIONS":
         return
+
+    # Allow internal service-to-service calls (e.g., from order-service via X-Internal-Key)
+    internal_key = os.getenv("TENANT_INTERNAL_KEY", "")
+    req_internal_key = request.headers.get("x-internal-key")
+    if req_internal_key is not None:
+        if not internal_key or req_internal_key == internal_key:
+            return
+
     authorization = request.headers.get("authorization", "")
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "Authentication required")

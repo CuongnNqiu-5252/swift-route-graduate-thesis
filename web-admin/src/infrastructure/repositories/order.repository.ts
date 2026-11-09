@@ -25,7 +25,7 @@ export interface OperationsQueue {
 export interface CreateOrderPayload {
   recipientName:string; recipientPhone:string; pickupLocationId:string; pickupLat:number; pickupLng:number; pickupAddress:string;
   deliveryLat:number; deliveryLng:number; deliveryAddress:string; timeWindowStart:string; timeWindowEnd:string; weightKg:number;
-  packageCount:number; packageCategory:string; priority:string;
+  packageCount:number; packageCategory:string; priority:string; codAmount:number;
 }
 
 interface CreateOrderRequest {
@@ -44,6 +44,7 @@ interface CreateOrderRequest {
   package_count: number;
   package_category: string;
   priority: string;
+  cod_amount: number;
 }
 
 export function toCreateOrderRequest(payload: CreateOrderPayload): CreateOrderRequest {
@@ -63,6 +64,7 @@ export function toCreateOrderRequest(payload: CreateOrderPayload): CreateOrderRe
     package_count: payload.packageCount,
     package_category: payload.packageCategory,
     priority: payload.priority,
+    cod_amount: payload.codAmount,
   };
 }
 
@@ -100,6 +102,8 @@ function mapOrder(raw: any): Order {
     time_window_end: raw.timeWindowEnd || raw.time_window_end,
     assigned_driver_id: raw.assignedDriverId || raw.assigned_driver_id,
     assigned_driver_name: raw.assignedDriverName || raw.assigned_driver_name,
+    cod_amount: Number(raw.codAmount ?? raw.cod_amount ?? 0),
+    payment_status: raw.paymentStatus || raw.payment_status || 'PAID',
     created_at: raw.createdAt || raw.created_at || '',
     updated_at: raw.updatedAt || raw.updated_at || '',
   };

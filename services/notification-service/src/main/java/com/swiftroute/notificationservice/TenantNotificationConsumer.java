@@ -1,44 +1,106 @@
 package com.swiftroute.notificationservice;
 
-import java.util.*;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Consumes tenant workflow and account events from RabbitMQ and stores
+ * in-app notifications, broadcasting updates via SSE to connected operators.
+ */
 @Component
-@RequiredArgsConstructor
+@Slf4j
 public class TenantNotificationConsumer {
     private final JdbcTemplate jdbc;
-    private final VerificationCipher cipher;
-    private final ObjectMapper json=new ObjectMapper();
-    @RabbitListener(queues=TenantNotificationConfig.QUEUE)
+    private final NotificationSseService sseService;
+    private final ObjectMapper json = new ObjectMapper();
+
+    public TenantNotificationConsumer(JdbcTemplate jdbc, @Autowired(required = false) NotificationSseService sseService) {
+        this.jdbc = jdbc;
+        this.sseService = sseService;
+    }
+
+    @RabbitListener(queues = TenantNotificationConfig.QUEUE)
     @Transactional
     public void receive(Message message) throws Exception {
-        var p=json.readTree(message.getBody());
-        String type=p.path("eventType").asText(p.path("event_type").asText());
-        if (!Set.of("tenant.driver_invited.v1","user.email_verification.v1","tenant.created.v1","tenant.verification_submitted.v1","tenant.verification_changes_requested.v1","tenant.approved.v1","tenant.rejected.v1","tenant.suspended.v1").contains(type))return;
-        UUID eventId=UUID.fromString(p.path("eventId").asText(p.path("event_id").asText()));
-        if(jdbc.update("INSERT INTO processed_events(event_id,consumer_name) VALUES (?,'tenant-notifications') ON CONFLICT DO NOTHING",eventId)==0)return;
-        String user=p.path("userId").asText(p.path("ownerUserId").asText());
-        String email=p.path("email").asText();
-        if(email.isBlank()) throw new IllegalArgumentException("Notification email missing");
-        UUID tenant=p.hasNonNull("tenantId")?UUID.fromString(p.get("tenantId").asText()):null;
-        String title=type.equals("user.email_verification.v1")?"Xác minh email SwiftRoute":"Cập nhật workspace SwiftRoute";
-        String body=type.equals("user.email_verification.v1")?"Chào bạn,\n\nBấm liên kết sau để xác minh email SwiftRoute. Liên kết có hiệu lực trong 24 giờ và chỉ dùng một lần:\n\n"+p.path("verificationUrl").asText()+"\n\nNếu bạn không đăng ký SwiftRoute, hãy bỏ qua email này."
-            :"Organization: "+tenant+"\nStatus: "+type+"\nFeedback: "+p.path("reason").asText()+"\nOpen your SwiftRoute workspace to continue.";
-        if (type.equals("tenant.driver_invited.v1")) {
-            title = "Lời mời tham gia đội ngũ giao hàng trên SwiftRoute";
-            String businessName = p.path("businessName").asText("Doanh nghiệp SwiftRoute");
-            body = "Chào bạn,\n\n" + businessName + " đã mời bạn tham gia đội ngũ giao hàng trên SwiftRoute. "
-                    + "Mở liên kết để xem lời mời, tạo tài khoản hoặc đăng nhập, xác minh email và xác nhận tham gia. "
-                    + "Bạn có thể thực hiện trên trình duyệt điện thoại trước khi cài ứng dụng.\n\n"
-                    + "Xem và chấp nhận lời mời:\n" + p.path("verificationUrl").asText()
-                    + "\n\nLời mời có hiệu lực 7 ngày. Nếu bạn không mong đợi lời mời này, hãy bỏ qua email.";
+        var p = json.readTree(message.getBody());
+        String type = p.path("eventType").asText(p.path("event_type").asText());
+        if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "tenant.created.v1",
+                "tenant.verification_submitted.v1", "tenant.verification_changes_requested.v1", "tenant.approved.v1",
+                "tenant.rejected.v1", "tenant.suspended.v1").contains(type)) {
+            return;
         }
-        jdbc.update("INSERT INTO notification_deliveries(delivery_id,tenant_id,user_id,channel,template_code,title,body,recipient_email,encrypted_body,status) VALUES (?,?,?,'EMAIL',?,?,?, ?,?,'PENDING')",eventId,tenant,UUID.fromString(user),type,title,"Email content encrypted at rest",email,cipher.encrypt(body));
+
+        UUID eventId = UUID.fromString(p.path("eventId").asText(p.path("event_id").asText()));
+        if (jdbc.update(
+                "INSERT INTO processed_events(event_id, consumer_name) VALUES (?, 'tenant-notifications') ON CONFLICT DO NOTHING",
+                eventId) == 0) {
+            return;
+        }
+
+        String user = p.path("userId").asText(p.path("ownerUserId").asText());
+        UUID tenant = p.hasNonNull("tenantId") ? UUID.fromString(p.get("tenantId").asText()) : null;
+
+        String title = switch (type) {
+            case "user.email_verification.v1" -> "Xác minh tài khoản SwiftRoute";
+            case "tenant.driver_invited.v1" -> "Lời mời tham gia đội ngũ giao hàng";
+            case "tenant.created.v1" -> "Doanh nghiệp mới đã được tạo";
+            case "tenant.approved.v1" -> "Hồ sơ doanh nghiệp đã được phê duyệt";
+            case "tenant.rejected.v1" -> "Hồ sơ doanh nghiệp đã bị từ chối";
+            case "tenant.suspended.v1" -> "Doanh nghiệp đã bị tạm ngưng hoạt động";
+            default -> "Cập nhật workspace SwiftRoute";
+        };
+
+        String body = switch (type) {
+            case "user.email_verification.v1" ->
+                "Tài khoản đăng ký: " + p.path("email").asText()
+                + "\nLiên kết xác thực: " + p.path("verificationUrl").asText();
+            case "tenant.driver_invited.v1" -> {
+                String businessName = p.path("businessName").asText("Doanh nghiệp SwiftRoute");
+                yield businessName + " đã gửi lời mời tham gia đội ngũ giao hàng."
+                    + "\nLiên kết chấp nhận: " + p.path("verificationUrl").asText();
+            }
+            default -> "Trạng thái: " + type + (p.hasNonNull("reason") ? " - Lý do: " + p.path("reason").asText() : "");
+        };
+
+        log.info("Recorded in-app tenant notification [{}]: {} for user/tenant {} | Content: {}",
+                type, title, user != null && !user.isBlank() ? user : tenant, body);
+
+        UUID recipientId = (user != null && !user.isBlank()) ? UUID.fromString(user) : tenant;
+        if (recipientId == null) {
+            return;
+        }
+
+        jdbc.update("""
+                INSERT INTO notification_deliveries(
+                    delivery_id, tenant_id, user_id, channel, template_code, title, body, status, sent_at
+                ) VALUES (?, ?, ?, 'IN_APP', ?, ?, ?, 'SENT', now())
+                """,
+                eventId, tenant, recipientId, type, title, body);
+
+        // Broadcast over SSE to connected tenant operator sessions
+        if (sseService != null && tenant != null) {
+            Map<String, Object> alertDto = new HashMap<>();
+            alertDto.put("id", eventId.toString());
+            alertDto.put("title", title);
+            alertDto.put("body", body);
+            alertDto.put("severity", "LOW");
+            alertDto.put("template_code", type);
+            alertDto.put("created_at", Instant.now().toString());
+            sseService.broadcast(tenant, "operational-alert", alertDto);
+        }
     }
 }

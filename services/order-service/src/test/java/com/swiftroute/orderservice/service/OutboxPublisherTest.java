@@ -20,6 +20,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.core.MessagePostProcessor;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
@@ -61,12 +64,16 @@ class OutboxPublisherTest {
 
         // Simulate broker ACK confirmation
         doAnswer(inv -> {
-            CorrelationData cd = inv.getArgument(3);
+            MessagePostProcessor processor = inv.getArgument(3);
+            Message message = processor.postProcessMessage(new Message(new byte[0], new MessageProperties()));
+            assertThat(message.getMessageProperties().getMessageId()).isEqualTo(eventId.toString());
+            assertThat(message.getMessageProperties().getCorrelationId()).isEqualTo(eventId.toString());
+            CorrelationData cd = inv.getArgument(4);
             if (cd != null) {
                 cd.getFuture().complete(new CorrelationData.Confirm(true, null));
             }
             return null;
-        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(CorrelationData.class));
+        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(MessagePostProcessor.class), any(CorrelationData.class));
 
         outboxPublisher.publishPendingEvents();
 
@@ -97,12 +104,12 @@ class OutboxPublisherTest {
 
         // Simulate broker NACK confirmation
         doAnswer(inv -> {
-            CorrelationData cd = inv.getArgument(3);
+            CorrelationData cd = inv.getArgument(4);
             if (cd != null) {
                 cd.getFuture().complete(new CorrelationData.Confirm(false, "Queue quota exceeded"));
             }
             return null;
-        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(CorrelationData.class));
+        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(MessagePostProcessor.class), any(CorrelationData.class));
 
         outboxPublisher.publishPendingEvents();
 
@@ -136,7 +143,7 @@ class OutboxPublisherTest {
         // Normal publish throws broker connection exception
         doAnswer(inv -> {
             String exchange = inv.getArgument(0);
-            CorrelationData cd = inv.getArgument(3);
+            CorrelationData cd = inv.getArgument(4);
             if (TenantEventConfig.EVENT_EXCHANGE.equals(exchange)) {
                 throw new AmqpException("Broker unreachable");
             } else if (TenantEventConfig.DLX_EXCHANGE.equals(exchange)) {
@@ -144,7 +151,7 @@ class OutboxPublisherTest {
                 cd.getFuture().complete(new CorrelationData.Confirm(true, null));
             }
             return null;
-        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(CorrelationData.class));
+        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(MessagePostProcessor.class), any(CorrelationData.class));
 
         outboxPublisher.publishPendingEvents();
 
@@ -175,7 +182,7 @@ class OutboxPublisherTest {
 
         // Both regular and DLQ publishing fail
         doThrow(new AmqpException("Broker connection failure"))
-                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(CorrelationData.class));
+                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class), any(MessagePostProcessor.class), any(CorrelationData.class));
 
         outboxPublisher.publishPendingEvents();
 

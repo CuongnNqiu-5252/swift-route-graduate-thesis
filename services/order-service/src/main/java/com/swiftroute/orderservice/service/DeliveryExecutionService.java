@@ -133,6 +133,23 @@ public class DeliveryExecutionService {
         return tasks.save(task);
     }
 
+    @Transactional
+    public DeliveryTask resumeDeliveryAfterIncident(Order order, UUID driverId) {
+        UUID effectiveDriver = driverId != null ? driverId : order.getAssignedDriverId();
+        DeliveryTask task = tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
+                .orElseGet(() -> DeliveryTask.builder()
+                        .order(order)
+                        .tenantId(order.getTenant().getId())
+                        .driverId(effectiveDriver)
+                        .taskType("DELIVERY")
+                        .build());
+        if (task.getStatus() == DeliveryTaskStatus.FAILED) {
+            task.setStatus(DeliveryTaskStatus.OUT_FOR_DELIVERY);
+            task.setUpdatedAt(Instant.now());
+        }
+        return tasks.save(task);
+    }
+
     @Transactional(readOnly = true)
     public List<DriverDeliveryTaskResponse> activeForDriver(UUID driverId, String role) {
         requireDriver(role);
@@ -163,6 +180,12 @@ public class DeliveryExecutionService {
         // The order remains authoritative even if a stale task is still active.
         if (task.getOrder().getStatus() == OrderStatus.CANCELLED) {
             throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
+        }
+        if (previous == request.status()) {
+            Order order = task.getOrder();
+            applyOrderState(task, order, driverId, request);
+            orders.save(order);
+            return task;
         }
         if (!allowed(task.getTaskType(), previous, request.status())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
@@ -228,7 +251,11 @@ public class DeliveryExecutionService {
                 order.getDeliveryLng(),
                 order.getWeightKg(),
                 order.getDeliveryFee(),
-                completedAt);
+                completedAt,
+                order.getExternalOrderCode(),
+                order.getRecipientName(),
+                order.getDeliveryAddress(),
+                order.getCodAmount());
         outboxEvents.save(OutboxEvent.builder()
                 .eventId(eventId)
                 .aggregateType("DELIVERY_TASK")
@@ -263,6 +290,20 @@ public class DeliveryExecutionService {
             return;
         }
 
+        if (order.getAssignedDriverId() == null || !order.getAssignedDriverId().equals(driverId)) {
+            order.setAssignedDriverId(driverId);
+        }
+        if (order.getPlanId() == null && task.getDispatchPlanId() != null) {
+            order.setPlanId(task.getDispatchPlanId());
+        }
+        if (request.status() == DeliveryTaskStatus.ACCEPTED
+                || request.status() == DeliveryTaskStatus.ARRIVED
+                || request.status() == DeliveryTaskStatus.PICKED_UP) {
+            if (order.getStatus() == OrderStatus.PAID) {
+                order.setStatus(OrderStatus.PLANNED);
+                order.setFulfillmentStatus("PLANNED");
+            }
+        }
         if (request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
             order.setStatus(OrderStatus.IN_TRANSIT);
             order.setFulfillmentStatus("IN_TRANSIT");

@@ -8,7 +8,9 @@ import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/route_assignment_screen.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_notifications_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_status_card.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/next_stop_spotlight_card.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/shift_stats_card.dart';
@@ -21,10 +23,14 @@ class DriverHomeTab extends ConsumerStatefulWidget {
     super.key,
     required this.onNavigateToRoute,
     this.onNavigateToHandover,
+    this.onNavigateToEarnings,
+    this.onNavigateToProfile,
   });
 
   final VoidCallback onNavigateToRoute;
   final VoidCallback? onNavigateToHandover;
+  final VoidCallback? onNavigateToEarnings;
+  final VoidCallback? onNavigateToProfile;
 
   @override
   ConsumerState<DriverHomeTab> createState() => _DriverHomeTabState();
@@ -61,19 +67,44 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
     }
   }
 
+  void _openNotificationsSheet(
+    BuildContext context,
+    List<DriverNotificationModel> notifications,
+  ) {
+    final ids = notifications.map((n) => n.id).toSet();
+    if (ids.isNotEmpty) {
+      ref.read(driverReadNotificationIdsProvider.notifier).markAllRead(ids);
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DriverNotificationsSheet(
+        onNavigateToRoute: widget.onNavigateToRoute,
+        onNavigateToHandover: widget.onNavigateToHandover,
+        onNavigateToEarnings: widget.onNavigateToEarnings,
+        onNavigateToProfile: widget.onNavigateToProfile,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final driverState = ref.watch(driverProvider);
     final ordersState = ref.watch(driverOrdersProvider);
     final plansState = ref.watch(driverDispatchPlansProvider);
     final codState = ref.watch(driverCodHandoverProvider);
+    final notificationsState = ref.watch(driverNotificationsProvider);
+    final readNotificationIds = ref.watch(driverReadNotificationIdsProvider);
     final user = ref.watch(currentUserProvider);
     final driver = driverState.valueOrNull;
 
-    final pendingCodTotal = (codState.valueOrNull ?? []).fold<double>(
-      0,
-      (sum, item) => sum + item.amount,
-    );
+    final pendingCodTotal = codState.valueOrNull?.availableTotal ?? 0;
+    final notifications = notificationsState.valueOrNull ?? const [];
+    final unreadNotificationsCount = notifications
+        .where((n) => !readNotificationIds.contains(n.id))
+        .length;
 
     final subtitleParts = <String>[
       if (driver?.vehicleType != null && driver!.vehicleType.isNotEmpty)
@@ -135,12 +166,32 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Hòm thư thông báo',
+            onPressed: () => _openNotificationsSheet(context, notifications),
+            icon: Badge(
+              isLabelVisible: unreadNotificationsCount > 0,
+              backgroundColor: AppColors.error,
+              label: Text(
+                unreadNotificationsCount > 9
+                    ? '9+'
+                    : '$unreadNotificationsCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              child: const Icon(Icons.notifications_none_rounded),
+            ),
+          ),
+          IconButton(
             tooltip: 'Làm mới dữ liệu',
             onPressed: () {
               ref.read(driverProvider.notifier).refreshProfile();
               ref.read(driverOrdersProvider.notifier).refreshOrders();
               ref.read(driverDispatchPlansProvider.notifier).refresh();
               ref.read(driverCodHandoverProvider.notifier).refresh();
+              ref.read(driverNotificationsProvider.notifier).refresh();
             },
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -154,6 +205,7 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
             ref.read(driverOrdersProvider.notifier).refreshOrders(),
             ref.read(driverDispatchPlansProvider.notifier).refresh(),
             ref.read(driverCodHandoverProvider.notifier).refresh(),
+            ref.read(driverNotificationsProvider.notifier).refresh(),
           ]);
         },
         child: ListView(

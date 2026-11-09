@@ -21,6 +21,15 @@ public class InternalFleetController {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
     }
     public record LinkProfile(UUID userId) {}
+    @GetMapping("/{tenantId}/simulation-profile/{driverId}")
+    public Map<String, Object> simulationProfile(@PathVariable UUID tenantId, @PathVariable UUID driverId,
+            @RequestHeader("X-Service-Key") String supplied) {
+        authenticate(supplied);
+        var driver = drivers.findById(driverId).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        if (!tenantId.equals(driver.getTenantId()))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
+        return Map.of("tracking_id", driver.getUserId() != null ? driver.getUserId() : driver.getId());
+    }
     public record ProvisionProfile(UUID userId, String fullName, String phone) {}
     @GetMapping("/{tenantId}/profiles/{driverId}")
     public void validateProfile(@PathVariable UUID tenantId, @PathVariable UUID driverId,

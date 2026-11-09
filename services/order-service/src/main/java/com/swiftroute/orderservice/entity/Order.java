@@ -135,6 +135,16 @@ public class Order {
     @Builder.Default
     private String paymentStatus = "COD_PENDING";
 
+    @Column(name = "cod_status", length = 30)
+    @Builder.Default
+    private String codStatus = "NOT_APPLICABLE";
+
+    @Column(name = "cod_collected_at")
+    private Instant codCollectedAt;
+
+    @Column(name = "cod_handover_batch_id")
+    private UUID codHandoverBatchId;
+
     /** Tiền thu hộ COD tài xế thu khi giao hàng */
     @Column(name = "cod_amount", nullable = false, precision = 12, scale = 0)
     @Builder.Default

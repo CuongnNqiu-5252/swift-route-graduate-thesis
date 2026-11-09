@@ -42,11 +42,23 @@ spring:
               predicates:
                 - Path=/api/delivery-tasks/**
 
+            # --- Operator in-app notifications ---
+            - id: notification-service
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/notifications/**
+
             # --- Exception, return and COD operations ---
             - id: operations-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}
               predicates:
                 - Path=/api/operations/**
+
+            # --- Embedded Payment/COD ledger (owned by Order Service runtime) ---
+            - id: cod-ledger
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/cod/**
 
             # --- Package custody and dual-confirmation handovers ---
             - id: custody-service

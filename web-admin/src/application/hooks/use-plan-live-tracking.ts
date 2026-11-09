@@ -39,6 +39,18 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
     let disposed = false;
     const controller = new AbortController();
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+    let staleTimer: number | undefined;
+
+    const updateFreshness = (timestamp: Date) => {
+      if (staleTimer) window.clearTimeout(staleTimer);
+      const remaining = 60_000 - (Date.now() - timestamp.getTime());
+      if (!Number.isFinite(remaining) || remaining <= 0) {
+        setSignal('stale');
+        return;
+      }
+      setSignal('live');
+      staleTimer = window.setTimeout(() => setSignal('stale'), remaining);
+    };
 
     const connect = async () => {
       while (!disposed) {
@@ -102,25 +114,22 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
                 setIsSimulating(true);
               }
               setLastUpdate(timestamp);
-              setSignal(Date.now() - timestamp.getTime() > 60_000 ? 'stale' : 'live');
+              updateFreshness(timestamp);
             }
           }
         } catch (error) {
           if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+          if (staleTimer) window.clearTimeout(staleTimer);
           setSignal('reconnecting');
         }
         await new Promise((resolve) => window.setTimeout(resolve, 3_000));
       }
     };
     void connect();
-    const freshnessTimer = window.setInterval(() => setLastUpdate((current) => {
-      if (current && Date.now() - current.getTime() > 60_000) setSignal('stale');
-      return current;
-    }), 5_000);
     return () => {
       disposed = true;
       controller.abort();
-      window.clearInterval(freshnessTimer);
+      if (staleTimer) window.clearTimeout(staleTimer);
     };
   }, [driverUserId, planId, driverProfileId]);
 

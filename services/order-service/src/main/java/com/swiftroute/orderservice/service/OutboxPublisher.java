@@ -14,14 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.orderservice.config.TenantEventConfig;
-import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Publishes committed outbox records with publisher confirms, exponential backoff (1s, 2s, 4s, 8s, 16s)
+ * Publishes committed outbox records with publisher confirms, exponential
+ * backoff (1s, 2s, 4s, 8s, 16s)
  * and Dead-Letter Queue (DLQ) routing when retries exceed the threshold.
  */
 @Service
@@ -41,7 +41,8 @@ public class OutboxPublisher {
         LocalDateTime now = LocalDateTime.now(clock);
         outboxEventRepository.findPendingEventsForPublish().forEach(event -> {
             try {
-                publishWithConfirm(TenantEventConfig.EVENT_EXCHANGE, event.getEventType(), event.getPayload(), event.getEventId());
+                publishWithConfirm(TenantEventConfig.EVENT_EXCHANGE, event.getEventType(), event.getPayload(),
+                        event.getEventId());
                 event.setPublishedAt(now);
                 event.setLastError(null);
                 outboxEventRepository.save(event);
@@ -55,12 +56,14 @@ public class OutboxPublisher {
                     log.error("Outbox event {} exceeded max retries ({}). Attempting Dead Letter Queue {} routing.",
                             event.getEventId(), MAX_RETRIES, TenantEventConfig.DLQ_QUEUE, ex);
                     try {
-                        publishWithConfirm(TenantEventConfig.DLX_EXCHANGE, "dlq." + event.getEventType(), event.getPayload(), event.getEventId());
+                        publishWithConfirm(TenantEventConfig.DLX_EXCHANGE, "dlq." + event.getEventType(),
+                                event.getPayload(), event.getEventId());
                         event.setDlqPublishedAt(now);
                         event.setLastError("Exceeded max retries (" + MAX_RETRIES + "); routed to DLQ");
                         log.info("Outbox event {} confirmed into DLQ.", event.getEventId());
                     } catch (Exception dlqEx) {
-                        log.error("Failed to route outbox event {} to DLQ: {}. Will retry DLQ publish.", event.getEventId(), dlqEx.getMessage());
+                        log.error("Failed to route outbox event {} to DLQ: {}. Will retry DLQ publish.",
+                                event.getEventId(), dlqEx.getMessage());
                         event.setLastError("DLQ publish failed: " + dlqEx.getMessage());
                         event.setNextAttemptAt(now.plusSeconds(16L)); // Remains recoverable!
                     }
@@ -77,10 +80,15 @@ public class OutboxPublisher {
 
     private void publishWithConfirm(String exchange, String routingKey, Object payload, UUID eventId) throws Exception {
         CorrelationData correlationData = new CorrelationData(eventId.toString());
-        rabbitTemplate.convertAndSend(exchange, routingKey, payload, correlationData);
+        rabbitTemplate.convertAndSend(exchange, routingKey, payload, message -> {
+            message.getMessageProperties().setMessageId(eventId.toString());
+            message.getMessageProperties().setCorrelationId(eventId.toString());
+            return message;
+        }, correlationData);
         if (correlationData.getFuture() != null) {
             try {
-                CorrelationData.Confirm confirm = correlationData.getFuture().get(CONFIRM_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                CorrelationData.Confirm confirm = correlationData.getFuture().get(CONFIRM_TIMEOUT_SECONDS,
+                        TimeUnit.SECONDS);
                 if (confirm != null && !confirm.isAck()) {
                     throw new AmqpException("Broker returned NACK for event " + eventId + ": " + confirm.getReason());
                 }

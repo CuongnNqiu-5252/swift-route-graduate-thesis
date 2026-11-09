@@ -41,7 +41,6 @@ import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.entity.enums.PlanStatus;
 import com.swiftroute.orderservice.exception.AppException;
-import com.swiftroute.orderservice.repository.CodCollectionRepository;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryIncidentRepository;
 import com.swiftroute.orderservice.repository.DispatchPlanRepository;
@@ -60,8 +59,6 @@ class ExceptionOperationsServiceTest {
     private DeliveryIncidentRepository incidents;
     @Mock
     private ReturnRequestRepository returns;
-    @Mock
-    private CodCollectionRepository cod;
     @Mock
     private DeliveryExecutionService execution;
     @Mock
@@ -263,6 +260,13 @@ class ExceptionOperationsServiceTest {
         assertThat(res.status()).isEqualTo("IN_PROGRESS");
         assertThat(res.resolutionType()).isEqualTo("REQUEST_RETURN");
         verify(returns).save(any(ReturnRequest.class));
+        var events = org.mockito.ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEvents, org.mockito.Mockito.atLeastOnce()).save(events.capture());
+        var resolution = events.getAllValues().stream()
+                .filter(event -> event.getEventType().equals("incident.resolved")).findFirst().orElseThrow();
+        var payload = (java.util.Map<?, ?>) resolution.getPayload();
+        assertThat(payload.get("tenant_id")).isEqualTo(tenantId);
+        assertThat(payload.get("status")).isEqualTo("IN_PROGRESS");
     }
 
     @Test
@@ -325,6 +329,14 @@ class ExceptionOperationsServiceTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.RETURNED);
         assertThat(linkedIncident.getStatus()).isEqualTo("RESOLVED");
         verify(custody).receiveReturn(order, warehouseStaffId, "Đã kiểm đủ 2 kiện nguyên vẹn");
+        var events = org.mockito.ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEvents, org.mockito.Mockito.atLeastOnce()).save(events.capture());
+        var resolution = events.getAllValues().stream()
+                .filter(event -> event.getEventType().equals("incident.resolved")).findFirst().orElseThrow();
+        var payload = (java.util.Map<?, ?>) resolution.getPayload();
+        assertThat(payload.get("tenant_id")).isEqualTo(tenantId);
+        assertThat(payload.get("incident_id")).isEqualTo(incidentId);
+        assertThat(payload.get("status")).isEqualTo("RESOLVED");
     }
 
     @Test
@@ -346,7 +358,6 @@ class ExceptionOperationsServiceTest {
         ReportReturnDiscrepancyRequest discReq = new ReportReturnDiscrepancyRequest(
                 "MISSING_PACKAGE",
                 1,
-                "MISSING",
                 "Chỉ bàn giao 1/2 kiện hàng",
                 "https://res.cloudinary.com/demo/discrepancy.jpg");
 

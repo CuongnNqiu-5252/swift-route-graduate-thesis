@@ -27,8 +27,15 @@ public class TenantNotificationConfig {
                 BindingBuilder.bind(queue).to(exchange).with("tenant.#"),
                 BindingBuilder.bind(queue).to(exchange).with("user.email_verification.v1"),
                 BindingBuilder.bind(opsQueue).to(exchange).with("plan.#"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("route.#"),
                 BindingBuilder.bind(opsQueue).to(exchange).with("assignment.#"),
                 BindingBuilder.bind(opsQueue).to(exchange).with("delivery.#"),
-                BindingBuilder.bind(opsQueue).to(exchange).with("driver.unavailable_recovery"));
+                BindingBuilder.bind(opsQueue).to(exchange).with("order.delivery_completed.v1"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("incident.resolved"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("return.#"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("cod.#"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("settlement.#"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("driver.unavailable_recovery"),
+                BindingBuilder.bind(opsQueue).to(exchange).with("driver.profile_reviewed"));
     }
 }

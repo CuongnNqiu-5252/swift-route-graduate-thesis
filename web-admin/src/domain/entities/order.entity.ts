@@ -32,6 +32,8 @@ export interface Order {
   time_window_end?: string;
   assigned_driver_id?: string;
   assigned_driver_name?: string;
+  cod_amount: number;
+  payment_status: string;
   created_at: string;
   updated_at: string;
 }

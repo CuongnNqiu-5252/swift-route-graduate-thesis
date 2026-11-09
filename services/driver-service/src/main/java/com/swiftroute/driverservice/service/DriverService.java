@@ -432,6 +432,15 @@ public class DriverService {
         driver.setIsAvailable(false);
         driverRepository.save(driver);
         publishAvailability(driver);
+        if (driver.getUserId() != null) {
+            saveOutboxEvent("DRIVER", driver.getId(), "driver.profile_reviewed", java.util.Map.of(
+                    "tenant_id", driver.getTenantId().toString(),
+                    "driver_id", driver.getUserId().toString(),
+                    "driver_entity_id", driver.getId().toString(),
+                    "approved", approved,
+                    "note", driver.getReviewNote() != null ? driver.getReviewNote() : ""
+            ));
+        }
         return toResponse(driver);
     }
 

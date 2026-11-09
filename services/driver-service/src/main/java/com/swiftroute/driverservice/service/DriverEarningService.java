@@ -23,6 +23,7 @@ import com.swiftroute.driverservice.entity.Driver;
 import com.swiftroute.driverservice.entity.DriverEarning;
 import com.swiftroute.driverservice.entity.DriverSettlement;
 import com.swiftroute.driverservice.entity.EarningPolicy;
+import com.swiftroute.driverservice.entity.OutboxEvent;
 import com.swiftroute.driverservice.entity.enums.EarningStatus;
 import com.swiftroute.driverservice.entity.enums.SettlementStatus;
 import com.swiftroute.driverservice.exception.AppException;
@@ -31,6 +32,7 @@ import com.swiftroute.driverservice.repository.DriverEarningRepository;
 import com.swiftroute.driverservice.repository.DriverRepository;
 import com.swiftroute.driverservice.repository.DriverSettlementRepository;
 import com.swiftroute.driverservice.repository.EarningPolicyRepository;
+import com.swiftroute.driverservice.repository.OutboxEventRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -47,21 +49,25 @@ public class DriverEarningService {
     private final EarningPolicyRepository policies;
     private final DriverSettlementRepository settlements;
     private final DriverRepository drivers;
+    private final OutboxEventRepository outboxEvents;
 
     @Transactional
     public DriverEarning recordCompletedDelivery(DeliveryCompletedEvent event) {
         var existing = earnings.findByOrderId(event.orderId());
-        if (existing.isPresent()) return existing.get();
+        if (existing.isPresent())
+            return existing.get();
 
         Driver driver = drivers.findByUserId(event.assignedDriverId())
                 .filter(item -> item.getTenantId().equals(event.tenantId()))
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         EarningPolicy policy = policyFor(event.tenantId());
-        BigDecimal distance = distanceKm(event.pickupLat(), event.pickupLng(), event.deliveryLat(), event.deliveryLng());
+        BigDecimal distance = distanceKm(event.pickupLat(), event.pickupLng(), event.deliveryLat(),
+                event.deliveryLng());
         BigDecimal distanceAmount = policy.getPerKmAmount().multiply(distance);
         BigDecimal weight = BigDecimal.valueOf(event.weightKg() == null ? 0 : event.weightKg());
         BigDecimal bonus = weight.compareTo(policy.getHeavyWeightThresholdKg()) > 0
-                ? policy.getHeavyBonusAmount() : BigDecimal.ZERO;
+                ? policy.getHeavyBonusAmount()
+                : BigDecimal.ZERO;
         BigDecimal calculated = policy.getBaseAmount().add(distanceAmount).add(bonus);
         BigDecimal total = roundToThousand(calculated.max(policy.getMinimumAmount()));
 
@@ -87,7 +93,8 @@ public class DriverEarningService {
     public List<DriverEarningResponse> myEarnings(UUID userId, Instant from, Instant to) {
         Driver driver = driverByUser(userId);
         Period period = period(from, to);
-        return earnings.findByDriverIdAndCompletedAtBetweenOrderByCompletedAtDesc(driver.getId(), period.from(), period.to())
+        return earnings
+                .findByDriverIdAndCompletedAtBetweenOrderByCompletedAtDesc(driver.getId(), period.from(), period.to())
                 .stream().map(item -> DriverEarningResponse.from(item, driver.getFullName())).toList();
     }
 
@@ -113,17 +120,20 @@ public class DriverEarningService {
 
     @Transactional
     public DriverSettlementResponse createSettlement(UUID tenantId, CreateSettlementRequest request) {
-        if (!request.periodEnd().isAfter(request.periodStart())) throw new AppException(ErrorCode.VALIDATION_ERROR);
+        if (!request.periodEnd().isAfter(request.periodStart()))
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
         Driver driver = drivers.findById(request.driverId())
                 .filter(item -> item.getTenantId().equals(tenantId))
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         List<DriverEarning> pending = earnings
                 .findByTenantIdAndDriverIdAndStatusAndSettlementIdIsNullAndCompletedAtGreaterThanEqualAndCompletedAtLessThan(
                         tenantId, driver.getId(), EarningStatus.PENDING, request.periodStart(), request.periodEnd());
-        if (pending.isEmpty()) throw new AppException(ErrorCode.SETTLEMENT_EMPTY);
+        if (pending.isEmpty())
+            throw new AppException(ErrorCode.SETTLEMENT_EMPTY);
         BigDecimal total = pending.stream().map(DriverEarning::getNetAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         DriverSettlement settlement = settlements.save(DriverSettlement.builder()
-                .tenantId(tenantId).driverId(driver.getId()).periodStart(request.periodStart()).periodEnd(request.periodEnd())
+                .tenantId(tenantId).driverId(driver.getId()).periodStart(request.periodStart())
+                .periodEnd(request.periodEnd())
                 .earningCount(pending.size()).totalAmount(total).build());
         pending.forEach(item -> item.setSettlementId(settlement.getId()));
         earnings.saveAll(pending);
@@ -133,30 +143,65 @@ public class DriverEarningService {
     @Transactional
     public DriverSettlementResponse approveSettlement(UUID tenantId, UUID settlementId, UUID actorId) {
         DriverSettlement settlement = settlement(tenantId, settlementId);
-        if (settlement.getStatus() != SettlementStatus.DRAFT) throw new AppException(ErrorCode.INVALID_SETTLEMENT_STATUS);
+        if (settlement.getStatus() != SettlementStatus.DRAFT)
+            throw new AppException(ErrorCode.INVALID_SETTLEMENT_STATUS);
         settlement.setStatus(SettlementStatus.APPROVED);
         settlement.setApprovedBy(actorId);
         settlement.setApprovedAt(Instant.now());
         settlement.setUpdatedAt(Instant.now());
         List<DriverEarning> rows = earnings.findBySettlementIdOrderByCompletedAtAsc(settlementId);
-        rows.forEach(item -> { item.setStatus(EarningStatus.APPROVED); item.setUpdatedAt(Instant.now()); });
+        rows.forEach(item -> {
+            item.setStatus(EarningStatus.APPROVED);
+            item.setUpdatedAt(Instant.now());
+        });
         earnings.saveAll(rows);
-        return DriverSettlementResponse.from(settlements.save(settlement), driverName(settlement.getDriverId()));
+        DriverSettlement saved = settlements.save(settlement);
+        emitSettlementEvent(saved, "settlement.approved");
+        return DriverSettlementResponse.from(saved, driverName(settlement.getDriverId()));
     }
 
     @Transactional
     public DriverSettlementResponse markPaid(UUID tenantId, UUID settlementId, UUID actorId, String reference) {
         DriverSettlement settlement = settlement(tenantId, settlementId);
-        if (settlement.getStatus() != SettlementStatus.APPROVED) throw new AppException(ErrorCode.INVALID_SETTLEMENT_STATUS);
+        if (settlement.getStatus() != SettlementStatus.APPROVED)
+            throw new AppException(ErrorCode.INVALID_SETTLEMENT_STATUS);
         settlement.setStatus(SettlementStatus.PAID);
         settlement.setPaidBy(actorId);
         settlement.setPaidAt(Instant.now());
         settlement.setPaymentReference(reference.trim());
         settlement.setUpdatedAt(Instant.now());
         List<DriverEarning> rows = earnings.findBySettlementIdOrderByCompletedAtAsc(settlementId);
-        rows.forEach(item -> { item.setStatus(EarningStatus.PAID); item.setUpdatedAt(Instant.now()); });
+        rows.forEach(item -> {
+            item.setStatus(EarningStatus.PAID);
+            item.setUpdatedAt(Instant.now());
+        });
         earnings.saveAll(rows);
-        return DriverSettlementResponse.from(settlements.save(settlement), driverName(settlement.getDriverId()));
+        DriverSettlement saved = settlements.save(settlement);
+        emitSettlementEvent(saved, "settlement.paid");
+        return DriverSettlementResponse.from(saved, driverName(settlement.getDriverId()));
+    }
+
+    private void emitSettlementEvent(DriverSettlement settlement, String eventType) {
+        if (outboxEvents == null)
+            return;
+        drivers.findById(settlement.getDriverId()).ifPresent(driver -> {
+            UUID targetDriverUserId = driver.getUserId() != null ? driver.getUserId() : driver.getId();
+            outboxEvents.save(OutboxEvent.builder()
+                    .eventId(UUID.randomUUID())
+                    .aggregateType("SETTLEMENT")
+                    .aggregateId(settlement.getId())
+                    .eventType(eventType)
+                    .payload(java.util.Map.of(
+                            "tenant_id", settlement.getTenantId().toString(),
+                            "driver_id", targetDriverUserId.toString(),
+                            "driver_entity_id", driver.getId().toString(),
+                            "settlement_id", settlement.getId().toString(),
+                            "total_amount", settlement.getTotalAmount(),
+                            "earning_count", settlement.getEarningCount(),
+                            "payment_reference",
+                            settlement.getPaymentReference() != null ? settlement.getPaymentReference() : ""))
+                    .build());
+        });
     }
 
     @Transactional(readOnly = true)
@@ -178,7 +223,9 @@ public class DriverEarningService {
     }
 
     @Transactional
-    public EarningPolicyResponse policy(UUID tenantId) { return EarningPolicyResponse.from(policyFor(tenantId)); }
+    public EarningPolicyResponse policy(UUID tenantId) {
+        return EarningPolicyResponse.from(policyFor(tenantId));
+    }
 
     private EarningPolicy policyFor(UUID tenantId) {
         return policies.findById(tenantId).orElseGet(() -> policies.save(EarningPolicy.builder()
@@ -206,7 +253,8 @@ public class DriverEarningService {
     }
 
     private Period period(Instant from, Instant to) {
-        if (from != null && to != null && to.isAfter(from)) return new Period(from, to);
+        if (from != null && to != null && to.isAfter(from))
+            return new Period(from, to);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         Instant start = today.with(TemporalAdjusters.firstDayOfMonth()).atStartOfDay().toInstant(ZoneOffset.UTC);
         Instant end = today.with(TemporalAdjusters.firstDayOfNextMonth()).atStartOfDay().toInstant(ZoneOffset.UTC);
@@ -214,13 +262,14 @@ public class DriverEarningService {
     }
 
     private BigDecimal distanceKm(Double lat1, Double lng1, Double lat2, Double lng2) {
-        if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) throw new AppException(ErrorCode.VALIDATION_ERROR);
+        if (lat1 == null || lng1 == null || lat2 == null || lng2 == null)
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
         double earthRadiusKm = 6371.0088;
         double dLat = Math.toRadians(lat2 - lat1);
         double dLng = Math.toRadians(lng2 - lng1);
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                        * Math.sin(dLng / 2) * Math.sin(dLng / 2);
         return BigDecimal.valueOf(earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
                 .setScale(2, RoundingMode.HALF_UP);
     }
@@ -243,5 +292,6 @@ public class DriverEarningService {
                 "\"currency\":\"" + policy.getCurrency() + "\"}";
     }
 
-    private record Period(Instant from, Instant to) {}
+    private record Period(Instant from, Instant to) {
+    }
 }

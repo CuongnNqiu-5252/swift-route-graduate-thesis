@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { CheckCircle2, MapPin } from 'lucide-react';
+import { Banknote, CheckCircle2, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import LocationMapPicker from '@/components/locations/location-map-picker';
@@ -19,6 +19,8 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
   const [lng, setLng] = useState(105.78);
   const [weight, setWeight] = useState('1');
   const [packageCount, setPackageCount] = useState('1');
+  const [hasCod, setHasCod] = useState(false);
+  const [codAmount, setCodAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const [resolvingAddress, setResolvingAddress] = useState(false);
   const [locationSelected, setLocationSelected] = useState(false);
@@ -39,6 +41,10 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
     if (!pickup) return toast.error('Hãy chọn điểm lấy hàng.');
     if (!locationSelected) return toast.error('Hãy tìm địa chỉ hoặc đặt ghim tại điểm giao.');
     if (!address.trim()) return toast.error('Chưa xác định được địa chỉ giao hàng.');
+    const parsedCodAmount = hasCod ? Number(codAmount) : 0;
+    if (hasCod && (!Number.isInteger(parsedCodAmount) || parsedCodAmount <= 0)) {
+      return toast.error('Tiền thu hộ COD phải là số nguyên lớn hơn 0.');
+    }
 
     setBusy(true);
     const start = new Date(Date.now() + 60 * 60 * 1000);
@@ -60,6 +66,7 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         packageCount: Number(packageCount),
         packageCategory: 'PARCEL',
         priority: 'NORMAL',
+        codAmount: parsedCodAmount,
       });
       toast.success('Đã tạo đơn hàng');
       onCreated();
@@ -86,6 +93,45 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         <label className="text-xs font-semibold text-slate-700">Người nhận<input required value={recipient} onChange={(event) => setRecipient(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
         <label className="text-xs font-semibold text-slate-700">Số điện thoại<input required value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
       </div>
+      <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
+        <label className="flex min-h-11 cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={hasCod}
+            onChange={(event) => {
+              setHasCod(event.target.checked);
+              if (!event.target.checked) setCodAmount('');
+            }}
+            className="h-5 w-5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
+          />
+          <Banknote className="h-5 w-5 text-emerald-700" aria-hidden="true" />
+          <span>
+            <span className="block text-sm font-semibold text-slate-900">Thu hộ COD khi giao hàng</span>
+            <span className="block text-xs font-normal text-slate-500">Tài xế phải ghi nhận số tiền thực thu trước khi bàn giao cho quầy.</span>
+          </span>
+        </label>
+        {hasCod && (
+          <label className="mt-3 block text-xs font-semibold text-slate-700">
+            Số tiền cần thu từ người nhận (VND)
+            <div className="mt-1 flex min-h-11 overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-100">
+              <input
+                required
+                autoFocus
+                min="1000"
+                max="999999999999"
+                step="1000"
+                inputMode="numeric"
+                type="number"
+                value={codAmount}
+                onChange={(event) => setCodAmount(event.target.value)}
+                placeholder="Ví dụ: 150000"
+                className="min-w-0 flex-1 px-3 py-2 text-base font-semibold tabular-nums text-slate-950 outline-none"
+              />
+              <span className="border-l border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-500">VND</span>
+            </div>
+          </label>
+        )}
+      </fieldset>
       <label className="block text-xs font-semibold text-slate-700">Địa chỉ giao
         <textarea required rows={3} value={address} onChange={(event) => setAddress(event.target.value)} placeholder="Địa chỉ sẽ tự điền sau khi chọn vị trí trên bản đồ" className="mt-1 w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
       </label>

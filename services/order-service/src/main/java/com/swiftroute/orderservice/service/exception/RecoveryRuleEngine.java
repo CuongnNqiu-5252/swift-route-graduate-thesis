@@ -14,6 +14,7 @@ import com.swiftroute.orderservice.entity.DeliveryIncident;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.ReturnRequest;
+import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
@@ -78,8 +79,8 @@ public class RecoveryRuleEngine {
             return "MANUAL_REVIEW";
         }
 
-        // Non-failing operational incident where driver can continue delivery
-        if (Boolean.TRUE.equals(incident.getCanContinueDelivery())) {
+        // Non-failing operational incident where order delivery itself was not marked FAILED
+        if (order.getStatus() != OrderStatus.FAILED && Boolean.TRUE.equals(incident.getCanContinueDelivery())) {
             publishIncidentAlert(incident, "CONTINUE_DELIVERY", 0);
             return "CONTINUE_DELIVERY";
         }
@@ -135,7 +136,9 @@ public class RecoveryRuleEngine {
         payload.put("order_id", incident.getOrder() != null ? incident.getOrder().getId().toString() : null);
         payload.put("dispatch_plan_id", incident.getDispatchPlan() != null ? incident.getDispatchPlan().getId().toString() : null);
         payload.put("tenant_id", incident.getTenantId().toString());
-        payload.put("driver_id", incident.getReportedBy().toString());
+        payload.put("driver_id", incident.getDriverId() != null ? incident.getDriverId().toString() : null);
+        payload.put("reported_by", incident.getReportedBy().toString());
+        payload.put("action_url", "/operations?incident=" + incident.getId());
         payload.put("incident_type", incident.getIncidentType());
         payload.put("severity", incident.getSeverity());
         payload.put("notes", incident.getNotes());

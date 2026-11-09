@@ -191,6 +191,7 @@ public class OrderService {
                 .status(OrderStatus.PAID) // Sẵn sàng để điều phối lộ trình
                 .fulfillmentStatus("READY_FOR_PLANNING")
                 .paymentStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "PAID")
+                .codStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "NOT_APPLICABLE")
                 .build();
 
         Order saved = orderRepository.saveAndFlush(order);
@@ -335,9 +336,6 @@ public class OrderService {
             order.setFulfillmentStatus("IN_TRANSIT");
         } else if (newStatus == OrderStatus.DELIVERED) {
             order.setFulfillmentStatus("DELIVERED");
-            if (order.getCodAmount().compareTo(BigDecimal.ZERO) > 0) {
-                order.setPaymentStatus("COLLECTED");
-            }
         } else if (newStatus == OrderStatus.FAILED) {
             order.setFulfillmentStatus("FAILED");
         }

@@ -36,6 +36,11 @@ skills-lock.json
 .agents/
 tasks/
 data/
+# Flutter source packages legitimately use a `data` layer. Keep the COD model
+# visible to Git while continuing to ignore root/runtime data directories.
+!mobile-app/lib/features/driver/data/
+!mobile-app/lib/features/driver/data/models/
+!mobile-app/lib/features/driver/data/models/driver_cod_collection_model.dart
 *.db
 
 # Logs

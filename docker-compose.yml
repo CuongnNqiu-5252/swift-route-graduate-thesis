@@ -60,6 +60,7 @@ services:
       - ORDER_SERVICE_URL=http://order-service:8082
       - DRIVER_SERVICE_URL=http://driver-service:8083
       - ROUTING_ENGINE_URL=http://routing-engine:8084
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8086
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
@@ -180,8 +181,10 @@ services:
     container_name: swiftroute-routing-engine
     ports:
       - "8084:8084"
+      - "50051:50051"
     environment:
       - AUTH_SERVICE_URL=http://auth-service:8081
+      - GRPC_PORT=50051
       - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
     networks:
       - swiftroute-net
@@ -195,6 +198,7 @@ services:
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - NOTIFICATION_DB_NAME=notification_db
+      - AUTH_SERVICE_URL=http://auth-service:8081
       - RABBITMQ_HOST=rabbitmq
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}

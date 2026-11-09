@@ -7,6 +7,7 @@ import { AlertTriangle, LoaderCircle, MapPinned, Route } from 'lucide-react';
 import { useRoadRoute } from '@/application/hooks/use-road-route';
 import { DispatchDepot, OptimizationStop } from '@/domain/entities/routing.entity';
 import { formatRoadDistance } from '@/lib/route-format';
+import type { TrackingSignal } from '@/application/hooks/use-order-live-tracking';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 if (typeof window !== 'undefined') {
@@ -17,6 +18,13 @@ interface RouteMapInnerProps {
   depot: DispatchDepot | null;
   stops: OptimizationStop[];
   driver?: [number, number];
+  driverName?: string;
+  driverVehicle?: string;
+  trackingSignal?: TrackingSignal;
+  driverIncident?: { id: string; label: string; count: number };
+  routeOrigin?: [number, number];
+  skipPickup?: boolean;
+  onPickOrigin?: (position: [number, number]) => void;
   onRouteMetricsChange?: (metrics: { distanceMeters: number; durationSeconds: number } | null) => void;
   onRouteCoordinatesChange?: (waypoints: Array<{ lat: number; lng: number }>) => void;
 }
@@ -67,6 +75,13 @@ export default function RouteMapInner({
   depot,
   stops,
   driver,
+  driverName,
+  driverVehicle,
+  trackingSignal = 'waiting',
+  driverIncident,
+  routeOrigin,
+  skipPickup = false,
+  onPickOrigin,
   onRouteMetricsChange,
   onRouteCoordinatesChange,
 }: RouteMapInnerProps) {
@@ -74,16 +89,24 @@ export default function RouteMapInner({
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const driverMarkerRef = useRef<Marker | null>(null);
+  const incidentMarkerRef = useRef<Marker | null>(null);
+  const driverAnimationFrameRef = useRef<number | null>(null);
+  const displayedDriverRef = useRef<[number, number] | null>(null);
   const [mapError, setMapError] = useState('');
+  const pickOriginRef = useRef(onPickOrigin);
+  useEffect(() => {
+    pickOriginRef.current = onPickOrigin;
+  }, [onPickOrigin]);
   const mapKey = process.env.NEXT_PUBLIC_GOONG_MAP_KEY;
   const pointsKey = useMemo(() => {
     if (!depot) return '';
     const raw = [
-      { lat: depot.lat, lng: depot.lng },
+      ...(routeOrigin ? [{ lat: routeOrigin[0], lng: routeOrigin[1] }] : []),
+      ...(!skipPickup ? [{ lat: depot.lat, lng: depot.lng }] : []),
       ...stops.map((stop) => ({ lat: stop.location.lat, lng: stop.location.lng })),
     ].filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
     return raw.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join('|');
-  }, [depot, stops]);
+  }, [depot, stops, routeOrigin, skipPickup]);
 
   const points = useMemo(
     () =>
@@ -142,14 +165,22 @@ export default function RouteMapInner({
       setMapError('Không tải được nền bản đồ Goong. Kiểm tra Map Key và kết nối mạng.');
     });
     mapRef.current = map;
+    map.on('click', (event) => pickOriginRef.current?.([event.lngLat.lat, event.lngLat.lng]));
     const resize = new ResizeObserver(() => map.resize());
     resize.observe(containerRef.current);
     return () => {
       resize.disconnect();
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
+      if (driverAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(driverAnimationFrameRef.current);
+        driverAnimationFrameRef.current = null;
+      }
       driverMarkerRef.current?.remove();
       driverMarkerRef.current = null;
+      displayedDriverRef.current = null;
+      incidentMarkerRef.current?.remove();
+      incidentMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -186,24 +217,90 @@ export default function RouteMapInner({
     const map = mapRef.current;
     if (!map) return;
     if (!driver || !Number.isFinite(driver[0]) || !Number.isFinite(driver[1])) {
+      if (driverAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(driverAnimationFrameRef.current);
+        driverAnimationFrameRef.current = null;
+      }
       driverMarkerRef.current?.remove();
       driverMarkerRef.current = null;
+      displayedDriverRef.current = null;
       return;
     }
     const [lat, lng] = driver;
+    const popup = popupContent(
+      driverName || 'Vị trí tài xế',
+      `${driverVehicle ? `${driverVehicle} · ` : ''}Toạ độ ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+      trackingSignal === 'live' ? 'GPS trực tiếp từ ứng dụng tài xế' : 'Vị trí gần nhất nhận từ tài xế',
+    );
     if (!driverMarkerRef.current) {
       driverMarkerRef.current = new Marker({ element: markerElement('TX', 'driver') })
         .setLngLat([lng, lat])
-        .setPopup(
-          new Popup({ offset: 22, closeButton: false }).setDOMContent(
-            popupContent('Vị trí tài xế', `Toạ độ: ${lat.toFixed(5)}, ${lng.toFixed(5)}`, 'Đang di chuyển trên tuyến'),
-          ),
-        )
+        .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popup))
         .addTo(map);
+      displayedDriverRef.current = [lng, lat];
     } else {
-      driverMarkerRef.current.setLngLat([lng, lat]);
+      driverMarkerRef.current.getPopup()?.setDOMContent(popup);
+      if (driverAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(driverAnimationFrameRef.current);
+      }
+
+      const target: [number, number] = [lng, lat];
+      const currentLngLat = driverMarkerRef.current.getLngLat();
+      const from = displayedDriverRef.current ?? [currentLngLat.lng, currentLngLat.lat];
+      const updateMarkers = (position: [number, number]) => {
+        driverMarkerRef.current?.setLngLat(position);
+        incidentMarkerRef.current?.setLngLat(position);
+        displayedDriverRef.current = position;
+      };
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduceMotion) {
+        updateMarkers(target);
+        driverAnimationFrameRef.current = null;
+        return;
+      }
+
+      const startedAt = performance.now();
+      const duration = 850;
+      const animate = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        updateMarkers([
+          from[0] + (target[0] - from[0]) * eased,
+          from[1] + (target[1] - from[1]) * eased,
+        ]);
+        if (progress < 1) {
+          driverAnimationFrameRef.current = window.requestAnimationFrame(animate);
+        } else {
+          driverAnimationFrameRef.current = null;
+        }
+      };
+      driverAnimationFrameRef.current = window.requestAnimationFrame(animate);
     }
-  }, [driver]);
+  }, [driver, driverName, driverVehicle, trackingSignal]);
+
+  // A separate marker keeps the warning visible above the driver as GPS moves.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !driverIncident || !driver || !driver.every(Number.isFinite)) {
+      incidentMarkerRef.current?.remove();
+      incidentMarkerRef.current = null;
+      return;
+    }
+    const link = (incidentMarkerRef.current?.getElement() as HTMLAnchorElement | undefined)
+      ?? document.createElement('a');
+    link.href = `/operations?incident=${encodeURIComponent(driverIncident.id)}`;
+    link.textContent = `${driverIncident.count > 1 ? `${driverIncident.count} sự cố` : 'Có sự cố'} · Xử lý ngay`;
+    link.title = driverIncident.label;
+    link.setAttribute('aria-label', `${driverName || 'Tài xế'}: ${driverIncident.label}. Mở xử lý sự cố`);
+    if (!incidentMarkerRef.current) {
+      link.className = 'rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 hover:bg-rose-800';
+      link.addEventListener('click', (event) => event.stopPropagation());
+      const displayedPosition = displayedDriverRef.current ?? [driver[1], driver[0]];
+      incidentMarkerRef.current = new Marker({ element: link, anchor: 'bottom', offset: [0, -27] })
+        .setLngLat(displayedPosition)
+        .addTo(map);
+    }
+  }, [driver, driverIncident, driverName]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -237,9 +334,9 @@ export default function RouteMapInner({
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       aria-label="Bản đồ điều phối theo đường phố"
     />
-    <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-start"><div className="max-w-[min(92%,28rem)] rounded-xl bg-slate-950/90 px-3.5 py-3 text-white shadow-[0_10px_30px_rgb(15_23 42/0.24)]">
-      <div className="flex items-center gap-2 text-sm font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={16} /> : route.error ? <AlertTriangle className="text-amber-300" size={16} /> : <Route className="text-blue-300" size={16} />}{route.isLoading ? 'Đang tính tuyến đường phố' : route.error ? 'Chưa tải được tuyến Goong' : route.coordinates.length ? 'Tuyến xe máy theo Goong' : 'Thứ tự giao dự kiến'}</div>
-      <p className="mt-1 text-xs leading-5 text-slate-300">{route.error || (route.coordinates.length ? `${formatRoadDistance(route.distanceMeters)} · khoảng ${Math.max(1, Math.round(route.durationSeconds / 60))} phút · ${stops.length} điểm giao` : `${stops.length} điểm giao; thêm điểm để tính đường đi.`)}</p>
+    <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-start"><div className="max-w-[min(92%,32rem)] rounded-xl bg-slate-950/90 px-3.5 py-3 text-white shadow-[0_10px_30px_rgb(15_23 42/0.24)]">
+      <div className="flex items-center gap-2 text-sm font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={16} /> : route.error ? <AlertTriangle className="text-amber-300" size={16} /> : <Route className="text-blue-300" size={16} />}{driverName ? `${driverName} · ${stops.length} điểm giao` : route.isLoading ? 'Đang tính tuyến đường phố' : route.error ? 'Chưa tải được tuyến Goong' : route.coordinates.length ? 'Tuyến xe máy theo Goong' : 'Thứ tự giao dự kiến'}</div>
+      <p className="mt-1 text-xs leading-5 text-slate-300">{route.error || (route.coordinates.length ? `${formatRoadDistance(route.distanceMeters)} · khoảng ${Math.max(1, Math.round(route.durationSeconds / 60))} phút${driver ? ' · marker TX là GPS tài xế' : ''}` : `${stops.length} điểm giao; thêm điểm để tính đường đi.`)}</p>
     </div></div>
     {(mapError || route.error) && <div role="status" className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-white px-3 py-2 text-xs text-slate-700 shadow-[0_8px_24px_rgb(15_23_42/0.18)]">{mapError || 'Đang hiển thị đường nối thứ tự; dữ liệu đơn hàng vẫn được giữ nguyên.'}</div>}
   </div>;

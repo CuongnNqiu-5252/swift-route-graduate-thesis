@@ -20,12 +20,15 @@ import com.swiftroute.orderservice.dto.request.CollectCodRequest;
 import com.swiftroute.orderservice.dto.request.CreateIncidentRequest;
 import com.swiftroute.orderservice.dto.request.CreateReturnRequest;
 import com.swiftroute.orderservice.dto.request.ReportReturnDiscrepancyRequest;
+import com.swiftroute.orderservice.dto.request.RecordCodCollectionRequest;
 import com.swiftroute.orderservice.dto.request.ResolveIncidentRequest;
+import com.swiftroute.orderservice.dto.request.SubmitCodHandoverRequest;
+import com.swiftroute.orderservice.dto.response.CodCollectionResponse;
+import com.swiftroute.orderservice.dto.response.CodHandoverResponse;
 import com.swiftroute.orderservice.dto.response.DeliveryIncidentResponse;
 import com.swiftroute.orderservice.dto.response.DriverCodCollectionResponse;
 import com.swiftroute.orderservice.dto.response.OperationsReviewResponse;
 import com.swiftroute.orderservice.dto.response.ReturnRequestResponse;
-import com.swiftroute.orderservice.entity.CodCollection;
 import com.swiftroute.orderservice.entity.DeliveryAttempt;
 import com.swiftroute.orderservice.entity.DeliveryIncident;
 import com.swiftroute.orderservice.entity.DeliveryTask;
@@ -38,7 +41,6 @@ import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
-import com.swiftroute.orderservice.repository.CodCollectionRepository;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryIncidentRepository;
 import com.swiftroute.orderservice.repository.DispatchPlanRepository;
@@ -69,7 +71,6 @@ public class ExceptionOperationsService {
     private final OrderRepository orders;
     private final DeliveryIncidentRepository incidents;
     private final ReturnRequestRepository returns;
-    private final CodCollectionRepository cod;
     private final DeliveryExecutionService execution;
     private final PackageCustodyService custody;
     private final RecoveryRuleEngine recoveryRuleEngine;
@@ -78,6 +79,7 @@ public class ExceptionOperationsService {
     private final DeliveryAttemptRepository deliveryAttempts;
     private final OutboxEventRepository outboxEvents;
     private final ObjectMapper objectMapper;
+    private final CodLedgerService codLedger;
 
     // =========================================================================
     // 1. DELIVERY INCIDENTS MANAGEMENT
@@ -133,22 +135,26 @@ public class ExceptionOperationsService {
             driverId = reporterId;
         }
 
-        // Idempotency: Prevent duplicate submissions within short interval
+        // Idempotency & open incident guard: Prevent duplicate submissions while an order already has an unfinished incident
         if (order != null && incidents.existsByOrder_IdAndStatusIn(order.getId(), UNFINISHED_INCIDENT_STATUSES)) {
             var existingList = incidents.findAllByOrder_IdOrderByCreatedAtDesc(order.getId());
             if (!existingList.isEmpty()) {
                 DeliveryIncident existing = existingList.get(0);
-                if (existing.getIncidentType().equalsIgnoreCase(request.incidentType())
-                        && existing.getCreatedAt().isAfter(Instant.now().minusSeconds(60))) {
-                    log.info("Duplicate incident report detected for order {}, returning existing incident {}",
-                            order.getId(), existing.getId());
-                    return DeliveryIncidentResponse.from(existing);
-                }
+                log.info("Unfinished incident already exists for order {}, returning existing incident {}",
+                        order.getId(), existing.getId());
+                return DeliveryIncidentResponse.from(existing);
             }
         }
 
-        // Determine delivery impact
-        if (order != null && !Boolean.TRUE.equals(request.canContinueDelivery())) {
+        String normalizedType = request.incidentType() != null
+                ? request.incidentType().trim().toUpperCase(Locale.ROOT)
+                : "OTHER";
+        boolean pureDelayOnRoute = Set.of("TRAFFIC_CONGESTION", "WEATHER_DELAY").contains(normalizedType)
+                && Boolean.TRUE.equals(request.canContinueDelivery());
+
+        // Determine delivery impact: any order-level delivery blocker (unreachable, wrong address, refused, damaged, etc.)
+        // marks the current delivery task and attempt for this order as FAILED, even if the driver can continue delivering other orders.
+        if (order != null && !pureDelayOnRoute) {
             // Record failed attempt and mark active delivery task as FAILED
             String photoProof = (request.evidenceUrls() != null && !request.evidenceUrls().isEmpty())
                     ? request.evidenceUrls().get(0)
@@ -267,7 +273,8 @@ public class ExceptionOperationsService {
 
         switch (resType) {
             case "CONTINUE_DELIVERY" -> {
-                if (order != null && order.getStatus() == OrderStatus.FAILED) {
+                if (order != null) {
+                    execution.resumeDeliveryAfterIncident(order, order.getAssignedDriverId());
                     order.setStatus(OrderStatus.IN_TRANSIT);
                     order.setFulfillmentStatus("IN_TRANSIT");
                     order.setUpdatedAt(Instant.now());
@@ -307,6 +314,10 @@ public class ExceptionOperationsService {
             }
             case "REQUEST_RETURN" -> {
                 if (order != null) {
+                    execution.markDeliveryTaskFailed(order, order.getAssignedDriverId());
+                    order.setStatus(OrderStatus.FAILED);
+                    order.setFulfillmentStatus("FAILED");
+                    order.setUpdatedAt(Instant.now());
                     if (returns.existsByOrder_IdAndStatusIn(order.getId(), ACTIVE_RETURN_STATUSES)) {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                     }
@@ -337,12 +348,17 @@ public class ExceptionOperationsService {
             }
         }
 
-        emitOutbox("incident.resolved", tenantId, incident.getId(), Map.of(
-                "incident_id", incident.getId(),
-                "resolution_type", resType,
-                "status", incident.getStatus(),
-                "resolved_by", actorId
-        ));
+        Map<String, Object> resolvedPayload = new java.util.LinkedHashMap<>();
+        resolvedPayload.put("tenant_id", tenantId);
+        resolvedPayload.put("incident_id", incident.getId());
+        resolvedPayload.put("driver_id", incident.getDriverId() != null ? incident.getDriverId().toString() : "");
+        resolvedPayload.put("order_id", order != null && order.getId() != null ? order.getId().toString() : "");
+        resolvedPayload.put("order_code", order != null && order.getExternalOrderCode() != null ? order.getExternalOrderCode() : "");
+        resolvedPayload.put("resolution_type", resType);
+        resolvedPayload.put("notes", request.notes() != null ? request.notes() : "");
+        resolvedPayload.put("status", incident.getStatus());
+        resolvedPayload.put("resolved_by", actorId);
+        emitOutbox("incident.resolved", tenantId, incident.getId(), resolvedPayload);
 
         return DeliveryIncidentResponse.from(incident);
     }
@@ -494,19 +510,26 @@ public class ExceptionOperationsService {
         }
 
         // Normal return custody execution
+        execution.markDeliveryTaskFailed(order, driverId);
         custody.startReturn(order, actorId);
         DeliveryTask returnTask = execution.createReturnTask(order, driverId);
         returnReq.setReturnTask(returnTask);
         returnReq.setCurrentHolderId(driverId);
         returnReq.setStatus("IN_EXECUTION");
 
+        order.setStatus(OrderStatus.FAILED);
         order.setFulfillmentStatus("RETURNING");
         order.setUpdatedAt(Instant.now());
 
         emitOutbox("return.approved", tenantId, returnReq.getId(), Map.of(
+                "tenant_id", tenantId,
                 "return_request_id", returnReq.getId(),
                 "order_id", order.getId(),
+                "order_code", order.getExternalOrderCode() != null ? order.getExternalOrderCode() : "",
+                "driver_id", driverId.toString(),
                 "assigned_driver_id", driverId,
+                "return_location_name", returnReq.getReturnLocation() != null && returnReq.getReturnLocation().getName() != null
+                        ? returnReq.getReturnLocation().getName() : "kho lấy hàng",
                 "status", "IN_EXECUTION"
         ));
 
@@ -628,6 +651,13 @@ public class ExceptionOperationsService {
             inc.setResolvedBy(receiverId);
             inc.setResolvedAt(Instant.now());
             inc.setResolutionNotes("Đã nhận hàng hoàn tại kho: " + (notes != null ? notes : ""));
+            emitOutbox("incident.resolved", tenantId, inc.getId(), Map.of(
+                    "tenant_id", tenantId,
+                    "incident_id", inc.getId(),
+                    "resolution_type", "RETURN_COMPLETED",
+                    "status", "RESOLVED",
+                    "resolved_by", receiverId
+            ));
         }
 
         emitOutbox("return.completed", tenantId, returnReq.getId(), Map.of(
@@ -665,7 +695,6 @@ public class ExceptionOperationsService {
         returnReq.setStatus("DISCREPANCY");
         returnReq.setDiscrepancyType(request.discrepancyType().toUpperCase(Locale.ROOT));
         returnReq.setActualQuantity(request.actualQuantity());
-        returnReq.setPackageCondition(request.packageCondition());
         returnReq.setDiscrepancyNotes(request.discrepancyNotes());
         returnReq.setDiscrepancyEvidenceUrl(request.evidenceUrl());
         returnReq.setUpdatedAt(Instant.now());
@@ -678,8 +707,7 @@ public class ExceptionOperationsService {
                 .driverId(returnReq.getCurrentHolderId())
                 .incidentType("RETURN_DISCREPANCY_" + returnReq.getDiscrepancyType())
                 .severity("HIGH")
-                .notes("Chênh lệch khi nhận hàng hoàn: " + request.discrepancyNotes() +
-                        (request.packageCondition() != null ? " [Tình trạng: " + request.packageCondition() + "]" : ""))
+                .notes("Chênh lệch khi nhận hàng hoàn: " + (request.discrepancyNotes() != null ? request.discrepancyNotes() : ""))
                 .evidenceUrls(request.evidenceUrl())
                 .status("OPEN")
                 .build();
@@ -706,85 +734,64 @@ public class ExceptionOperationsService {
     // =========================================================================
 
     @Transactional
-    public CodCollection collect(
+    public CodCollectionResponse collect(
             UUID orderId,
             UUID tenantId,
             UUID driverId,
             String role,
             CollectCodRequest request) {
-        requireDriver(role);
-        Order order = owned(orderId, tenantId);
-        if (order.getStatus() != OrderStatus.DELIVERED || !driverId.equals(order.getAssignedDriverId())) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        if (order.getCodAmount() == null
-                || order.getCodAmount().signum() <= 0
-                || request.amount().compareTo(order.getCodAmount()) != 0) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
-        if (cod.findByOrder_Id(orderId).isPresent()) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        return cod.save(CodCollection.builder()
-                .order(order)
-                .tenantId(tenantId)
-                .driverId(driverId)
-                .collectedAmount(request.amount())
-                .notes(request.notes())
-                .build());
+        String outcome = request.amount().signum() == 0 ? "NOT_COLLECTED" : "FULL";
+        return codLedger.recordCollection(orderId, tenantId, driverId, role,
+                new RecordCodCollectionRequest(
+                        UUID.randomUUID(), request.amount(), outcome, request.notes(), null, Instant.now()));
     }
 
     @Transactional
-    public CodCollection declare(
+    public CodHandoverResponse declare(
             UUID id,
             UUID tenantId,
             UUID driverId,
             String role,
             CodHandoverRequest request) {
-        requireDriver(role);
-        CodCollection collection = cod.findById(id).orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        if (!collection.getTenantId().equals(tenantId)
-                || !collection.getDriverId().equals(driverId)
-                || !"PENDING_HANDOVER".equals(collection.getStatus())
-                || collection.getCollectedAmount().compareTo(request.amount()) != 0) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        collection.setDeclaredAmount(request.amount());
-        collection.setDeclaredAt(Instant.now());
-        collection.setNotes(request.notes());
-        collection.setStatus("DECLARED");
-        return collection;
+        return codLedger.submitHandover(tenantId, driverId, role,
+                new SubmitCodHandoverRequest(UUID.randomUUID(), List.of(id), request.amount(), request.notes()));
     }
 
     @Transactional(readOnly = true)
     public List<DriverCodCollectionResponse> pendingHandover(UUID tenantId, UUID driverId, String role) {
-        requireDriver(role);
-        return cod.findByTenantIdAndDriverIdAndStatusOrderByCollectedAtDesc(tenantId, driverId, "PENDING_HANDOVER")
-                .stream()
+        return codLedger.driverCustody(tenantId, driverId, role).eligibleCollections().stream()
                 .map(collection -> new DriverCodCollectionResponse(
-                        collection.getId(),
-                        collection.getOrder().getId(),
-                        collection.getOrder().getExternalOrderCode(),
-                        collection.getCollectedAmount(),
-                        collection.getNotes(),
-                        collection.getCollectedAt()))
+                        collection.id(),
+                        collection.orderId(),
+                        collection.orderCode(),
+                        collection.amount(),
+                        collection.reason(),
+                        collection.occurredAt()))
                 .toList();
     }
 
     @Transactional
-    public CodCollection verify(UUID id, UUID tenantId, UUID actor, String role, String notes) {
+    public CodHandoverResponse verify(UUID id, UUID tenantId, UUID actor, String role, String notes) {
         requireOperator(role);
-        CodCollection collection = cod.findById(id).orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        if (!collection.getTenantId().equals(tenantId) || !"DECLARED".equals(collection.getStatus())) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        var batchOpt = codLedger.handoverQueue(tenantId, role, "SUBMITTED").stream()
+                .filter(b -> b.id().equals(id))
+                .findFirst();
+        if (batchOpt.isPresent()) {
+            return codLedger.verifyHandover(id, tenantId, actor, role,
+                    new com.swiftroute.orderservice.dto.request.VerifyCodHandoverRequest(
+                            UUID.randomUUID(), batchOpt.get().declaredTotal(), notes));
         }
-        collection.setStatus(collection.getCollectedAmount().compareTo(collection.getDeclaredAmount()) == 0
-                ? "VERIFIED"
-                : "DISCREPANCY");
-        collection.setVerifiedBy(actor);
-        collection.setVerifiedAt(Instant.now());
-        collection.setResolutionNotes(notes);
-        return collection;
+        Order order = orders.findById(id).orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        if (order.getCodHandoverBatchId() != null) {
+            return codLedger.verifyHandover(order.getCodHandoverBatchId(), tenantId, actor, role,
+                    new com.swiftroute.orderservice.dto.request.VerifyCodHandoverRequest(
+                            UUID.randomUUID(), order.getCodAmount(), notes));
+        }
+        order.setCodStatus("HANDED_OVER");
+        order.setPaymentStatus("PAID");
+        order.setUpdatedAt(Instant.now());
+        orders.save(order);
+        return null;
     }
 
     @Transactional(readOnly = true)
@@ -823,17 +830,21 @@ public class ExceptionOperationsService {
                         r.getCreatedAt()))
                 .toList();
 
-        var codList = cod.findByTenantIdAndStatusOrderByCollectedAtDesc(tenantId, "DECLARED").stream()
-                .map(c -> new OperationsReviewResponse.CodItem(
-                        c.getId(),
-                        c.getOrder().getId(),
-                        c.getOrder().getExternalOrderCode(),
-                        c.getDriverId(),
-                        c.getCollectedAmount(),
-                        c.getDeclaredAmount(),
-                        c.getNotes(),
-                        c.getDeclaredAt()))
-                .toList();
+        var submittedBatches = codLedger.handoverQueue(tenantId, role, "SUBMITTED");
+        List<OperationsReviewResponse.CodItem> codList = new java.util.ArrayList<>();
+        for (var batch : submittedBatches) {
+            for (var line : batch.lines()) {
+                codList.add(new OperationsReviewResponse.CodItem(
+                        batch.id(),
+                        line.orderId(),
+                        line.orderCode(),
+                        batch.driverId(),
+                        line.amount(),
+                        batch.declaredTotal(),
+                        batch.notes(),
+                        batch.submittedAt()));
+            }
+        }
 
         return new OperationsReviewResponse(incList, retList, codList);
     }
@@ -876,6 +887,9 @@ public class ExceptionOperationsService {
                     .payload(payload)
                     .build());
         } catch (Exception e) {
+            if (eventType.startsWith("incident")) {
+                throw new IllegalStateException("Unable to persist incident outbox event", e);
+            }
             log.warn("Failed to serialize outbox event {}: {}", eventType, e.getMessage());
         }
     }

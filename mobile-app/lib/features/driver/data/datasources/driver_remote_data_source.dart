@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_earning_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
 
 class DriverRemoteDataSource {
   final Dio _dio;
@@ -206,6 +207,23 @@ class DriverRemoteDataSource {
           )
           .toList(),
     );
+  }
+
+  /// Fetch driver-targeted notifications from /notifications/driver-inbox.
+  Future<List<DriverNotificationModel>> getMyNotifications() async {
+    final response = await _dio.get('/notifications/driver-inbox');
+    final data = response.data;
+    final raw = (data is Map && data['data'] is List)
+        ? data['data'] as List
+        : (data is List ? data : const <dynamic>[]);
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => DriverNotificationModel.fromJson(
+            Map<String, dynamic>.from(item),
+          ),
+        )
+        .toList();
   }
 }
 

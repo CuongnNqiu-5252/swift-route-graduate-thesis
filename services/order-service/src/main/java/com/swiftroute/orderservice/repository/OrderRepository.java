@@ -25,6 +25,16 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     List<Order> findAllByTenantIdAndStatusInOrderByUpdatedAtDesc(UUID tenantId, List<OrderStatus> statuses);
 
+    List<Order> findByTenant_IdAndAssignedDriverIdAndCodStatusOrderByUpdatedAtDesc(UUID tenantId, UUID driverId, String codStatus);
+
+    List<Order> findByTenant_IdAndAssignedDriverIdOrderByUpdatedAtDesc(UUID tenantId, UUID driverId);
+
+    List<Order> findByTenant_IdAndCodStatusOrderByUpdatedAtDesc(UUID tenantId, String codStatus);
+
+    List<Order> findByCodHandoverBatchIdOrderByUpdatedAtDesc(UUID batchId);
+
+    List<Order> findByTenant_IdAndCodHandoverBatchIdIn(UUID tenantId, List<UUID> batchIds);
+
     /**
      * Find by public tracking token for unauthenticated recipient tracking.
      */

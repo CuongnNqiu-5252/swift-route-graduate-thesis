@@ -2,11 +2,19 @@
 
 import dynamic from 'next/dynamic';
 import { DispatchDepot, OptimizationStop } from '@/domain/entities/routing.entity';
+import type { TrackingSignal } from '@/application/hooks/use-order-live-tracking';
 
 interface RouteMapProps {
   depot: DispatchDepot | null;
   stops: OptimizationStop[];
   driver?: [number, number];
+  driverName?: string;
+  driverVehicle?: string;
+  trackingSignal?: TrackingSignal;
+  driverIncident?: { id: string; label: string; count: number };
+  routeOrigin?: [number, number];
+  skipPickup?: boolean;
+  onPickOrigin?: (position: [number, number]) => void;
   onRouteMetricsChange?: (metrics: { distanceMeters: number; durationSeconds: number } | null) => void;
   onRouteCoordinatesChange?: (waypoints: Array<{ lat: number; lng: number }>) => void;
 }

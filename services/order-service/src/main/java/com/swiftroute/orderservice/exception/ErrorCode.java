@@ -28,6 +28,15 @@ public enum ErrorCode {
     ORDER_ALREADY_CANCELLED(400, "Đơn hàng đã bị huỷ, không thể cập nhật", HttpStatus.BAD_REQUEST),
     ORDER_ACCESS_DENIED(403, "Bạn không có quyền truy cập đơn hàng này", HttpStatus.FORBIDDEN),
 
+    // ===== Payment / COD Ledger =====
+    PAYMENT_NOT_FOUND(404, "Không tìm thấy nghĩa vụ thanh toán COD", HttpStatus.NOT_FOUND),
+    COD_COLLECTION_NOT_FOUND(404, "Không tìm thấy khoản thu COD", HttpStatus.NOT_FOUND),
+    COD_HANDOVER_NOT_FOUND(404, "Không tìm thấy phiếu bàn giao COD", HttpStatus.NOT_FOUND),
+    COD_DISPUTE_NOT_FOUND(404, "Không tìm thấy chênh lệch COD", HttpStatus.NOT_FOUND),
+    INVALID_COD_HANDOVER(409, "Phiếu bàn giao COD không hợp lệ hoặc đã được xử lý", HttpStatus.CONFLICT),
+    INVALID_COD_DISPUTE(409, "Chênh lệch COD không còn ở trạng thái có thể xử lý", HttpStatus.CONFLICT),
+    COD_REASON_REQUIRED(400, "Cần nhập lý do khi số tiền COD không khớp", HttpStatus.BAD_REQUEST),
+
     // ===== Lỗi nghiệp vụ Tenant =====
     TENANT_NOT_FOUND(404, "Doanh nghiệp không tồn tại", HttpStatus.NOT_FOUND),
     TENANT_ALREADY_EXISTS(409, "Tên doanh nghiệp đã tồn tại", HttpStatus.CONFLICT),

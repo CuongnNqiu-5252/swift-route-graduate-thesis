@@ -1,6 +1,7 @@
 // features/driver/presentation/widgets/driver_delivery_pod_sheet.dart
 
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -36,29 +37,17 @@ class DriverDeliveryPodSheet extends ConsumerStatefulWidget {
 class _DriverDeliveryPodSheetState
     extends ConsumerState<DriverDeliveryPodSheet> {
   final ImagePicker _picker = ImagePicker();
-  late final TextEditingController _codController;
 
   Uint8List? _photoBytes;
   String? _uploadedUrl;
   bool _isUploading = false;
   bool _isSubmitting = false;
-  bool _confirmedCashReceived = false;
   String? _errorText;
 
   bool get _hasCod => widget.order.codAmount > 0;
 
   @override
-  void initState() {
-    super.initState();
-    _codController = TextEditingController(
-      text: _hasCod ? widget.order.codAmount.toStringAsFixed(0) : '0',
-    );
-    _confirmedCashReceived = !_hasCod;
-  }
-
-  @override
   void dispose() {
-    _codController.dispose();
     super.dispose();
   }
 
@@ -102,24 +91,6 @@ class _DriverDeliveryPodSheetState
     }
     if (_isUploading) return;
 
-    double codCollected = 0;
-    if (_hasCod) {
-      final parsed = double.tryParse(
-        _codController.text.replaceAll(RegExp(r'[^\d.]'), ''),
-      );
-      if (parsed == null || parsed < 0) {
-        setState(() => _errorText = 'Số tiền COD thu thực tế không hợp lệ.');
-        return;
-      }
-      if (!_confirmedCashReceived) {
-        setState(
-          () => _errorText = 'Vui lòng tích xác nhận đã thu đủ tiền mặt COD.',
-        );
-        return;
-      }
-      codCollected = parsed;
-    }
-
     setState(() {
       _isSubmitting = true;
       _errorText = null;
@@ -132,7 +103,9 @@ class _DriverDeliveryPodSheetState
             orderId: widget.order.id,
             taskId: taskId,
             proofUrl: _uploadedUrl,
-            codAmount: _hasCod ? codCollected : null,
+            codAmount: _hasCod ? widget.order.codAmount : null,
+            codOutcome: _hasCod ? 'FULL' : null,
+            codReason: null,
           );
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -204,83 +177,42 @@ class _DriverDeliveryPodSheetState
             ),
             const SizedBox(height: 18),
 
-            // 1. COD Collection Box (Safety Amber)
+            // 1. COD Collection Box (Clean Amber Card)
             if (_hasCod) ...[
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
                   color: AppColors.warningSoft,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: AppColors.warningBorder),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    const Row(
                       children: [
-                        const Row(
-                          children: [
-                            Icon(
-                              Icons.payments_rounded,
-                              color: AppColors.warning,
-                              size: 20,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Tiền thu hộ COD bắt buộc',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.warning,
-                              ),
-                            ),
-                          ],
+                        Icon(
+                          Icons.payments_rounded,
+                          color: AppColors.warning,
+                          size: 22,
                         ),
+                        SizedBox(width: 8),
                         Text(
-                          AppFormatters.currency(widget.order.codAmount),
-                          style: AppTheme.numStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
+                          'Thu tiền mặt COD:',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
                             color: AppColors.warning,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(10),
-                      onTap: () => setState(
-                        () => _confirmedCashReceived = !_confirmedCashReceived,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: Checkbox(
-                                value: _confirmedCashReceived,
-                                activeColor: AppColors.warning,
-                                onChanged: (val) => setState(
-                                  () => _confirmedCashReceived = val ?? false,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Tôi xác nhận đã nhận đủ ${AppFormatters.currency(widget.order.codAmount)} từ khách',
-                                style: const TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                    Text(
+                      AppFormatters.currency(widget.order.codAmount),
+                      style: AppTheme.numStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.warning,
                       ),
                     ),
                   ],
@@ -470,7 +402,11 @@ class _DriverDeliveryPodSheetState
                       )
                     : const Icon(Icons.check_circle_rounded, size: 20),
                 label: Text(
-                  _isSubmitting ? 'Đang hoàn tất…' : 'Xác nhận Giao thành công',
+                  _isSubmitting
+                      ? 'Đang hoàn tất…'
+                      : (_hasCod
+                          ? 'Xác nhận Đã thu tiền & Giao thành công'
+                          : 'Xác nhận Giao thành công'),
                 ),
               ),
             ),

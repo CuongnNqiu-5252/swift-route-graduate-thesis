@@ -68,3 +68,6 @@ driver-service:
 
 routing-engine:
   url: ${ROUTING_ENGINE_URL:http://localhost:8084}
+
+  grpc-port: ${ROUTING_ENGINE_GRPC_PORT:50051}
+  transport: ${ROUTING_ENGINE_TRANSPORT:grpc}

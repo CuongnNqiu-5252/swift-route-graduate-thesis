@@ -36,6 +36,17 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
     let disposed = false;
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
     const controller = new AbortController();
+    let staleTimer: number | undefined;
+    const updateFreshness = (timestamp: Date) => {
+      if (staleTimer) window.clearTimeout(staleTimer);
+      const remaining = 60_000 - (Date.now() - timestamp.getTime());
+      if (!Number.isFinite(remaining) || remaining <= 0) {
+        setSignal('stale');
+        return;
+      }
+      setSignal('live');
+      staleTimer = window.setTimeout(() => setSignal('stale'), remaining);
+    };
     const onEvent = (eventName: string, data: string) => {
       if (disposed) return;
       if (eventName === 'connected') {
@@ -59,8 +70,9 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
       } else if (location.status === 'SIMULATING') {
         setIsSimulating(true);
       }
-      setLastUpdate(new Date(location.recorded_at));
-      setSignal(eventName === 'location_snapshot' && Date.now() - new Date(location.recorded_at).getTime() > 60_000 ? 'stale' : 'live');
+      const timestamp = new Date(location.recorded_at);
+      setLastUpdate(timestamp);
+      updateFreshness(timestamp);
     };
 
     const connect = async () => {
@@ -94,6 +106,7 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
           }
         } catch (error) {
           if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+          if (staleTimer) window.clearTimeout(staleTimer);
           setSignal('reconnecting');
         }
         await new Promise((resolve) => window.setTimeout(resolve, 3_000));
@@ -101,17 +114,10 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
     };
     void connect();
 
-    const freshnessTimer = window.setInterval(() => {
-      setLastUpdate((current) => {
-        if (current && Date.now() - current.getTime() > 60_000) setSignal('stale');
-        return current;
-      });
-    }, 5_000);
-
     return () => {
       disposed = true;
       controller.abort();
-      window.clearInterval(freshnessTimer);
+      if (staleTimer) window.clearTimeout(staleTimer);
     };
   }, [driverUserId, orderId]);
 

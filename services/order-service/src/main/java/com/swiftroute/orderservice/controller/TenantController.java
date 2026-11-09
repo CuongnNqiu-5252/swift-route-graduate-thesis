@@ -18,8 +18,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.orderservice.dto.request.ApplyPresetRequest;
-import com.swiftroute.orderservice.dto.request.CreateTenantRequest;
-import com.swiftroute.orderservice.dto.request.TenantStatusRequest;
 import com.swiftroute.orderservice.dto.request.UpdateTenantSettingsRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.TenantResponse;

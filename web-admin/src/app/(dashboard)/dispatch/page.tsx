@@ -15,9 +15,12 @@ import { PickupLocation } from '@/domain/entities/pickup-location.entity';
 import { DispatchDepot, DispatchPlanRecord, OptimizationResult, OptimizationStop } from '@/domain/entities/routing.entity';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
-import { AlertCircle, CheckCircle, Navigation, Play, RefreshCw, Square, Warehouse } from 'lucide-react';
+import { AlertCircle, CheckCircle, MapPin, Navigation, PackageCheck, Play, RefreshCw, Square, UserRound, Warehouse } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import api from '@/lib/api';
+import { useDispatchIncidents } from '@/application/hooks/use-dispatch-incidents';
+import { operationsRepository } from '@/infrastructure/repositories/operations.repository';
 
 export default function DispatchPage() {
   const { orders, isLoading: isLoadingOrders, refetch: refetchOrders } = useOrders();
@@ -37,6 +40,11 @@ export default function DispatchPage() {
   const [roadMetrics, setRoadMetrics] = useState<{ distanceMeters: number; durationSeconds: number } | null>(null);
   const [routeWaypoints, setRouteWaypoints] = useState<Array<{ lat: number; lng: number }>>([]);
   const [isStartingSim, setIsStartingSim] = useState(false);
+  const [trackedDriverId, setTrackedDriverId] = useState('');
+  const [simulationOrigin, setSimulationOrigin] = useState<[number, number]>();
+  const [isPickingOrigin, setIsPickingOrigin] = useState(false);
+  const [isReportingIncident, setIsReportingIncident] = useState(false);
+  const { incidents, error: incidentError, refresh: refreshIncidents } = useDispatchIncidents();
 
   const loadPlans = useCallback(async () => {
     setIsLoadingPlans(true);
@@ -90,9 +98,39 @@ export default function DispatchPage() {
   // A new dispatch plan can only consume orders that have not been planned yet.
   const dispatchableOrders = orders.filter((order) => order.status === 'READY_FOR_DISPATCH');
 
-  const latestAssignedOrder = useMemo(() => orders
-    .filter((order) => (order.status === 'PLANNED' || order.status === 'IN_TRANSIT') && Boolean(order.assigned_driver_id))
-    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))[0], [orders]);
+  const trackedDriver = useMemo(
+    () => drivers.find((driver) => driver.id === trackedDriverId),
+    [drivers, trackedDriverId],
+  );
+
+  const trackedDriverOrders = useMemo(() => {
+    if (!trackedDriver) return [];
+    return orders
+      .filter((order) =>
+        (order.status === 'PLANNED' || order.status === 'IN_TRANSIT')
+        && (order.assigned_driver_id === trackedDriver.id
+          || order.assigned_driver_id === trackedDriver.user_id),
+      )
+      .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+  }, [orders, trackedDriver]);
+
+  const trackedDriverPlan = useMemo(() => {
+    if (!trackedDriver) return null;
+    return plans.find((plan) =>
+      plan.plan_status === 'DISPATCHED'
+      && (plan.driver_id === trackedDriver.id || plan.driver_id === trackedDriver.user_id),
+    ) ?? null;
+  }, [plans, trackedDriver]);
+
+  const latestAssignedOrder = useMemo(() => {
+    if (trackedDriverId) return trackedDriverOrders[0];
+    return orders
+      .filter((order) =>
+        (order.status === 'PLANNED' || order.status === 'IN_TRANSIT')
+        && Boolean(order.assigned_driver_id),
+      )
+      .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))[0];
+  }, [orders, trackedDriverId, trackedDriverOrders]);
 
   const activeTrackedOrderId = useMemo(() => {
     if (selectedPlan) return undefined;
@@ -103,21 +141,77 @@ export default function DispatchPage() {
   const planTracking = usePlanLiveTracking(
     selectedPlan?.plan_status === 'DISPATCHED' ? selectedPlan.plan_id : undefined,
     selectedPlan?.driver_id,
+    trackedDriverId || undefined,
   );
   const orderTracking = useOrderLiveTracking(
     activeTrackedOrderId,
     latestAssignedOrder?.assigned_driver_id,
   );
 
-  const activeDriverPosition = selectedPlan?.plan_status === 'DISPATCHED'
+  const activeDriverPosition = trackedDriverId ? planTracking.position : selectedPlan?.plan_status === 'DISPATCHED'
     ? planTracking.position
     : orderTracking.position ?? planTracking.position;
   const activeStepProgress = selectedPlan?.plan_status === 'DISPATCHED'
     ? planTracking.stepProgress
     : orderTracking.stepProgress;
-  const isSimulating = selectedPlan?.plan_status === 'DISPATCHED'
+  const isSimulating = trackedDriverId ? planTracking.isSimulating : selectedPlan?.plan_status === 'DISPATCHED'
     ? planTracking.isSimulating
     : orderTracking.isSimulating;
+
+  const incidentPlanId = trackedDriverId ? trackedDriverPlan?.plan_id : selectedPlan?.plan_id;
+  const incidentOrder = trackedDriverId ? trackedDriverOrders.find((order) => order.status === 'IN_TRANSIT')
+    : latestAssignedOrder?.status === 'IN_TRANSIT' ? latestAssignedOrder : undefined;
+  const activeRouteOrderIds = useMemo(() => new Set(
+    incidentPlanId
+      ? (trackedDriverId ? trackedDriverPlan?.ordered_stop_ids : selectedPlan?.ordered_stop_ids) ?? []
+      : trackedDriverId
+        ? trackedDriverOrders.map((order) => order.id)
+        : incidentOrder ? [incidentOrder.id] : [],
+  ), [incidentOrder, incidentPlanId, selectedPlan?.ordered_stop_ids, trackedDriverId, trackedDriverOrders, trackedDriverPlan?.ordered_stop_ids]);
+
+  const activeDriverIncidents = useMemo(() => {
+    const identities = trackedDriver
+      ? [trackedDriver.id, trackedDriver.user_id]
+      : [selectedPlan?.driver_id ?? latestAssignedOrder?.assigned_driver_id];
+    return incidents.filter((incident) => {
+      if (!incident.driver_id || !identities.includes(incident.driver_id)) return false;
+      if (incident.dispatch_plan_id) return incident.dispatch_plan_id === incidentPlanId;
+      return Boolean(incident.order_id && activeRouteOrderIds.has(incident.order_id));
+    })
+      .sort((left, right) => {
+        const priority = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+        return priority[right.severity] - priority[left.severity]
+          || Date.parse(right.created_at) - Date.parse(left.created_at);
+      });
+  }, [activeRouteOrderIds, incidentPlanId, incidents, trackedDriver, selectedPlan?.driver_id, latestAssignedOrder?.assigned_driver_id]);
+  const driverIncident = useMemo(() => activeDriverIncidents[0] ? {
+    id: activeDriverIncidents[0].incident_id,
+    label: activeDriverIncidents[0].title,
+    count: activeDriverIncidents.length,
+  } : undefined, [activeDriverIncidents]);
+  const handleSimulateIncident = async () => {
+    if (!isSimulating || (!incidentPlanId && !incidentOrder) || driverIncident) return;
+    setIsReportingIncident(true);
+    try {
+      await operationsRepository.reportIncident({
+        ...(incidentPlanId ? { dispatch_plan_id: incidentPlanId } : { order_id: incidentOrder!.id }),
+        incident_type: 'VEHICLE_BREAKDOWN',
+        severity: 'HIGH',
+        notes: '[Giả lập] Tài xế báo xe gặp vấn đề trên đường giao, cần điều phối viên hỗ trợ.',
+        can_continue_delivery: false,
+        needs_immediate_assistance: true,
+      });
+      const stopped = await handleStopSimulation();
+      await refreshIncidents();
+      toast.success(stopped
+        ? 'Đã ghi nhận sự cố và dừng giả lập. Thông báo sẽ xuất hiện sau vài giây.'
+        : 'Đã ghi nhận sự cố. Chưa dừng được giả lập; hãy thử bấm Dừng giả lập.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể tạo sự cố giả lập');
+    } finally {
+      setIsReportingIncident(false);
+    }
+  };
 
   const handleSelectAll = () => {
     setSelectedPlan(null);
@@ -261,7 +355,20 @@ export default function DispatchPage() {
     }
     setIsStartingSim(true);
     try {
-      if (selectedPlan?.plan_status === 'DISPATCHED') {
+      if (trackedDriverId) {
+        let pauseAtIndex: number | undefined;
+        if (depotForMap && latestAssignedOrder?.status !== 'IN_TRANSIT') {
+          let nearest = Infinity;
+          routeWaypoints.forEach((point, index) => {
+            const distance = (point.lat - depotForMap.lat) ** 2 + (point.lng - depotForMap.lng) ** 2;
+            if (distance < nearest) { nearest = distance; pauseAtIndex = index; }
+          });
+        }
+        await api.post(`/orders/dispatch/drivers/${trackedDriverId}/tracking/simulate`, {
+          waypoints: routeWaypoints, interval_ms: 1000, pause_at_index: pauseAtIndex,
+        });
+        toast.success('Đã bắt đầu giả lập tài xế');
+      } else if (selectedPlan?.plan_status === 'DISPATCHED') {
         await orderRepository.startPlanSimulation(selectedPlan.plan_id, routeWaypoints, 1000);
         toast.success(`Đã bắt đầu giả lập di chuyển (${routeWaypoints.length} điểm tọa độ)`);
       } else if (activeTrackedOrderId) {
@@ -280,14 +387,18 @@ export default function DispatchPage() {
   const handleStopSimulation = async () => {
     setIsStartingSim(true);
     try {
-      if (selectedPlan?.plan_status === 'DISPATCHED') {
+      if (trackedDriverId) {
+        await api.post(`/orders/dispatch/drivers/${trackedDriverId}/tracking/simulate/stop`);
+      } else if (selectedPlan?.plan_status === 'DISPATCHED') {
         await orderRepository.stopPlanSimulation(selectedPlan.plan_id);
       } else if (activeTrackedOrderId) {
         await orderRepository.stopOrderSimulation(activeTrackedOrderId);
       }
       toast.info('Đã dừng giả lập di chuyển.');
+      return true;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Không thể dừng giả lập');
+      return false;
     } finally {
       setIsStartingSim(false);
     }
@@ -339,23 +450,29 @@ export default function DispatchPage() {
     return null;
   }, [orders, selectedPlan]);
 
-  const latestAssignedStops = useMemo<OptimizationStop[]>(
-    () =>
-      latestAssignedOrder
-        ? [
-            {
-              id: latestAssignedOrder.id,
-              location: { lat: latestAssignedOrder.delivery_lat, lng: latestAssignedOrder.delivery_lng },
-              order: {
-                id: latestAssignedOrder.id,
-                delivery_address: latestAssignedOrder.delivery_address,
-                order_code: latestAssignedOrder.order_code,
-              },
-            },
-          ]
-        : [],
-    [latestAssignedOrder],
-  );
+  const assignedStops = useMemo<OptimizationStop[]>(() => {
+    const activeOrders = trackedDriverId
+      ? trackedDriverOrders
+      : latestAssignedOrder ? [latestAssignedOrder] : [];
+    const orderById = new Map(activeOrders.map((order) => [order.id, order]));
+    const ordered = trackedDriverPlan?.ordered_stop_ids?.length
+      ? [
+          ...trackedDriverPlan.ordered_stop_ids
+            .map((orderId) => orderById.get(orderId))
+            .filter((order): order is NonNullable<typeof order> => Boolean(order)),
+          ...activeOrders.filter((order) => !trackedDriverPlan.ordered_stop_ids.includes(order.id)),
+        ]
+      : activeOrders;
+    return ordered.map((order) => ({
+      id: order.id,
+      location: { lat: order.delivery_lat, lng: order.delivery_lng },
+      order: {
+        id: order.id,
+        delivery_address: order.delivery_address,
+        order_code: order.order_code,
+      },
+    }));
+  }, [latestAssignedOrder, trackedDriverId, trackedDriverOrders, trackedDriverPlan]);
 
   const latestAssignedDepot = useMemo<DispatchDepot | null>(
     () =>
@@ -373,6 +490,7 @@ export default function DispatchPage() {
 
   const stopsForMap = useMemo<OptimizationStop[]>(() => {
     if (planStopsForMap?.length) return planStopsForMap;
+    if (trackedDriverId) return assignedStops;
     if (result?.ordered_stops?.length) return result.ordered_stops;
     if (selectedOrders.length) {
       return selectedOrders.map((o) => ({
@@ -385,17 +503,32 @@ export default function DispatchPage() {
         },
       }));
     }
-    return lastAssignedRoute?.stops ?? latestAssignedStops;
-  }, [lastAssignedRoute?.stops, latestAssignedStops, planStopsForMap, result, selectedOrders]);
+    return lastAssignedRoute?.stops ?? assignedStops;
+  }, [assignedStops, lastAssignedRoute?.stops, planStopsForMap, result, selectedOrders, trackedDriverId]);
 
-  const depotForMap = useMemo<DispatchDepot | null>(() => {
-    if (selectedOrders.length || selectedPlan) return depot;
-    return lastAssignedRoute?.depot ?? latestAssignedDepot ?? depot;
-  }, [depot, lastAssignedRoute?.depot, latestAssignedDepot, selectedOrders.length, selectedPlan]);
+  const selectedPlanDepot = useMemo<DispatchDepot | null>(() => {
+    if (!selectedPlan) return null;
+    const firstOrderId = selectedPlan.ordered_stop_ids?.[0];
+    const matchedOrder = firstOrderId ? orders.find((o) => o.id === firstOrderId) : undefined;
+    if (!matchedOrder) return null;
+    return {
+      lat: matchedOrder.pickup_lat,
+      lng: matchedOrder.pickup_lng,
+      name: matchedOrder.pickup_location_name || 'Điểm lấy hàng',
+      address: matchedOrder.pickup_address,
+      pickup_location_id: matchedOrder.pickup_location_id,
+    };
+  }, [orders, selectedPlan]);
+
+  const depotForMap: DispatchDepot | null = selectedOrders.length
+    ? depot
+    : selectedPlan
+      ? (selectedPlanDepot ?? depot)
+      : lastAssignedRoute?.depot ?? latestAssignedDepot ?? depot;
   const resultForMetrics = result ?? lastAssignedRoute?.result ?? null;
   const canSimulate = Boolean(
     routeWaypoints.length >= 2 &&
-    ((selectedPlan && selectedPlan.plan_status === 'DISPATCHED') || activeTrackedOrderId),
+    (trackedDriverId || (selectedPlan && selectedPlan.plan_status === 'DISPATCHED') || activeTrackedOrderId),
   );
 
   return (
@@ -517,6 +650,49 @@ export default function DispatchPage() {
         {/* Right Column: Interactive Map Visualization (8 cols) */}
         <div className="lg:col-span-8 h-[460px] lg:h-[660px] flex flex-col gap-2">
           {/* Live Simulation & Telemetry Toolbar */}
+          <div className="grid gap-2 rounded-lg border border-gray-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <label className="flex min-w-0 items-center gap-3 text-sm font-medium text-gray-800">
+              <UserRound size={16} className="shrink-0 text-gray-500" />
+              <span className="shrink-0">Theo dõi tài xế</span>
+              <select className="min-h-11 min-w-0 flex-1 rounded-md border border-gray-300 bg-white px-3 text-sm" value={trackedDriverId}
+              onChange={(event) => {
+                const id = event.target.value;
+                setTrackedDriverId(id);
+                setLastAssignedRoute(null);
+                const driver = drivers.find((item) => item.id === id);
+                const activePlan = plans.find((plan) => plan.plan_status === 'DISPATCHED'
+                  && (plan.driver_id === driver?.id || plan.driver_id === driver?.user_id));
+                setSelectedPlan(activePlan ?? null);
+                setSimulationOrigin(driver && typeof driver.current_lat === 'number' && typeof driver.current_lng === 'number' && (driver.current_lat !== 0 || driver.current_lng !== 0)
+                  ? [driver.current_lat, driver.current_lng] : undefined);
+              }}>
+              <option value="">Chọn tài xế</option>
+              {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.name || 'Chưa có họ tên'}</option>)}
+              </select>
+            </label>
+            <div className="flex items-center gap-2 text-xs text-gray-600">
+              <PackageCheck size={15} className="text-emerald-700" />
+              <span><strong className="text-gray-900">{trackedDriverOrders.length}</strong> đơn đang phụ trách</span>
+            </div>
+          </div>
+          {trackedDriver && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${planTracking.signal === 'live' ? 'bg-emerald-500' : planTracking.signal === 'stale' ? 'bg-amber-500' : 'bg-slate-400'}`} />
+                <span className="font-semibold text-slate-950">{trackedDriver.name || 'Tài xế chưa có tên'}</span>
+                <span className="truncate">{trackedDriver.vehicle_plate || trackedDriver.vehicle_type || 'Chưa có thông tin xe'}</span>
+                <span>· GPS {planTracking.signal === 'live' ? 'trực tiếp' : planTracking.signal === 'stale' ? 'đã cũ' : planTracking.signal === 'reconnecting' ? 'đang kết nối lại' : 'đang chờ'}</span>
+              </div>
+              {planTracking.lastUpdate && <span>Cập nhật {planTracking.lastUpdate.toLocaleTimeString('vi-VN')}</span>}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <Button variant="outline" disabled={isSimulating || !trackedDriverId}
+              onClick={() => setIsPickingOrigin((current) => !current)}>
+              {isPickingOrigin ? 'Bấm trên bản đồ để đặt vị trí' : 'Đặt điểm bắt đầu giả lập'}
+            </Button>
+            {simulationOrigin && <span className="flex items-center gap-1 text-xs text-gray-600"><MapPin size={13} /> Điểm giả lập {simulationOrigin[0].toFixed(5)}, {simulationOrigin[1].toFixed(5)}</span>}
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3.5 py-2.5">
             <div className="flex items-center gap-2.5 text-xs text-gray-700">
               <Navigation size={15} className="text-emerald-600 shrink-0" />
@@ -540,6 +716,22 @@ export default function DispatchPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {isSimulating && (
+                <Button size="sm" variant="outline" onClick={handleSimulateIncident}
+                  disabled={(!incidentPlanId && !incidentOrder) || Boolean(driverIncident)}
+                  isLoading={isReportingIncident} className="text-rose-700 border-rose-200"
+                  title="Tạo sự cố thật trong hệ thống để thử quy trình xử lý">
+                  <AlertCircle size={14} /> Giả lập sự cố
+                </Button>
+              )}
+              {trackedDriverId && planTracking.isPaused && (
+                <Button size="sm" onClick={async () => {
+                  try {
+                    await api.post(`/orders/dispatch/drivers/${trackedDriverId}/tracking/simulate/resume`);
+                    toast.info('Tiếp tục mô phỏng di chuyển. Trạng thái lấy hàng thực tế vẫn do backend nghiệp vụ xác nhận.');
+                  } catch (error) { toast.error(error instanceof Error ? error.message : 'Không thể tiếp tục'); }
+                }}>Đã tới kho · tiếp tục giả lập</Button>
+              )}
               {isSimulating ? (
                 <Button
                   size="sm"
@@ -564,11 +756,28 @@ export default function DispatchPage() {
             </div>
           </div>
 
+          {incidentError && <p role="status" className="text-xs text-amber-800">{incidentError}</p>}
+          {driverIncident && <a href={`/operations?incident=${encodeURIComponent(driverIncident.id)}`}
+            className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800 underline underline-offset-2">
+            <AlertCircle size={16} /> {driverIncident.count} sự cố cần xử lý · {driverIncident.label}
+          </a>}
           <div className="flex-1 overflow-hidden rounded-lg border border-gray-200 bg-white">
             <RouteMap
               depot={depotForMap}
               stops={stopsForMap}
               driver={activeDriverPosition}
+              driverIncident={driverIncident}
+              driverName={trackedDriver?.name}
+              driverVehicle={trackedDriver?.vehicle_plate || trackedDriver?.vehicle_type}
+              trackingSignal={trackedDriver ? planTracking.signal : orderTracking.signal}
+              routeOrigin={simulationOrigin}
+              onPickOrigin={isPickingOrigin ? (position) => {
+                setSimulationOrigin(position);
+                setIsPickingOrigin(false);
+              } : undefined}
+              skipPickup={trackedDriverId
+                ? trackedDriverOrders.some((order) => order.status === 'IN_TRANSIT')
+                : latestAssignedOrder?.status === 'IN_TRANSIT'}
               onRouteMetricsChange={setRoadMetrics}
               onRouteCoordinatesChange={setRouteWaypoints}
             />

@@ -6,16 +6,28 @@ Stateless route optimisation microservice called by Order Service.
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
+from service.grpc_server import start_grpc_server, stop_grpc_server
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 logger = logging.getLogger("routing-engine.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Starts the gRPC server alongside FastAPI on startup and stops it on shutdown."""
+    start_grpc_server()
+    try:
+        yield
+    finally:
+        stop_grpc_server()
 
 
 app = FastAPI(
@@ -27,6 +39,7 @@ app = FastAPI(
     ),
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Allow calls from API Gateway, Swagger UI, and mobile app during local development

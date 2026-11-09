@@ -131,7 +131,8 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
             .length ??
         0;
 
-    final pendingCodCount = codState.valueOrNull?.length ?? 0;
+    final pendingCodCount =
+        codState.valueOrNull?.eligibleCollections.length ?? 0;
 
     return Scaffold(
       body: Column(
@@ -150,7 +151,9 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
               children: [
                 DriverHomeTab(
                   onNavigateToRoute: () => setState(() => _currentIndex = 1),
+                  onNavigateToEarnings: () => setState(() => _currentIndex = 2),
                   onNavigateToHandover: () => setState(() => _currentIndex = 3),
+                  onNavigateToProfile: () => setState(() => _currentIndex = 4),
                 ),
                 const DriverRouteTab(),
                 const DriverEarningsTab(),

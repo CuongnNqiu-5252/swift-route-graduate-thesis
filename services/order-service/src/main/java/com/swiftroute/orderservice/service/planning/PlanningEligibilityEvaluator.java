@@ -19,10 +19,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Evaluates whether a tenant's pending order queue should trigger a new planning cycle,
+ * Evaluates whether a tenant's pending order queue should trigger a new
+ * planning cycle,
  * and determines which trigger type applies.
  *
- * <p>This class contains only read-only evaluation logic. It never modifies database state.
+ * <p>
+ * This class contains only read-only evaluation logic. It never modifies
+ * database state.
  * State changes are performed by {@link DispatchOrchestrationService}.
  */
 @Component
@@ -36,17 +39,23 @@ public class PlanningEligibilityEvaluator {
      * Evaluates the pending order queue for a tenant and returns the first
      * matching trigger type, or empty if no trigger condition is met.
      *
-     * <p>Trigger priority (highest to lowest):
+     * <p>
+     * Trigger priority (highest to lowest):
      * <ol>
-     *   <li>URGENT — an URGENT-priority order exists and urgent mode is IMMEDIATE_SINGLE or BATCH_IMMEDIATE</li>
-     *   <li>BATCH_SIZE — pending order count has reached the configured threshold</li>
-     *   <li>MAX_WAIT — the oldest pending order has waited longer than max_wait_time_seconds</li>
+     * <li>URGENT — an URGENT-priority order exists and urgent mode is
+     * IMMEDIATE_SINGLE or BATCH_IMMEDIATE</li>
+     * <li>BATCH_SIZE — pending order count has reached the configured
+     * threshold</li>
+     * <li>MAX_WAIT — the oldest pending order has waited longer than
+     * max_wait_time_seconds</li>
      * </ol>
-     * SCHEDULED and MANUAL triggers are evaluated externally and not by this method.
+     * SCHEDULED and MANUAL triggers are evaluated externally and not by this
+     * method.
      *
-     * @param tenant     the tenant to evaluate
-     * @param now        current timestamp (injected for testability)
-     * @return the trigger type to use, or empty if no trigger condition is currently met
+     * @param tenant the tenant to evaluate
+     * @param now    current timestamp (injected for testability)
+     * @return the trigger type to use, or empty if no trigger condition is
+     *         currently met
      */
     public Optional<PlanTriggerType> evaluate(Tenant tenant, Instant now) {
         TenantDispatchConfig config = tenant.getDispatchConfig();
@@ -94,7 +103,8 @@ public class PlanningEligibilityEvaluator {
             }
         }
 
-        log.debug("Tenant {} evaluation: {} pending orders, no trigger condition met.", tenant.getId(), pendingOrders.size());
+        log.debug("Tenant {} evaluation: {} pending orders, no trigger condition met.", tenant.getId(),
+                pendingOrders.size());
         return Optional.empty();
     }
 
@@ -111,12 +121,13 @@ public class PlanningEligibilityEvaluator {
                 .stream()
                 .filter(o -> o.getTimeWindowEnd() == null || o.getTimeWindowEnd().toInstant().isAfter(now))
                 .sorted((a, b) -> {
-                    // URGENT first, then HIGH, then NORMAL; within same priority sort by creation time
+                    // URGENT first, then HIGH, then NORMAL; within same priority sort by creation
+                    // time
                     int priorityCmp = b.getPriority().ordinal() - a.getPriority().ordinal();
-                    if (priorityCmp != 0) return priorityCmp;
+                    if (priorityCmp != 0)
+                        return priorityCmp;
                     return a.getCreatedAt().compareTo(b.getCreatedAt());
                 })
                 .toList();
     }
 }
-

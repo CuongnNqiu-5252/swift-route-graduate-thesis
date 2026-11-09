@@ -106,12 +106,18 @@ public class PackageCustodyService {
                         .build()));
             }
         }
-        if (units.isEmpty() || units.stream().anyMatch(unit -> unit.getCurrentCustodianId() == null)) {
+        if (units.isEmpty()) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         for (PackageUnit unit : units) {
-            if (!Set.of("IN_CUSTODY", "RETURNING").contains(unit.getStatus())) {
+            if (Set.of("RETURNED", "CANCELLED").contains(unit.getStatus())) {
                 throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+            }
+            if (unit.getCurrentCustodianId() == null) {
+                if (order.getAssignedDriverId() == null) {
+                    throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+                }
+                unit.setCurrentCustodianId(order.getAssignedDriverId());
             }
             unit.setStatus("RETURNING");
             unit.setUpdatedAt(Instant.now());

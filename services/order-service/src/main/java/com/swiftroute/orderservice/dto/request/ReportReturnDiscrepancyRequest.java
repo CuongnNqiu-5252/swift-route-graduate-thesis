@@ -6,7 +6,6 @@ public record ReportReturnDiscrepancyRequest(
         @NotBlank(message = "discrepancy_type is required")
         String discrepancyType,
         Integer actualQuantity,
-        String packageCondition,
         String discrepancyNotes,
         String evidenceUrl
 ) {}

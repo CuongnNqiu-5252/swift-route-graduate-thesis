@@ -12,7 +12,8 @@ public record StartSimulationRequest(
         @NotEmpty(message = "Waypoints list must not be empty")
         @Valid
         List<Waypoint> waypoints,
-        Integer intervalMs
+        Integer intervalMs,
+        Integer pauseAtIndex
 ) {
     public record Waypoint(
             double lat,
