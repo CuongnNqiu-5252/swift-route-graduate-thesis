@@ -21,17 +21,32 @@ export default function FleetPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [plate, setPlate] = useState(''); const [type, setType] = useState<VehicleType>('MOTORCYCLE');
   const [capacity, setCapacity] = useState(''); const [make, setMake] = useState(''); const [model, setModel] = useState('');
 
   const load = useCallback(async () => {
-    setBusy(true);
     try { const [fleet, people] = await Promise.all([vehicleRepository.list(), driverRepository.getDrivers()]); setVehicles(fleet); setDrivers(people); }
     catch (error) { toast.error(error instanceof Error ? error.message : 'Không thể tải đội xe'); }
     finally { setBusy(false); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([vehicleRepository.list(), driverRepository.getDrivers()])
+      .then(([fleet, people]) => {
+        if (active) {
+          setVehicles(fleet);
+          setDrivers(people);
+        }
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : 'Không thể tải đội xe');
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => { active = false; };
+  }, []);
   const counts = useMemo(() => ({ ready: vehicles.filter(v => v.status === 'AVAILABLE').length, assigned: vehicles.filter(v => v.status === 'ASSIGNED').length }), [vehicles]);
 
   async function submit(event: FormEvent) {

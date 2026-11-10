@@ -89,22 +89,4 @@ public class TenantController {
         TenantSettingsResponse response = tenantSettingsService.applyPreset(tenant.getId(), request.businessType());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
-
-    @Operation(summary = "Get automated dispatch configuration for a tenant")
-    @GetMapping("/{tenantId}/dispatch-config")
-    public ResponseEntity<ApiResponse<TenantDispatchConfig>> getDispatchConfig(
-            @PathVariable UUID tenantId) {
-        return ResponseEntity.ok(ApiResponse.success(tenantService.getDispatchConfig(tenantId)));
-    }
-
-    @Operation(summary = "Update automated dispatch configuration for a tenant")
-    @PutMapping("/{tenantId}/dispatch-config")
-    public ResponseEntity<ApiResponse<TenantDispatchConfig>> updateDispatchConfig(
-            @PathVariable UUID tenantId,
-            @Valid @RequestBody TenantDispatchConfig config,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
-        return ResponseEntity.ok(ApiResponse.success(
-                tenantService.updateDispatchConfig(tenantId, config, UUID.fromString(userId), userRole)));
-    }
 }

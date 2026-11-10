@@ -23,14 +23,19 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
   const [stepProgress, setStepProgress] = useState<{ step: number; total: number } | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [signal, setSignal] = useState<TrackingSignal>('waiting');
+  const [prevOrderId, setPrevOrderId] = useState(orderId);
 
-  useEffect(() => {
+  if (orderId !== prevOrderId) {
+    setPrevOrderId(orderId);
     setPosition(undefined);
     setLastUpdate(undefined);
     setAccuracy(undefined);
     setStepProgress(null);
     setIsSimulating(false);
     setSignal('waiting');
+  }
+
+  useEffect(() => {
     if (!orderId) return;
 
     let disposed = false;

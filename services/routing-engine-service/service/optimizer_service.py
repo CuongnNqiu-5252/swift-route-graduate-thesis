@@ -27,28 +27,32 @@ from api.schemas import (
     RouteReoptimizeRequest,
     RouteReoptimizeResponse,
     StopItem,
+    VehicleRoute,
     WhatIfOptimizationRequest,
     WhatIfOptimizationResponse,
     WhatIfScenario,
 )
 from core.distance import build_distance_matrix, build_time_matrix, build_multi_objective_matrix
-from core.tsp_ortools import ortools_tsp
+from core.tsp_ortools import ortools_tsp, ortools_vrp
 
 
 def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     """
-    Main entry point for batch route optimisation.
+    Main entry point for batch route optimisation (single-vehicle TSP or multi-vehicle CVRP).
 
     Args:
-        request: BatchOptimizationRequest containing depot, stops and preferred algorithm.
+        request: BatchOptimizationRequest containing depot, stops, preferred algorithm, and vehicle_count.
 
     Returns:
-        BatchOptimizationResponse with the optimised ordered stop sequence.
+        BatchOptimizationResponse with the optimised ordered stop sequence and per-vehicle routes.
     """
     n_stops = len(request.stops)
+    requested_vehicles = max(1, request.vehicle_count or 1)
+    effective_vehicles = min(requested_vehicles, n_stops) if n_stops > 0 else 1
+
     logger.info(
-        "🚀 [RoutingEngine] Bắt đầu giải bài toán TSP cho %d điểm giao | Kho xuất phát (Depot): (%.4f, %.4f)",
-        n_stops, request.depot.lat, request.depot.lng
+        "🚀 [RoutingEngine] Bắt đầu giải bài toán định tuyến cho %d điểm giao với %d xe | Kho xuất phát (Depot): (%.4f, %.4f)",
+        n_stops, effective_vehicles, request.depot.lat, request.depot.lng
     )
 
     # Build location list: index 0 = depot, indices 1..N = delivery stops
@@ -68,12 +72,109 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     cost_matrix = build_multi_objective_matrix(dist_matrix, time_matrix, time_w, cost_w)
     logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (W_time=%.2f, W_cost=%.2f)", n_total, n_total, time_w, cost_w)
 
-    # Algorithm execution: Google OR-Tools is the sole production routing solver
     algorithm_used = "ortools"
+    start_ns = time.perf_counter_ns()
+
+    if effective_vehicles > 1:
+        logger.info("🧠 [RoutingEngine] Giải bài toán CVRP nhiều tài xế (%d xe) bằng Google OR-Tools", effective_vehicles)
+        demands = [0.0] + [max(0.0, s.demand_kg) for s in request.stops]
+        total_demand = sum(demands)
+        default_cap = max(100.0, total_demand + 10.0)
+        if request.vehicle_capacities and len(request.vehicle_capacities) >= effective_vehicles:
+            capacities = list(request.vehicle_capacities[:effective_vehicles])
+            if sum(capacities) < total_demand:
+                capacities = [default_cap] * effective_vehicles
+        else:
+            capacities = [default_cap] * effective_vehicles
+
+        vrp_solution = ortools_vrp(
+            cost_matrix=cost_matrix,
+            demands=demands,
+            capacities=capacities,
+            num_vehicles=effective_vehicles,
+            start=0,
+            max_stops_per_vehicle=request.max_stops_per_vehicle,
+        )
+        elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+        vehicle_routes: List[VehicleRoute] = []
+        all_ordered_stops: List[OrderedStop] = []
+        fleet_dist = 0.0
+        fleet_minutes = 0.0
+        global_pos = 1
+
+        for v_idx in range(effective_vehicles):
+            v_route = vrp_solution["routes"].get(v_idx, [])
+            v_stops: List[OrderedStop] = []
+            cum_dist = 0.0
+            cum_time = 0.0
+            prev_idx = 0
+            v_load = 0.0
+
+            for local_pos, matrix_idx in enumerate(v_route[1:], start=1):
+                if matrix_idx == 0:
+                    break
+                cum_dist += dist_matrix[prev_idx][matrix_idx]
+                cum_time += time_matrix[prev_idx][matrix_idx]
+                stop_data = request.stops[matrix_idx - 1]
+                v_load += max(0.0, stop_data.demand_kg)
+
+                v_stops.append(OrderedStop(
+                    stop_index=local_pos,
+                    stop_id=stop_data.id,
+                    location=stop_data.location,
+                    cumulative_distance_km=round(cum_dist, 3),
+                    estimated_arrival_minutes=round(cum_time, 1),
+                ))
+                all_ordered_stops.append(OrderedStop(
+                    stop_index=global_pos,
+                    stop_id=stop_data.id,
+                    location=stop_data.location,
+                    cumulative_distance_km=round(cum_dist, 3),
+                    estimated_arrival_minutes=round(cum_time, 1),
+                ))
+                global_pos += 1
+                prev_idx = matrix_idx
+
+            if v_stops:
+                # Include return leg to depot for total vehicle distance/duration consistency
+                v_total_dist = sum(
+                    dist_matrix[v_route[i]][v_route[i + 1]]
+                    for i in range(len(v_route) - 1)
+                ) if len(v_route) > 1 else 0.0
+                v_total_min = sum(
+                    time_matrix[v_route[i]][v_route[i + 1]]
+                    for i in range(len(v_route) - 1)
+                ) if len(v_route) > 1 else 0.0
+                fleet_dist += v_total_dist
+                fleet_minutes += v_total_min
+                vehicle_routes.append(VehicleRoute(
+                    vehicle_index=len(vehicle_routes),
+                    total_distance_km=round(v_total_dist, 3),
+                    total_duration_minutes=round(v_total_min, 1),
+                    total_load_kg=round(v_load, 2),
+                    ordered_stops=v_stops,
+                ))
+
+        logger.info(
+            "✅ [RoutingEngine] Hoàn thành giải CVRP (%d xe) bằng '%s' trong %.2f ms | Tổng quãng đường đội xe: %.3f km",
+            len(vehicle_routes), algorithm_used, elapsed_ms, fleet_dist
+        )
+
+        return BatchOptimizationResponse(
+            job_id=str(uuid.uuid4()),
+            algorithm_used=algorithm_used,
+            total_distance_km=round(fleet_dist, 3),
+            total_duration_minutes=round(fleet_minutes, 1),
+            ordered_stops=all_ordered_stops,
+            vehicle_routes=vehicle_routes,
+            execution_time_ms=round(elapsed_ms, 2),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
     logger.info("🧠 [RoutingEngine] Giải bài toán lộ trình bằng Google OR-Tools")
 
     # Run solver on multi-objective cost matrix and measure wall-clock CPU time
-    start_ns = time.perf_counter_ns()
     route, _ = ortools_tsp(cost_matrix, start=0)
 
     # Evaluate exact ground-truth distance using dist_matrix
@@ -120,12 +221,24 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
         ))
         prev_idx = matrix_idx
 
+    total_load_kg = round(sum(max(0.0, s.demand_kg) for s in request.stops), 2)
+    single_vehicle_route = [
+        VehicleRoute(
+            vehicle_index=0,
+            total_distance_km=round(total_dist, 3),
+            total_duration_minutes=round(total_minutes, 1),
+            total_load_kg=total_load_kg,
+            ordered_stops=ordered_stops,
+        )
+    ] if ordered_stops else []
+
     return BatchOptimizationResponse(
         job_id=str(uuid.uuid4()),
         algorithm_used=algorithm_used,
         total_distance_km=round(total_dist, 3),
         total_duration_minutes=round(total_minutes, 1),
         ordered_stops=ordered_stops,
+        vehicle_routes=single_vehicle_route,
         execution_time_ms=round(elapsed_ms, 2),
         timestamp=datetime.now(timezone.utc).isoformat(),
     )

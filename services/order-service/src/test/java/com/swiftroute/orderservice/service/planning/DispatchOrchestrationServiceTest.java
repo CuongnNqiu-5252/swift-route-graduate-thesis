@@ -230,6 +230,88 @@ class DispatchOrchestrationServiceTest {
     }
 
     @Test
+    void executePlanningCycle_manualTriggerShouldPlanAllWarehouseGroupsWithDistinctDrivers() {
+        UUID tenantId = UUID.randomUUID();
+        UUID driver1Id = UUID.randomUUID();
+        UUID driver2Id = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+
+        com.swiftroute.orderservice.entity.PickupLocation warehouseB = com.swiftroute.orderservice.entity.PickupLocation.builder()
+                .id(UUID.randomUUID())
+                .tenant(tenant)
+                .name("Kho Bnk1")
+                .address("14 3 Thang 2, Xuan Khanh")
+                .lat(10.0320)
+                .lng(105.7743)
+                .build();
+
+        Order warehouseAOrder1 = buildOrder(tenant, OrderPriority.NORMAL, Instant.now());
+        Order warehouseAOrder2 = buildOrder(tenant, OrderPriority.NORMAL, Instant.now().plusSeconds(5));
+        Order warehouseBOrder = buildOrder(tenant, OrderPriority.NORMAL, Instant.now().plusSeconds(10));
+        warehouseBOrder.setPickupLocation(warehouseB);
+        warehouseBOrder.setPickupLat(10.0320);
+        warehouseBOrder.setPickupLng(105.7743);
+        warehouseBOrder.setPickupAddress("14 3 Thang 2, Xuan Khanh");
+
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID))
+                .thenReturn(List.of(warehouseAOrder1, warehouseAOrder2, warehouseBOrder));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(
+                        true, List.of(
+                                Map.of("user_id", driver1Id.toString()),
+                                Map.of("user_id", driver2Id.toString()))));
+
+        when(routingEngineClient.optimizeBatch(any())).thenAnswer(inv -> {
+            com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest req = inv.getArgument(0);
+            List<OrderedStop> stops = new java.util.ArrayList<>();
+            for (int i = 0; i < req.stops().size(); i++) {
+                var s = req.stops().get(i);
+                stops.add(new OrderedStop(
+                        i + 1,
+                        s.id(),
+                        new LocationPoint(s.location().lat(), s.location().lng(), s.location().address()),
+                        2.0,
+                        5.0));
+            }
+            return Optional.of(new BatchOptimizationResponse(
+                    UUID.randomUUID().toString(), "ortools", 4.0, 10.0, stops, 12.0, Instant.now().toString()));
+        });
+
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> {
+            DispatchPlan p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(UUID.randomUUID());
+            }
+            return p;
+        });
+
+        when(deliveryExecutionService.assign(any(Order.class), any(UUID.class))).thenAnswer(inv -> {
+            Order o = inv.getArgument(0);
+            UUID dId = inv.getArgument(1);
+            return DeliveryTask.builder()
+                    .id(UUID.randomUUID())
+                    .order(o)
+                    .tenantId(tenantId)
+                    .driverId(dId)
+                    .status(DeliveryTaskStatus.ASSIGNED)
+                    .build();
+        });
+
+        Optional<DispatchPlan> result = orchestrationService.executePlanningCycle(
+                tenantId, PlanTriggerType.MANUAL);
+
+        assertThat(result).isPresent();
+        assertThat(warehouseAOrder1.getStatus()).isEqualTo(OrderStatus.PLANNED);
+        assertThat(warehouseAOrder2.getStatus()).isEqualTo(OrderStatus.PLANNED);
+        assertThat(warehouseBOrder.getStatus()).isEqualTo(OrderStatus.PLANNED);
+        assertThat(warehouseAOrder1.getAssignedDriverId()).isEqualTo(driver1Id);
+        assertThat(warehouseAOrder2.getAssignedDriverId()).isEqualTo(driver1Id);
+        assertThat(warehouseBOrder.getAssignedDriverId()).isEqualTo(driver2Id);
+        assertThat(warehouseAOrder1.getPlanId()).isNotEqualTo(warehouseBOrder.getPlanId());
+    }
+
+    @Test
     void acknowledgementTimeout_shouldNotReassignToDriverWithAnotherActivePlan() {
         UUID tenantId = UUID.randomUUID();
         UUID timedOutPlanId = UUID.randomUUID();

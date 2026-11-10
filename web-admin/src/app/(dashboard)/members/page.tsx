@@ -27,7 +27,6 @@ import {
   Copy,
   Clock,
   X,
-  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,7 +34,7 @@ export default function MembersPage() {
   const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
   const [members, setMembers] = useState<TenantMember[]>([]);
   const [invitations, setInvitations] = useState<TenantInvitation[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Invite modal state
@@ -48,8 +47,11 @@ export default function MembersPage() {
 
   const tenantId = getCurrentTenantId();
 
+  const getErrorMessage = (err: unknown, fallback: string): string => {
+    return (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || fallback;
+  };
+
   const fetchData = useCallback(async () => {
-    setIsLoading(true);
     try {
       const [membersData, invitationsData] = await Promise.all([
         memberRepository.getMembers(tenantId),
@@ -57,16 +59,33 @@ export default function MembersPage() {
       ]);
       setMembers(membersData);
       setInvitations(invitationsData);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error?.message || 'Không thể tải dữ liệu nhân sự.');
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Không thể tải dữ liệu nhân sự.'));
     } finally {
       setIsLoading(false);
     }
   }, [tenantId]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    let active = true;
+    Promise.all([
+      memberRepository.getMembers(tenantId),
+      memberRepository.getInvitations(tenantId),
+    ])
+      .then(([membersData, invitationsData]) => {
+        if (active) {
+          setMembers(membersData);
+          setInvitations(invitationsData);
+        }
+      })
+      .catch((err: unknown) => {
+        toast.error(getErrorMessage(err, 'Không thể tải dữ liệu nhân sự.'));
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => { active = false; };
+  }, [tenantId]);
 
   const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,8 +108,8 @@ export default function MembersPage() {
         token: res.invite_token,
       });
       fetchData();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error?.message || 'Không thể tạo lời mời.');
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, 'Không thể tạo lời mời.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -109,8 +128,8 @@ export default function MembersPage() {
       await memberRepository.updateMemberStatus(member.membership_id, targetStatus, tenantId);
       toast.success(`Đã ${actionText} tài khoản thành công!`);
       fetchData();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error?.message || `Không thể ${actionText} tài khoản.`);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, `Không thể ${actionText} tài khoản.`));
     }
   };
 

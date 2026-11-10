@@ -13,8 +13,20 @@ public record BatchOptimizationRequest(
         @JsonProperty("stops") List<StopItem> stops,
         @JsonProperty("algorithm") String algorithm,
         @JsonProperty("time_weight") Double timeWeight,
-        @JsonProperty("cost_weight") Double costWeight
+        @JsonProperty("cost_weight") Double costWeight,
+        @JsonProperty("vehicle_count") Integer vehicleCount,
+        @JsonProperty("max_stops_per_vehicle") Integer maxStopsPerVehicle
 ) {
+
+    public BatchOptimizationRequest(
+            LocationPoint depot,
+            List<StopItem> stops,
+            String algorithm,
+            Double timeWeight,
+            Double costWeight
+    ) {
+        this(depot, stops, algorithm, timeWeight, costWeight, 1, null);
+    }
 
     public record LocationPoint(
             @JsonProperty("lat") double lat,

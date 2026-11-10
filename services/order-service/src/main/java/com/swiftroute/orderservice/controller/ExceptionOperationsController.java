@@ -17,8 +17,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.orderservice.dto.request.ApproveReturnRequest;
-import com.swiftroute.orderservice.dto.request.CodHandoverRequest;
-import com.swiftroute.orderservice.dto.request.CollectCodRequest;
 import com.swiftroute.orderservice.dto.request.ConfirmReturnReceiptRequest;
 import com.swiftroute.orderservice.dto.request.CreateIncidentRequest;
 import com.swiftroute.orderservice.dto.request.CreateReturnRequest;
@@ -127,27 +125,6 @@ public class ExceptionOperationsController {
                 .body(ApiResponse.success(service.createReturnRequest(id(tenant), id(user), role, body)));
     }
 
-    @Operation(summary = "Create a Return Request for a specific order (convenience endpoint)")
-    @PostMapping("/orders/{orderId}/returns")
-    public ResponseEntity<ApiResponse<ReturnRequestResponse>> createOrderReturn(
-            @PathVariable UUID orderId,
-            @Valid @RequestBody CreateReturnRequest body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
-        CreateReturnRequest enriched = new CreateReturnRequest(
-                orderId,
-                body.incidentId(),
-                body.requestType(),
-                body.reason(),
-                body.returnLocationId(),
-                body.packageCount(),
-                body.notes(),
-                body.evidenceUrl());
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(service.createReturnRequest(id(tenant), id(user), role, enriched)));
-    }
-
     @Operation(summary = "List return requests with optional filters")
     @GetMapping("/returns")
     public ResponseEntity<ApiResponse<List<ReturnRequestResponse>>> listReturns(
@@ -224,46 +201,8 @@ public class ExceptionOperationsController {
     }
 
     // =========================================================================
-    // 3. COD COLLECTIONS & REVIEW QUEUE
+    // 3. OPERATIONS REVIEW QUEUE
     // =========================================================================
-
-    @PostMapping("/orders/{orderId}/cod-collections")
-    public ResponseEntity<ApiResponse<?>> collect(
-            @PathVariable UUID orderId,
-            @Valid @RequestBody CollectCodRequest req,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(service.collect(orderId, id(tenant), id(user), role, req)));
-    }
-
-    @PatchMapping("/cod-collections/{id}/declare")
-    public ResponseEntity<ApiResponse<?>> declare(
-            @PathVariable UUID id,
-            @Valid @RequestBody CodHandoverRequest req,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(service.declare(id, id(tenant), id(user), role, req)));
-    }
-
-    @GetMapping("/cod-collections/mine")
-    public ResponseEntity<ApiResponse<?>> pendingHandover(
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(service.pendingHandover(id(tenant), id(user), role)));
-    }
-
-    @PatchMapping("/cod-collections/{id}/verify")
-    public ResponseEntity<ApiResponse<?>> verify(
-            @PathVariable UUID id,
-            @RequestBody Map<String, String> body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(service.verify(id, id(tenant), id(user), role, body.get("notes"))));
-    }
 
     @GetMapping("/review")
     public ResponseEntity<ApiResponse<OperationsReviewResponse>> review(

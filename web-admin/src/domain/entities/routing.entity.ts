@@ -12,6 +12,7 @@ export interface DispatchDepot extends LocationPoint {
 export interface OptimizationStop {
   id: string;
   location: LocationPoint;
+  demand_kg?: number;
   order?: {
     id: string;
     delivery_address: string;
@@ -23,6 +24,16 @@ export interface OptimizationRequest {
   depot: LocationPoint;
   stops: OptimizationStop[];
   algorithm: 'auto' | 'ortools';
+  vehicle_count?: number;
+  max_stops_per_vehicle?: number;
+}
+
+export interface VehicleRouteResult {
+  vehicle_index: number;
+  total_distance_km: number;
+  total_duration_min: number;
+  total_load_kg: number;
+  ordered_stops: OptimizationStop[];
 }
 
 export interface OptimizationResult {
@@ -31,6 +42,7 @@ export interface OptimizationResult {
   total_distance_km: number;
   total_duration_min: number;
   ordered_stops: OptimizationStop[];
+  vehicle_routes?: VehicleRouteResult[];
   route_polyline?: string;
 }
 

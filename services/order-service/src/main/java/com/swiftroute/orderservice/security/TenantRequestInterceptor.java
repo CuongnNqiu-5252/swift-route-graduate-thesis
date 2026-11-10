@@ -38,17 +38,6 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
         String path = request.getRequestURI();
         if ("OPTIONS".equals(request.getMethod()) || path.startsWith("/api/orders/track/"))
             return true;
-        if ("GET".equals(request.getMethod()) && path.matches("/api/tenants/[0-9a-fA-F-]{36}/dispatch-config")) {
-            String key = request.getHeader("X-Service-Key");
-            if (key != null && !serviceKey.isBlank()
-                    && java.security.MessageDigest.isEqual(key.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                            serviceKey.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
-                UUID id = UUID.fromString(path.split("/")[3]);
-                var tenant = tenants.findById(id).orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
-                com.swiftroute.orderservice.service.OperationalReadinessService.requireApproved(tenant);
-                return true;
-            }
-        }
         String auth = request.getHeader("Authorization");
         var claims = tokens.parseAndValidate(auth);
         if (claims == null)
@@ -63,21 +52,6 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
             tenant = claims.get("tenant_id", String.class);
         boolean tenantApi = path.startsWith("/api/tenants") || path.startsWith("/api/v1/tenants");
         if (tenantApi) {
-            if (path.matches("/api/(v1/)?tenants/[0-9a-fA-F-]{36}/provisioning(/retry)?"))
-                return true;
-            // New workflow controller verifies requested path tenants. Protect retained
-            // dispatch/config routes here.
-            String[] parts = path.split("/");
-            for (int i = 0; i < parts.length - 1; i++)
-                if ("tenants".equals(parts[i])) {
-                    try {
-                        UUID id = UUID.fromString(parts[i + 1]);
-                        var context = identities.context(auth, id);
-                        if (!"GET".equals(request.getMethod()) && path.endsWith("dispatch-config"))
-                            identities.requireOwner(context);
-                    } catch (IllegalArgumentException ignored) {
-                    }
-                }
             return true;
         }
         if (headerUser == null || headerRole == null)

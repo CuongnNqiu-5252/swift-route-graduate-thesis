@@ -47,3 +47,30 @@ def test_solve_batch_with_custom_weights():
     assert res.total_distance_km > 0.0
     assert res.total_duration_minutes > 0.0
 
+
+def test_solve_batch_multi_vehicle_cvrp_partitions_stops():
+    depot = LocationPoint(lat=10.7769, lng=106.7009, address="Depot Q1")
+    stops = [
+        StopItem(id=f"ord-{i}", location=LocationPoint(lat=10.770 + i * 0.008, lng=106.680 + (i % 3) * 0.012), demand_kg=2.5)
+        for i in range(6)
+    ]
+
+    req = BatchOptimizationRequest(
+        depot=depot,
+        stops=stops,
+        algorithm="ortools",
+        vehicle_count=3,
+        max_stops_per_vehicle=3,
+    )
+    res = solve_batch(req)
+
+    assert res.algorithm_used == "ortools"
+    assert len(res.ordered_stops) == 6
+    assert len(res.vehicle_routes) >= 2
+    assigned_stop_ids = [s.stop_id for vr in res.vehicle_routes for s in vr.ordered_stops]
+    assert sorted(assigned_stop_ids) == sorted(s.id for s in stops)
+    for vr in res.vehicle_routes:
+        assert vr.total_distance_km > 0.0
+        assert vr.total_duration_minutes > 0.0
+
+

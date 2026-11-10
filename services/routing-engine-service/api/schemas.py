@@ -33,6 +33,9 @@ class BatchOptimizationRequest(BaseModel):
     algorithm: str = Field("auto", description="auto | ortools")
     time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for delivery time in multi-objective function")
     cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for distance/cost in multi-objective function")
+    vehicle_count: int = Field(1, ge=1, le=50, description="Number of available delivery vehicles/drivers for CVRP partitioning")
+    vehicle_capacities: Optional[List[float]] = Field(None, description="Optional cargo capacity (kg) per vehicle")
+    max_stops_per_vehicle: Optional[int] = Field(None, ge=1, le=100, description="Optional maximum stops per vehicle")
 
     @field_validator("algorithm")
     @classmethod
@@ -54,12 +57,21 @@ class OrderedStop(BaseModel):
     estimated_arrival_minutes: float
 
 
+class VehicleRoute(BaseModel):
+    vehicle_index: int
+    total_distance_km: float
+    total_duration_minutes: float
+    total_load_kg: float
+    ordered_stops: List[OrderedStop]
+
+
 class BatchOptimizationResponse(BaseModel):
     job_id: str
     algorithm_used: str
     total_distance_km: float
     total_duration_minutes: float
     ordered_stops: List[OrderedStop]
+    vehicle_routes: List[VehicleRoute] = Field(default_factory=list)
     execution_time_ms: float
     timestamp: str
 

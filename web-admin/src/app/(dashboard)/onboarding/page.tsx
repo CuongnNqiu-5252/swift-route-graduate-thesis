@@ -54,7 +54,31 @@ export default function OnboardingPage() {
     }
   }, [tenantId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    if (!tenantId) return;
+    tenantWorkflow.progress(tenantId)
+      .then(async (current) => {
+        if (!active) return;
+        setProgress(current);
+        setProfile(current.profile);
+        const memberships = await tenantWorkflow.memberships();
+        if (!active) return;
+        setOwner(memberships.some((membership) => membership.tenant_id === tenantId && membership.role === 'OWNER'));
+        if (initializedTenant.current !== tenantId) {
+          initializedTenant.current = tenantId;
+          const recommended = current.next_action === 'VIEW_VERIFICATION' ? 'VERIFICATION_SUBMISSION' : current.next_action;
+          if (STEPS.includes(recommended as Step)) setStep(recommended as Step);
+          const locations = await pickupLocationRepository.getPickupLocations('ACTIVE');
+          const depot = locations.find((location) => location.is_default) || locations[0];
+          if (depot && active) setPickup({ id: depot.id, name: depot.name, address: depot.address, lat: String(depot.lat), lng: String(depot.lng) });
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e instanceof Error ? e.message : 'Không tải được tiến độ thiết lập');
+      });
+    return () => { active = false; };
+  }, [tenantId]);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

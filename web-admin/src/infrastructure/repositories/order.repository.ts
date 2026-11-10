@@ -199,7 +199,10 @@ export const orderRepository = {
   },
 
   async getDispatchPlans(): Promise<DispatchPlanRecord[]> {
-    const response = await api.get<{ data?: DispatchPlanRecord[] }>('/orders/dispatch/plans');
+    const response = await api.get<DispatchPlanRecord[] | { data?: DispatchPlanRecord[] }>('/orders/dispatch/plans');
+    if (Array.isArray(response.data)) {
+      return response.data;
+    }
     return response.data?.data ?? [];
   },
 

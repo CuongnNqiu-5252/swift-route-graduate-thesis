@@ -178,8 +178,36 @@ export default function OperationsPage() {
   }, []);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    let active = true;
+    Promise.all([
+      operationsRepository.getIncidents(),
+      operationsRepository.getReturns(),
+      api.get<unknown>('/operations/review'),
+    ]).then(([incRes, retRes, revRes]) => {
+      if (!active) return;
+      setIncidents(incRes);
+      setReturns(retRes);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawRev = (revRes.data as any)?.data ?? revRes.data;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawCod = (rawRev?.cod_collections ?? rawRev?.codCollections ?? []).map((item: any) => ({
+        id: String(item.id ?? ''),
+        order_id: String(item.order_id ?? item.orderId ?? ''),
+        order_code: (item.order_code ?? item.orderCode ?? null) as string | null,
+        driver_id: String(item.driver_id ?? item.driverId ?? ''),
+        collected_amount: Number(item.collected_amount ?? item.collectedAmount ?? 0),
+        declared_amount: Number(item.declared_amount ?? item.declaredAmount ?? 0),
+        notes: (item.notes ?? null) as string | null,
+        declared_at: String(item.declared_at ?? item.declaredAt ?? ''),
+      }));
+      setCodList(rawCod);
+    }).catch((err) => {
+      if (active) setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu điều hành');
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   // Handle Incident Resolution
   const handleResolveIncident = async (type: ResolveIncidentParams['resolution_type']) => {
@@ -265,11 +293,11 @@ export default function OperationsPage() {
   };
 
   // Handle Verify COD
-  const handleVerifyCod = async (codId: string) => {
+  const handleVerifyCod = async (codId: string, amount: number = 0) => {
     setActionLoading(true);
     setError(null);
     try {
-      await operationsRepository.verifyCod(codId);
+      await operationsRepository.verifyCod(codId, amount);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi khi xác minh COD');
@@ -752,7 +780,7 @@ export default function OperationsPage() {
 
                   <Button
                     size="sm"
-                    onClick={() => void handleVerifyCod(item.id)}
+                    onClick={() => void handleVerifyCod(item.id, item.declared_amount)}
                     isLoading={actionLoading}
                     className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
                   >

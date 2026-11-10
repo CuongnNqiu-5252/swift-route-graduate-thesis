@@ -27,7 +27,7 @@ export default function DispatchPage() {
   const { drivers, isLoading: isLoadingDrivers } = useDrivers();
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
   const [plans, setPlans] = useState<DispatchPlanRecord[]>([]);
-  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(true);
   const [isTriggeringPlan, setIsTriggeringPlan] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<DispatchPlanRecord | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -47,7 +47,6 @@ export default function DispatchPage() {
   const { incidents, error: incidentError, refresh: refreshIncidents } = useDispatchIncidents();
 
   const loadPlans = useCallback(async () => {
-    setIsLoadingPlans(true);
     try {
       const list = await orderRepository.getDispatchPlans();
       setPlans(list);
@@ -63,9 +62,12 @@ export default function DispatchPage() {
     pickupLocationRepository.getPickupLocations('ACTIVE')
       .then((locations) => { if (active) setPickupLocations(locations); })
       .catch(() => { if (active) setPickupLocations([]); });
-    loadPlans();
+    orderRepository.getDispatchPlans()
+      .then((list) => { if (active) setPlans(list); })
+      .catch(() => {})
+      .finally(() => { if (active) setIsLoadingPlans(false); });
     return () => { active = false; };
-  }, [loadPlans]);
+  }, []);
 
   const fallbackDepot = useMemo(() => {
     const location = pickupLocations.find((item) => item.is_default) || pickupLocations[0];
@@ -80,6 +82,11 @@ export default function DispatchPage() {
 
   const {
     selectedOrders,
+    selectedDriverIds,
+    setSelectedDriverIds,
+    toggleDriverSelection,
+    activeVehicleIndex,
+    setActiveVehicleIndex,
     algorithm,
     setAlgorithm,
     result,
@@ -491,6 +498,12 @@ export default function DispatchPage() {
   const stopsForMap = useMemo<OptimizationStop[]>(() => {
     if (planStopsForMap?.length) return planStopsForMap;
     if (trackedDriverId) return assignedStops;
+    if (
+      activeVehicleIndex !== null &&
+      result?.vehicle_routes?.[activeVehicleIndex]?.ordered_stops?.length
+    ) {
+      return result.vehicle_routes[activeVehicleIndex].ordered_stops;
+    }
     if (result?.ordered_stops?.length) return result.ordered_stops;
     if (selectedOrders.length) {
       return selectedOrders.map((o) => ({
@@ -504,7 +517,7 @@ export default function DispatchPage() {
       }));
     }
     return lastAssignedRoute?.stops ?? assignedStops;
-  }, [assignedStops, lastAssignedRoute?.stops, planStopsForMap, result, selectedOrders, trackedDriverId]);
+  }, [activeVehicleIndex, assignedStops, lastAssignedRoute?.stops, planStopsForMap, result, selectedOrders, trackedDriverId]);
 
   const selectedPlanDepot = useMemo<DispatchDepot | null>(() => {
     if (!selectedPlan) return null;
@@ -629,6 +642,12 @@ export default function DispatchPage() {
           <DispatchPanel
             orders={dispatchableOrders}
             selectedOrders={selectedOrders}
+            drivers={drivers}
+            selectedDriverIds={selectedDriverIds}
+            onToggleDriver={toggleDriverSelection}
+            onSelectAllDrivers={setSelectedDriverIds}
+            activeVehicleIndex={activeVehicleIndex}
+            onSelectVehicleRoute={setActiveVehicleIndex}
             onToggleOrder={(order) => {
               setSelectedPlan(null);
               setLastAssignedRoute(null);
@@ -792,6 +811,9 @@ export default function DispatchPage() {
         orders={selectedOrders}
         result={result}
         drivers={drivers}
+        selectedDriverIds={selectedDriverIds}
+        onSelectedDriverIdsChange={setSelectedDriverIds}
+        onReoptimizeForCount={optimize}
         isLoadingDrivers={isLoadingDrivers}
         onConfirm={handleConfirmAssignment}
       />

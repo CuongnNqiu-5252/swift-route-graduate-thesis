@@ -14,9 +14,30 @@ public record BatchOptimizationResponse(
         @JsonProperty("total_distance_km") double totalDistanceKm,
         @JsonProperty("total_duration_minutes") double totalDurationMinutes,
         @JsonProperty("ordered_stops") List<OrderedStop> orderedStops,
+        @JsonProperty("vehicle_routes") List<VehicleRoute> vehicleRoutes,
         @JsonProperty("execution_time_ms") double executionTimeMs,
         @JsonProperty("timestamp") String timestamp
 ) {
+
+    public BatchOptimizationResponse(
+            String jobId,
+            String algorithmUsed,
+            double totalDistanceKm,
+            double totalDurationMinutes,
+            List<OrderedStop> orderedStops,
+            double executionTimeMs,
+            String timestamp
+    ) {
+        this(jobId, algorithmUsed, totalDistanceKm, totalDurationMinutes, orderedStops, List.of(), executionTimeMs, timestamp);
+    }
+
+    public record VehicleRoute(
+            @JsonProperty("vehicle_index") int vehicleIndex,
+            @JsonProperty("total_distance_km") double totalDistanceKm,
+            @JsonProperty("total_duration_minutes") double totalDurationMinutes,
+            @JsonProperty("total_load_kg") double totalLoadKg,
+            @JsonProperty("ordered_stops") List<OrderedStop> orderedStops
+    ) {}
 
     public record OrderedStop(
             @JsonProperty("stop_index") int stopIndex,

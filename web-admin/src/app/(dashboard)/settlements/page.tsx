@@ -26,7 +26,6 @@ export default function SettlementsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const [earningRows, settlementRows, currentPolicy] = await Promise.all([
         earningRepository.listEarnings(),
@@ -43,7 +42,25 @@ export default function SettlementsPage() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      earningRepository.listEarnings(),
+      earningRepository.listSettlements(),
+      earningRepository.getPolicy(),
+    ]).then(([earningRows, settlementRows, currentPolicy]) => {
+      if (active) {
+        setEarnings(earningRows);
+        setSettlements(settlementRows);
+        setPolicy(currentPolicy);
+      }
+    }).catch((error) => {
+      toast.error(error instanceof Error ? error.message : 'Không tải được dữ liệu đối soát');
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   const pendingByDriver = useMemo(() => {
     const grouped = new Map<string, { driverId: string; driverName: string; amount: number; count: number }>();
@@ -185,9 +202,14 @@ function StatusBadge({ status }: { status: SettlementStatus }) {
 }
 
 function PolicyPanel({ policy, onSaved }: { policy: EarningPolicy | null; onSaved: () => Promise<void> }) {
+  const [prevPolicy, setPrevPolicy] = useState(policy);
   const [form, setForm] = useState<EarningPolicy | null>(policy);
   const [saving, setSaving] = useState(false);
-  useEffect(() => setForm(policy), [policy]);
+
+  if (policy !== prevPolicy) {
+    setPrevPolicy(policy);
+    setForm(policy);
+  }
   if (!form) return <aside className="h-80 animate-pulse rounded-2xl bg-slate-100" />;
   const field = (key: keyof EarningPolicy, label: string, suffix: string) => <label className="block text-xs font-semibold text-slate-700">{label}<div className="mt-1 flex rounded-lg border border-slate-300 bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100"><input type="number" min="0" value={form[key]} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} className="min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none" /><span className="border-l border-slate-200 px-3 py-2 text-xs text-slate-500">{suffix}</span></div></label>;
   async function save() {

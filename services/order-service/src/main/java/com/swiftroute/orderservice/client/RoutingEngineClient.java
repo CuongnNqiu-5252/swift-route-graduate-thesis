@@ -94,7 +94,8 @@ public class RoutingEngineClient {
      * @return the routing engine response, or empty on permanent failure
      */
     public Optional<BatchOptimizationResponse> optimizeBatch(BatchOptimizationRequest request) {
-        if (grpcEnabled) {
+        boolean isMultiVehicle = request.vehicleCount() != null && request.vehicleCount() > 1;
+        if (grpcEnabled && !isMultiVehicle) {
             try {
                 BatchOptimizationResponse response = RoutingGrpcProtocol.callOptimizeBatch(
                         grpcHost, grpcPort, request, internalKey, TIMEOUT);

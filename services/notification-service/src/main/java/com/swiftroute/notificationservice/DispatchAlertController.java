@@ -82,7 +82,9 @@ public class DispatchAlertController {
                       'user.email_verification.v1',
                       'tenant.driver_invited.v1',
                       'tenant.created.v1',
-                      'tenant.verification_submitted.v1'
+                      'tenant.verification_submitted.v1',
+                      'assignment.timeout',
+                      'assignment.escalated'
                   )
                 ORDER BY n.created_at DESC
                 LIMIT 40

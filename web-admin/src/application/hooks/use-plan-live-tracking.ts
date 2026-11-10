@@ -22,8 +22,11 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
   const [isPaused, setIsPaused] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>();
   const [signal, setSignal] = useState<TrackingSignal>('waiting');
+  const streamKey = `${planId || ''}:${driverProfileId || ''}`;
+  const [prevStreamKey, setPrevStreamKey] = useState(streamKey);
 
-  useEffect(() => {
+  if (streamKey !== prevStreamKey) {
+    setPrevStreamKey(streamKey);
     setPosition(undefined);
     setBearing(undefined);
     setStepProgress(null);
@@ -31,6 +34,9 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
     setIsPaused(false);
     setLastUpdate(undefined);
     setSignal('waiting');
+  }
+
+  useEffect(() => {
     if (!planId && !driverProfileId) return;
     const streamPath = driverProfileId
       ? `/orders/dispatch/drivers/${driverProfileId}/tracking/stream`

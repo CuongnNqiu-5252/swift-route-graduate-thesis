@@ -110,7 +110,7 @@ public class PlanningEligibilityEvaluator {
 
     /**
      * Retrieves PAID orders that are eligible for inclusion in a planning batch.
-     * Filters out orders with delivery windows already expired.
+     * Overdue/delayed orders are preserved so they can still be dispatched.
      *
      * @param tenantId the tenant UUID
      * @param now      current timestamp
@@ -119,7 +119,6 @@ public class PlanningEligibilityEvaluator {
     public List<Order> getEligibleOrders(UUID tenantId, Instant now) {
         return orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID)
                 .stream()
-                .filter(o -> o.getTimeWindowEnd() == null || o.getTimeWindowEnd().toInstant().isAfter(now))
                 .sorted((a, b) -> {
                     // URGENT first, then HIGH, then NORMAL; within same priority sort by creation
                     // time

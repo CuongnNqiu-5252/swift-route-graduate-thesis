@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   BusinessType,
   TenantSettings,
@@ -20,14 +20,14 @@ import {
   Sparkles,
   Save,
   RotateCcw,
-  Users2,
   Clock,
   Gauge,
   CheckCircle2,
+  type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const BUSINESS_TYPE_ICONS: Record<BusinessType, any> = {
+const BUSINESS_TYPE_ICONS: Record<BusinessType, LucideIcon> = {
   RESTAURANT: Utensils,
   CAFE: Coffee,
   PHARMACY: Pill,
@@ -49,36 +49,56 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isApplyingPreset, setIsApplyingPreset] = useState(false);
 
-  const fetchSettings = async () => {
+  const applySettingsData = useCallback((data: TenantSettings) => {
+    setSettings(data);
+    setSelectedType(data.business_type);
+    setTimeWeight(data.optimization_weights.time_weight);
+    setMaxOrders(data.dispatch_config.max_orders_per_driver);
+    setMaxWaitMinutes(Math.round(data.dispatch_config.max_wait_time_seconds / 60));
+    setUrgentMode(data.dispatch_config.urgent_order_mode);
+    setAllowPool(data.dispatch_config.allow_pool_drivers);
+    setRequireApproval(data.dispatch_config.require_approval);
+  }, []);
+
+  const reloadSettings = useCallback(async () => {
     setIsLoading(true);
     try {
       const data = await tenantSettingsRepository.getSettings();
-      setSettings(data);
-      setSelectedType(data.business_type);
-      setTimeWeight(data.optimization_weights.time_weight);
-      setMaxOrders(data.dispatch_config.max_orders_per_driver);
-      setMaxWaitMinutes(Math.round(data.dispatch_config.max_wait_time_seconds / 60));
-      setUrgentMode(data.dispatch_config.urgent_order_mode);
-      setAllowPool(data.dispatch_config.allow_pool_drivers);
-      setRequireApproval(data.dispatch_config.require_approval);
-    } catch (err: unknown) {
+      applySettingsData(data);
+    } catch {
       toast.error('Không thể tải cấu hình doanh nghiệp');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [applySettingsData]);
 
   useEffect(() => {
-    fetchSettings();
-  }, []);
+    let mounted = true;
+    tenantSettingsRepository.getSettings()
+      .then((data) => {
+        if (!mounted) return;
+        applySettingsData(data);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        toast.error('Không thể tải cấu hình doanh nghiệp');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setIsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [applySettingsData]);
 
   const handleApplyPreset = async () => {
     setIsApplyingPreset(true);
     try {
-      const updated = await tenantSettingsRepository.applyPreset(selectedType);
+      await tenantSettingsRepository.applyPreset(selectedType);
       toast.success(`Đã áp dụng cấu hình đề xuất cho ngành ${BUSINESS_TYPE_LABEL[selectedType]}`);
-      await fetchSettings();
-    } catch (err: unknown) {
+      await reloadSettings();
+    } catch {
       toast.error('Lỗi khi áp dụng cấu hình đề xuất');
     } finally {
       setIsApplyingPreset(false);
@@ -104,8 +124,8 @@ export default function SettingsPage() {
         },
       });
       toast.success('Đã lưu cấu hình doanh nghiệp thành công!');
-      await fetchSettings();
-    } catch (err: unknown) {
+      await reloadSettings();
+    } catch {
       toast.error('Lỗi khi lưu cấu hình');
     } finally {
       setIsSaving(false);
@@ -142,7 +162,7 @@ export default function SettingsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchSettings}
+            onClick={reloadSettings}
             disabled={isSaving || isApplyingPreset}
           >
             <RotateCcw size={14} className="mr-1.5" /> Khôi phục
@@ -315,7 +335,7 @@ export default function SettingsPage() {
               </label>
               <select
                 value={urgentMode}
-                onChange={(e) => setUrgentMode(e.target.value as any)}
+                onChange={(e) => setUrgentMode(e.target.value as 'IMMEDIATE_SINGLE' | 'BATCH_IMMEDIATE')}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
               >
                 <option value="IMMEDIATE_SINGLE">Gán ngay tài xế gần nhất (Khuyến nghị)</option>

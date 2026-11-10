@@ -20,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
+import com.swiftroute.orderservice.dto.request.ManualAssignmentRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.request.StartSimulationRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
@@ -60,8 +61,9 @@ public class OrderController {
             @RequestHeader("X-Tenant-Id") UUID tenantId,
             @RequestHeader("X-User-Id") UUID operatorId,
             @RequestHeader("X-User-Role") String role,
-            @Valid @RequestBody com.swiftroute.orderservice.dto.request.ManualAssignmentRequest request) {
-        if (!java.util.Set.of("OWNER", "TENANT_ADMIN", "ADMIN", "SYSTEM_ADMIN", "OPS_STAFF", "MANAGER", "OPERATOR").contains(role))
+            @Valid @RequestBody ManualAssignmentRequest request) {
+        if (!java.util.Set.of("OWNER", "TENANT_ADMIN", "ADMIN", "SYSTEM_ADMIN", "OPS_STAFF", "MANAGER", "OPERATOR")
+                .contains(role))
             throw new AppException(ErrorCode.ACCESS_DENIED);
         orchestration.assignManualBatch(tenantId, operatorId, request);
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -102,7 +104,8 @@ public class OrderController {
 
     /**
      * GET /api/orders/operations/queue
-     * Tenant-scoped dispatcher queues: ready to assign, active execution, and intervention.
+     * Tenant-scoped dispatcher queues: ready to assign, active execution, and
+     * intervention.
      */
     @Operation(summary = "Get tenant-scoped dispatch operations queues")
     @GetMapping("/operations/queue")
@@ -118,7 +121,8 @@ public class OrderController {
     /**
      * POST /api/orders
      * Tạo vận đơn giao hàng mới (Delivery Waybill).
-     * Không yêu cầu tài khoản người nhận; nhận thông tin người gửi, người nhận, kiện hàng và COD.
+     * Không yêu cầu tài khoản người nhận; nhận thông tin người gửi, người nhận,
+     * kiện hàng và COD.
      */
     @Operation(summary = "Create a delivery waybill / order")
     @PostMapping
@@ -152,25 +156,6 @@ public class OrderController {
     }
 
     /**
-     * GET /api/orders/driver/assigned
-     * Returns the active orders assigned to the authenticated driver,
-     * sorted by delivery window start (earliest first).
-     */
-    @Operation(summary = "Get active orders assigned to the authenticated driver")
-    @GetMapping("/driver/assigned")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getDriverOrders(
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
-
-        if (!"DRIVER".equals(userRole)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        List<OrderResponse> orders = orderService.getDriverOrders(UUID.fromString(userId));
-        return ResponseEntity.ok(ApiResponse.success(orders));
-    }
-
-    /**
      * GET /api/orders/{orderId}
      * Lấy chi tiết một đơn hàng.
      * Role được phép: CUSTOMER (chỉ đơn của mình), ADMIN, OPERATOR
@@ -183,25 +168,11 @@ public class OrderController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
 
         UUID tenantId = (tenantIdHeader != null && !tenantIdHeader.isBlank())
-                ? UUID.fromString(tenantIdHeader) : null;
+                ? UUID.fromString(tenantIdHeader)
+                : null;
         OrderResponse response = orderService.getOrderById(
                 orderId, UUID.fromString(userId), userRole, tenantId);
         return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    /**
-     * GET /api/orders/tenant/{tenantId}
-     * Lấy danh sách đơn hàng của một Tenant.
-     * Role được phép: ADMIN, OPERATOR
-     */
-    @GetMapping("/tenant/{tenantId}")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrdersByTenant(
-            @PathVariable UUID tenantId,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
-
-        List<OrderResponse> orders = orderService.getOrdersByTenant(tenantId, UUID.fromString(userId), userRole);
-        return ResponseEntity.ok(ApiResponse.success(orders));
     }
 
     /**
@@ -254,7 +225,8 @@ public class OrderController {
             @RequestBody(required = false) CancelOrderRequest request,
             @RequestHeader("X-User-Id") String userId,
             @RequestHeader("X-User-Role") String userRole) {
-        OrderResponse response = orderService.cancelOrder(orderId, request != null ? request : new CancelOrderRequest(null), UUID.fromString(userId), userRole);
+        OrderResponse response = orderService.cancelOrder(orderId,
+                request != null ? request : new CancelOrderRequest(null), UUID.fromString(userId), userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

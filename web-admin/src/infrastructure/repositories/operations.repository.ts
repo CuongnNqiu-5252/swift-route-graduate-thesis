@@ -195,8 +195,12 @@ export const operationsRepository = {
     return res.data;
   },
 
-  async verifyCod(id: string, notes?: string): Promise<unknown> {
-    const res = await api.patch(`/operations/cod-collections/${id}/verify`, { notes });
+  async verifyCod(id: string, countedTotal?: number, notes?: string): Promise<unknown> {
+    const res = await api.post(`/cod/handovers/${id}/verify`, {
+      operation_id: crypto.randomUUID(),
+      counted_total: countedTotal ?? 0,
+      notes,
+    });
     return res.data;
   },
 

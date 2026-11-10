@@ -124,7 +124,6 @@ class DriverServiceTest {
     @DisplayName("updateMyLocation - updates latitude and longitude")
     void updateMyLocation_Success() {
         when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
-        when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(locationCache.accept(any(Driver.class), any(UpdateLocationRequest.class))).thenReturn(true);
 
         UpdateLocationRequest request = new UpdateLocationRequest(10.8231, 106.6297);

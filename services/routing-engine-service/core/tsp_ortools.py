@@ -123,12 +123,13 @@ def ortools_vrp(
     num_vehicles: int,
     start: int = 0,
     time_limit_seconds: float = 2.0,
+    max_stops_per_vehicle: int | None = None,
 ) -> Dict[str, Any]:
     """
     Solve the Capacitated Vehicle Routing Problem (CVRP) using Google OR-Tools.
 
     Partitions stops across multiple vehicles while strictly respecting
-    per-vehicle cargo capacity limits and minimizing total transit distance.
+    per-vehicle cargo capacity limits, stop-count balance, and minimizing total transit distance.
 
     Args:
         cost_matrix: N x N cost/distance matrix (index 0 is depot).
@@ -137,6 +138,7 @@ def ortools_vrp(
         num_vehicles: Number of available delivery vehicles / couriers.
         start: Depot node index (default 0).
         time_limit_seconds: Solver search time limit.
+        max_stops_per_vehicle: Optional soft/hard cap on stops per vehicle.
 
     Returns:
         A dictionary containing:
@@ -195,6 +197,30 @@ def ortools_vrp(
         True,  # start cumul to zero
         "Capacity",
     )
+
+    # Balance stop distribution across vehicles so all available drivers share the workload
+    n_stops = max(0, n - 1)
+    min_required_stops = (n_stops + num_vehicles - 1) // num_vehicles
+    effective_max_stops = (
+        max(max_stops_per_vehicle, min_required_stops)
+        if max_stops_per_vehicle is not None and max_stops_per_vehicle > 0
+        else max(1, min_required_stops + 1)
+    )
+
+    def stop_count_callback(from_index: int) -> int:
+        from_node = manager.IndexToNode(from_index)
+        return 0 if from_node == start else 1
+
+    stop_count_callback_index = routing.RegisterUnaryTransitCallback(stop_count_callback)
+    routing.AddDimensionWithVehicleCapacity(
+        stop_count_callback_index,
+        0,
+        [effective_max_stops] * num_vehicles,
+        True,
+        "StopCount",
+    )
+    stop_count_dimension = routing.GetDimensionOrDie("StopCount")
+    stop_count_dimension.SetGlobalSpanCostCoefficient(COST_SCALE * 5)
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
