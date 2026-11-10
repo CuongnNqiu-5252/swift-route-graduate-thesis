@@ -120,7 +120,8 @@ public class DispatchOrchestrationService {
             List<Order> driverOrders = group.getValue();
             Optional<BatchOptimizationResponse> routeOpt = Optional.empty();
             try {
-                routeOpt = routingEngineClient.optimizeBatch(buildRoutingRequest(tenant, driverOrders, 1, driverOrders.size()));
+                routeOpt = routingEngineClient
+                        .optimizeBatch(buildRoutingRequest(tenant, driverOrders, 1, driverOrders.size()));
             } catch (Exception ex) {
                 log.warn("Fallback to local route metrics for manual assignment: {}", ex.getMessage());
             }
@@ -160,11 +161,13 @@ public class DispatchOrchestrationService {
 
     /**
      * Executes a full multi-driver CVRP planning cycle for the given tenant:
-     * collect → optimize across available fleet → persist plans → (auto-approve) → dispatch.
+     * collect → optimize across available fleet → persist plans → (auto-approve) →
+     * dispatch.
      *
      * @param tenantId    UUID of the tenant
      * @param triggerType reason the planning cycle was triggered
-     * @return the primary persisted {@link DispatchPlan}, or empty if planning was skipped
+     * @return the primary persisted {@link DispatchPlan}, or empty if planning was
+     *         skipped
      */
     @Transactional
     public Optional<DispatchPlan> executePlanningCycle(UUID tenantId, PlanTriggerType triggerType) {
@@ -191,9 +194,11 @@ public class DispatchOrchestrationService {
         boolean requiresApproval = Boolean.TRUE.equals(
                 tenant.getDispatchConfig() != null && tenant.getDispatchConfig().getRequireApproval());
 
-        // When triggered manually ("Chạy lập kế hoạch ngay"), process ALL warehouse groups
+        // When triggered manually ("Chạy lập kế hoạch ngay"), process ALL warehouse
+        // groups
         // in a single run so no depot's pending orders are left behind.
-        // For background triggers (BATCH_SIZE, MAX_WAIT, URGENT), process the qualifying group.
+        // For background triggers (BATCH_SIZE, MAX_WAIT, URGENT), process the
+        // qualifying group.
         List<List<Order>> warehouseGroups = selectTargetWarehouseGroups(tenant, allEligible, triggerType);
         List<DispatchPlan> createdPlans = new ArrayList<>();
 
@@ -212,23 +217,26 @@ public class DispatchOrchestrationService {
             int neededVehicles = (int) Math.ceil((double) eligible.size() / maxOrdersPerDriver);
             int vehicleCount = Math.max(1, Math.min(driverCapacityCount, neededVehicles));
 
-            log.info("Tenant {} starting planning cycle for warehouse group. Trigger={} EligibleOrders={} RemainingDrivers={} VehicleCount={}",
+            log.info(
+                    "Tenant {} starting planning cycle for warehouse group. Trigger={} EligibleOrders={} RemainingDrivers={} VehicleCount={}",
                     tenantId, triggerType, eligible.size(), remainingDrivers.size(), vehicleCount);
 
-            // --- Build routing engine request (single-vehicle TSP or multi-vehicle CVRP) ---
+            // --- Build routing engine request (single-vehicle TSP or multi-vehicle CVRP)
+            // ---
             BatchOptimizationRequest routingRequest = buildRoutingRequest(
                     tenant, eligible, vehicleCount, maxOrdersPerDriver);
 
             // --- Call routing engine ---
             Optional<BatchOptimizationResponse> routingResult = routingEngineClient.optimizeBatch(routingRequest);
             if (routingResult.isEmpty()) {
-                log.error("Tenant {} planning cycle skipped warehouse group — routing engine returned no result.", tenantId);
+                log.error("Tenant {} planning cycle skipped warehouse group — routing engine returned no result.",
+                        tenantId);
                 continue;
             }
             BatchOptimizationResponse routingResponse = routingResult.get();
 
-            List<BatchOptimizationResponse.VehicleRoute> vehicleRoutes =
-                    (routingResponse.vehicleRoutes() != null && !routingResponse.vehicleRoutes().isEmpty())
+            List<BatchOptimizationResponse.VehicleRoute> vehicleRoutes = (routingResponse.vehicleRoutes() != null
+                    && !routingResponse.vehicleRoutes().isEmpty())
                             ? routingResponse.vehicleRoutes().stream()
                                     .filter(vr -> vr.orderedStops() != null && !vr.orderedStops().isEmpty())
                                     .toList()
@@ -290,7 +298,7 @@ public class DispatchOrchestrationService {
                 log.info("Tenant {} dispatch plan {} saved in DRAFT for driver {}. Orders={}",
                         tenantId, persistedPlan.getId(), assignedDriverId, routeOrders.size());
 
-                if (!requiresApproval) {
+                if (!requiresApproval && assignedDriverId != null) {
                     persistedPlan.approve(null);
                     persistedPlan = dispatchPlanRepository.save(persistedPlan);
                     log.info("Tenant {} plan {} auto-approved.", tenantId, persistedPlan.getId());
@@ -851,11 +859,11 @@ public class DispatchOrchestrationService {
     /**
      * Selects the target warehouse order groups for a planning cycle:
      * <ul>
-     *   <li>When {@code triggerType == MANUAL} ("Chạy lập kế hoạch ngay"), returns
-     *       <strong>all</strong> warehouse groups so every depot's pending orders
-     *       are planned in a single run.</li>
-     *   <li>When triggered automatically in the background, returns the single
-     *       qualifying warehouse group via {@link #selectCompatibleWarehouseOrders}.</li>
+     * <li>When {@code triggerType == MANUAL} ("Chạy lập kế hoạch ngay"), returns
+     * <strong>all</strong> warehouse groups so every depot's pending orders
+     * are planned in a single run.</li>
+     * <li>When triggered automatically in the background, returns the single
+     * qualifying warehouse group via {@link #selectCompatibleWarehouseOrders}.</li>
      * </ul>
      */
     private List<List<Order>> selectTargetWarehouseGroups(

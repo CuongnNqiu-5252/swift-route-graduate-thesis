@@ -30,7 +30,7 @@ spring:
   # Cấu hình Flyway
   flyway:
     enabled: true
-    baseline-on-migrate: false
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
     baseline-version: ${ORDER_FLYWAY_BASELINE_VERSION:1}
     locations: classpath:db/migration
     table: flyway_order_history

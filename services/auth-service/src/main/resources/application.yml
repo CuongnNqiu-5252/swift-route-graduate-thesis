@@ -23,7 +23,7 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
   flyway:
     enabled: true
-    baseline-on-migrate: false
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
     baseline-version: ${AUTH_FLYWAY_BASELINE_VERSION:1}
     table: flyway_auth_history
     locations: classpath:db/migration
