@@ -10,4 +10,9 @@ public enum VehicleType {
     VehicleType(String name) {
         this.name = name;
     }
+
+    public String getName() {
+        return name;
+    }
 }
+

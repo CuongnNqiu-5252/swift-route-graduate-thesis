@@ -24,6 +24,5 @@
         <module>services/driver-service</module>
         <module>services/notification-service</module>
         <module>services/order-service</module>
-        <module>services/payment-service</module>
     </modules>
 </project>

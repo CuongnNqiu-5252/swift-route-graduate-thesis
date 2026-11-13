@@ -1,11 +1,14 @@
 package com.swiftroute.orderservice.service;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -15,296 +18,417 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import jakarta.annotation.PreDestroy;
+
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import com.swiftroute.orderservice.entity.Order;
-import com.swiftroute.orderservice.entity.enums.OrderStatus;
-import com.swiftroute.orderservice.repository.OrderRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.swiftroute.orderservice.dto.request.StartSimulationRequest;
 
-import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Service managing real-time Server-Sent Events (SSE) tracking streams for orders.
- * Supports both real driver location broadcasting and smooth autonomous route simulation
- * for demonstration purposes.
+ * Live order and dispatch-plan tracking stream via Server-Sent Events (SSE),
+ * Redis snapshot persistence, and on-demand street-waypoint GPS simulation.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class TrackingSimulationService {
 
-    private final OrderRepository orderRepository;
+    private static final Duration SNAPSHOT_TTL = Duration.ofMinutes(10);
+    private static final String DRIVER_KEY_PREFIX = "tracking:driver:";
+    private static final String STREAM_KEY_PREFIX = "tracking:stream:";
+    private static final String SIM_WAYPOINTS_KEY_PREFIX = "tracking:sim:waypoints:";
+    private static final String SIM_ACTIVE_KEY_PREFIX = "tracking:sim:active:";
+
+    public record DriverPositionSnapshot(
+            UUID driverId,
+            double lat,
+            double lng,
+            Double accuracyM,
+            Double speedMps,
+            Double bearing,
+            Instant recordedAt,
+            long sequence
+    ) {}
 
     private final Map<UUID, List<SseEmitter>> orderEmitters = new ConcurrentHashMap<>();
-    private final Map<UUID, ScheduledFuture<?>> activeSimulationJobs = new ConcurrentHashMap<>();
+    private final Map<UUID, DriverPositionSnapshot> latestDriverPositions = new ConcurrentHashMap<>();
+    private final Map<UUID, ScheduledFuture<?>> activeSimulations = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> simulationDrivers = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> pausePoints = new ConcurrentHashMap<>();
+    private final Set<UUID> pausedSimulations = ConcurrentHashMap.newKeySet();
 
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    public void pauseAt(UUID stream, Integer index) {
+        if (index != null && index >= 0) pausePoints.put(stream, index);
+    }
 
-    private record Waypoint(double lat, double lng, double bearing, double speedKmh) {}
+    public void resume(UUID stream) {
+        pausePoints.remove(stream);
+        pausedSimulations.remove(stream);
+        broadcastStatus(stream, "SIMULATION_RESUMED", "Simulation resumed", stream);
+    }
+    private final Set<UUID> simulatingStreams = ConcurrentHashMap.newKeySet();
+    private final ScheduledExecutorService simulationScheduler = Executors.newScheduledThreadPool(2);
+    private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
 
-    /**
-     * Subscribes a client to the real-time SSE stream of an order.
-     * Starts automatic simulated movement along the delivery path if active.
-     */
-    public SseEmitter subscribe(UUID orderId) {
-        // Emitter timeout: 5 minutes
-        SseEmitter emitter = new SseEmitter(300_000L);
+    @PreDestroy
+    public void shutdownScheduler() {
+        simulationScheduler.shutdownNow();
+    }
 
-        List<SseEmitter> emitters = orderEmitters.computeIfAbsent(orderId, k -> new CopyOnWriteArrayList<>());
+    public SseEmitter subscribe(UUID streamKey) {
+        SseEmitter emitter = new SseEmitter(1_800_000L);
+        List<SseEmitter> emitters = orderEmitters.computeIfAbsent(streamKey, ignored -> new CopyOnWriteArrayList<>());
         emitters.add(emitter);
 
-        emitter.onCompletion(() -> removeEmitter(orderId, emitter));
-        emitter.onTimeout(() -> removeEmitter(orderId, emitter));
-        emitter.onError(e -> removeEmitter(orderId, emitter));
+        emitter.onCompletion(() -> removeEmitter(streamKey, emitter));
+        emitter.onTimeout(() -> removeEmitter(streamKey, emitter));
+        emitter.onError(error -> removeEmitter(streamKey, emitter));
 
-        // Send initial connection acknowledgement event
         try {
             emitter.send(SseEmitter.event()
                     .name("connected")
+                    .reconnectTime(3_000L)
                     .data(Map.of(
-                            "order_id", orderId.toString(),
+                            "order_id", streamKey.toString(),
                             "status", "CONNECTED",
-                            "message", "SSE Tracking Stream Connected",
-                            "timestamp", Instant.now().toString()
-                    )));
-        } catch (IOException e) {
-            log.warn("Failed to send initial SSE connect event for order {}: {}", orderId, e.getMessage());
-            removeEmitter(orderId, emitter);
-            return emitter;
+                            "simulating", isSimulationActive(streamKey),
+                            "paused", pausedSimulations.contains(streamKey),
+                            "server_time", Instant.now().toString())));
+            readSnapshot(STREAM_KEY_PREFIX + streamKey).ifPresent(snapshot -> {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("location_snapshot")
+                            .data(locationPayload(streamKey, snapshot, "SNAPSHOT", null, null)));
+                } catch (IOException error) {
+                    removeEmitter(streamKey, emitter);
+                }
+            });
+        } catch (IOException error) {
+            removeEmitter(streamKey, emitter);
         }
-
-        // Start background autonomous simulation along the route if not already running
-        startSimulationIfNeeded(orderId);
-
-        log.info("Client subscribed to SSE tracking stream for order {}. Total listeners: {}", orderId, emitters.size());
         return emitter;
     }
 
     /**
-     * Broadcasts a real-time GPS coordinate update to all connected SSE clients of an order.
+     * Checks whether an order or dispatch plan stream is currently under active simulation lock.
+     * When true, real GPS events from mobile devices are suppressed for this stream to prevent flickering.
      */
-    public void broadcastLocation(UUID orderId, double lat, double lng, double bearing, double speedKmh, String status) {
-        List<SseEmitter> emitters = orderEmitters.get(orderId);
-        if (emitters == null || emitters.isEmpty()) {
+    public boolean isSimulationActive(UUID streamKey) {
+        if (streamKey == null) return false;
+        if (simulatingStreams.contains(streamKey)) return true;
+        try {
+            return Boolean.TRUE.equals(redis.hasKey(SIM_ACTIVE_KEY_PREFIX + streamKey));
+        } catch (RuntimeException error) {
+            return false;
+        }
+    }
+
+    /**
+     * Starts an on-demand route simulation that stores the route waypoints in Redis
+     * and streams each coordinate sequentially over SSE to subscribed clients.
+     */
+    public void startRouteSimulation(
+            UUID primaryStreamKey,
+            UUID driverId,
+            List<UUID> companionStreamKeys,
+            List<StartSimulationRequest.Waypoint> waypoints,
+            Integer requestedIntervalMs) {
+        if (waypoints == null || waypoints.isEmpty()) {
             return;
         }
 
-        Map<String, Object> payload = Map.of(
-                "order_id", orderId.toString(),
-                "lat", lat,
-                "lng", lng,
-                "bearing", bearing,
-                "speed_kmh", speedKmh,
-                "status", status,
-                "timestamp", Instant.now().toString()
-        );
+        UUID effectiveDriverId = driverId != null ? driverId : primaryStreamKey;
+        List<UUID> allStreams = new ArrayList<>();
+        allStreams.add(primaryStreamKey);
+        if (companionStreamKeys != null) {
+            for (UUID key : companionStreamKeys) {
+                if (key != null && !allStreams.contains(key)) {
+                    allStreams.add(key);
+                }
+            }
+        }
 
-        for (SseEmitter emitter : emitters) {
+        stopRouteSimulation(primaryStreamKey, companionStreamKeys);
+        if (simulationDrivers.containsValue(effectiveDriverId)) {
+            throw new IllegalStateException("Driver already has an active simulation");
+        }
+        simulationDrivers.put(primaryStreamKey, effectiveDriverId);
+        setSimulationLock(effectiveDriverId, true);
+
+        int intervalMs = requestedIntervalMs != null ? Math.clamp(requestedIntervalMs, 250, 5_000) : 1_000;
+        int totalSteps = waypoints.size();
+
+        persistSimulationWaypoints(primaryStreamKey, waypoints);
+        for (UUID streamKey : allStreams) {
+            setSimulationLock(streamKey, true);
+        }
+
+        AtomicInteger indexRef = new AtomicInteger(0);
+        ScheduledFuture<?> future = simulationScheduler.scheduleAtFixedRate(() -> {
             try {
-                emitter.send(SseEmitter.event()
-                        .name("location_update")
-                        .data(payload));
-            } catch (Exception e) {
+                if (pausedSimulations.contains(primaryStreamKey)) return;
+                int idx = indexRef.getAndIncrement();
+                if (idx >= totalSteps) {
+                    stopRouteSimulation(primaryStreamKey, companionStreamKeys);
+                    return;
+                }
+
+                StartSimulationRequest.Waypoint current = waypoints.get(idx);
+                StartSimulationRequest.Waypoint prev = idx > 0 ? waypoints.get(idx - 1) : current;
+                double bearing = idx > 0
+                        ? calculateBearing(prev.lat(), prev.lng(), current.lat(), current.lng())
+                        : 0.0;
+                Instant now = Instant.now();
+                long sequence = now.toEpochMilli();
+
+                recordDriverPosition(
+                        effectiveDriverId,
+                        current.lat(),
+                        current.lng(),
+                        5.0,
+                        8.33,
+                        bearing,
+                        now,
+                        sequence);
+
+                for (UUID streamKey : allStreams) {
+                    broadcastDriverLocationWithStep(
+                            streamKey,
+                            effectiveDriverId,
+                            current.lat(),
+                            current.lng(),
+                            5.0,
+                            8.33,
+                            bearing,
+                            now,
+                            sequence,
+                            "SIMULATING",
+                            idx + 1,
+                            totalSteps);
+                }
+
+                if (Integer.valueOf(idx).equals(pausePoints.get(primaryStreamKey))) {
+                    pausedSimulations.add(primaryStreamKey);
+                    broadcastStatus(primaryStreamKey, "SIMULATION_PAUSED", "Waiting at pickup", effectiveDriverId);
+                } else if (idx == totalSteps - 1) {
+                    stopRouteSimulation(primaryStreamKey, companionStreamKeys);
+                }
+            } catch (Exception ex) {
+                log.warn("Error in route simulation step for {}: {}", primaryStreamKey, ex.getMessage());
+            }
+        }, 0L, intervalMs, TimeUnit.MILLISECONDS);
+
+        activeSimulations.put(primaryStreamKey, future);
+        log.info("Started GPS route simulation for stream {} ({} waypoints, interval={}ms, companions={})",
+                primaryStreamKey, totalSteps, intervalMs, allStreams.size() - 1);
+    }
+
+    /**
+     * Stops an active route simulation and releases the simulation lock on all associated streams.
+     */
+    public void stopRouteSimulation(UUID primaryStreamKey, List<UUID> companionStreamKeys) {
+        pausePoints.remove(primaryStreamKey);
+        pausedSimulations.remove(primaryStreamKey);
+        UUID simulatedDriver = simulationDrivers.remove(primaryStreamKey);
+        if (simulatedDriver != null) {
+            setSimulationLock(simulatedDriver, false);
+        }
+        ScheduledFuture<?> existing = activeSimulations.remove(primaryStreamKey);
+        if (existing != null) {
+            existing.cancel(false);
+        }
+        setSimulationLock(primaryStreamKey, false);
+        broadcastStatus(primaryStreamKey, "SIMULATION_STOPPED", "Simulation stopped", simulatedDriver);
+        if (companionStreamKeys != null) {
+            for (UUID key : companionStreamKeys) {
+                if (key != null) {
+                    ScheduledFuture<?> compFuture = activeSimulations.remove(key);
+                    if (compFuture != null) {
+                        compFuture.cancel(false);
+                    }
+                    setSimulationLock(key, false);
+                }
+            }
+        }
+    }
+
+    public void recordDriverPosition(
+            UUID driverId,
+            double lat,
+            double lng,
+            Double accuracyM,
+            Double speedMps,
+            Double bearing,
+            Instant recordedAt,
+            long sequence) {
+        latestDriverPositions.put(driverId, new DriverPositionSnapshot(
+                driverId, lat, lng, accuracyM, speedMps, bearing, recordedAt, sequence));
+        writeSnapshot(DRIVER_KEY_PREFIX + driverId, latestDriverPositions.get(driverId));
+    }
+
+    public Optional<DriverPositionSnapshot> getLatestDriverPosition(UUID driverId) {
+        DriverPositionSnapshot local = latestDriverPositions.get(driverId);
+        return local != null ? Optional.of(local) : readSnapshot(DRIVER_KEY_PREFIX + driverId);
+    }
+
+    public void broadcastDriverLocation(
+            UUID streamKey,
+            UUID driverId,
+            double lat,
+            double lng,
+            Double accuracyM,
+            Double speedMps,
+            Double bearing,
+            Instant recordedAt,
+            long sequence) {
+        broadcastDriverLocationWithStep(
+                streamKey, driverId, lat, lng, accuracyM, speedMps, bearing, recordedAt, sequence, "LIVE", null, null);
+    }
+
+    private void broadcastDriverLocationWithStep(
+            UUID streamKey,
+            UUID driverId,
+            double lat,
+            double lng,
+            Double accuracyM,
+            Double speedMps,
+            Double bearing,
+            Instant recordedAt,
+            long sequence,
+            String status,
+            Integer step,
+            Integer totalSteps) {
+        DriverPositionSnapshot snapshot = new DriverPositionSnapshot(
+                driverId, lat, lng, accuracyM, speedMps, bearing, recordedAt, sequence);
+        writeSnapshot(STREAM_KEY_PREFIX + streamKey, snapshot);
+        Map<String, Object> payload = locationPayload(streamKey, snapshot, status, step, totalSteps);
+        send(streamKey, "location_update", payload);
+    }
+
+    public void broadcastStatus(UUID orderId, String status, String message, UUID driverId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("order_id", orderId.toString());
+        payload.put("status", status);
+        payload.put("message", message);
+        payload.put("timestamp", Instant.now().toString());
+        if (driverId != null) payload.put("driver_id", driverId.toString());
+        send(orderId, "status_update", payload);
+    }
+
+    @Scheduled(fixedDelay = 20_000L)
+    public void heartbeat() {
+        orderEmitters.keySet().forEach(orderId -> send(orderId, "heartbeat", Map.of(
+                "order_id", orderId.toString(),
+                "server_time", Instant.now().toString())));
+    }
+
+    private void send(UUID orderId, String eventName, Object payload) {
+        List<SseEmitter> emitters = orderEmitters.get(orderId);
+        if (emitters == null) return;
+        for (SseEmitter emitter : new ArrayList<>(emitters)) {
+            try {
+                emitter.send(SseEmitter.event().name(eventName).data(payload));
+            } catch (Exception error) {
                 removeEmitter(orderId, emitter);
             }
         }
     }
 
-    private synchronized void startSimulationIfNeeded(UUID orderId) {
-        if (activeSimulationJobs.containsKey(orderId)) {
-            return; // Already actively streaming for another connected client
-        }
-
-        Order order = orderRepository.findById(orderId).orElse(null);
-        if (order == null) {
-            log.warn("Cannot start SSE simulation: Order {} not found in database", orderId);
-            return;
-        }
-
-        // If order is already completed or cancelled, do not simulate movement
-        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
-            broadcastStatus(orderId, order.getStatus().name(), "Đơn hàng đã kết thúc.");
-            return;
-        }
-
-        // Fallback default coordinates centered in Ninh Kieu, Can Tho
-        double startLat = order.getPickupLat() != null ? order.getPickupLat() : 10.0371;
-        double startLng = order.getPickupLng() != null ? order.getPickupLng() : 105.7828;
-        double destLat = order.getDeliveryLat() != null ? order.getDeliveryLat() : 10.0299;
-        double destLng = order.getDeliveryLng() != null ? order.getDeliveryLng() : 105.7706;
-
-        final int totalSteps = 24;
-        List<Waypoint> waypoints = generateWaypoints(startLat, startLng, destLat, destLng, totalSteps);
-
-        AtomicInteger currentStep = new AtomicInteger(0);
-
-        ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
-            try {
-                int step = currentStep.getAndIncrement();
-                List<SseEmitter> emitters = orderEmitters.get(orderId);
-
-                if ((emitters == null || emitters.isEmpty()) && step == 0) {
-                    // No clients ever connected, cancel simulation
-                    cancelSimulation(orderId);
-                    return;
-                }
-
-                if (step < waypoints.size()) {
-                    if (step == 0) {
-                        try {
-                            Order currentOrder = orderRepository.findById(orderId).orElse(null);
-                            if (currentOrder != null && currentOrder.getStatus() != OrderStatus.IN_TRANSIT) {
-                                currentOrder.setStatus(OrderStatus.IN_TRANSIT);
-                                currentOrder.setUpdatedAt(Instant.now());
-                                orderRepository.save(currentOrder);
-                                log.info("Order {} status updated to IN_TRANSIT in database", orderId);
-                            }
-                        } catch (Exception ex) {
-                            log.warn("Could not update order {} to IN_TRANSIT in database: {}", orderId, ex.getMessage());
-                        }
-                    }
-
-                    Waypoint wp = waypoints.get(step);
-                    double progressPercent = Math.round((step * 100.0 / (totalSteps - 1)) * 10.0) / 10.0;
-
-                    Map<String, Object> payload = Map.of(
-                            "order_id", orderId.toString(),
-                            "lat", wp.lat(),
-                            "lng", wp.lng(),
-                            "bearing", wp.bearing(),
-                            "speed_kmh", wp.speedKmh(),
-                            "step", step + 1,
-                            "total_steps", totalSteps,
-                            "progress_percent", progressPercent,
-                            "status", "IN_TRANSIT",
-                            "timestamp", Instant.now().toString()
-                    );
-
-                    if (emitters != null && !emitters.isEmpty()) {
-                        for (SseEmitter emitter : new java.util.ArrayList<>(emitters)) {
-                            try {
-                                emitter.send(SseEmitter.event()
-                                        .name("location_update")
-                                        .data(payload));
-                            } catch (Exception ex) {
-                                removeEmitter(orderId, emitter);
-                            }
-                        }
-                    }
-                } else {
-                    // Reached destination! Update database status to DELIVERED
-                    try {
-                        Order currentOrder = orderRepository.findById(orderId).orElse(null);
-                        if (currentOrder != null && currentOrder.getStatus() != OrderStatus.DELIVERED) {
-                            currentOrder.setStatus(OrderStatus.DELIVERED);
-                            currentOrder.setUpdatedAt(Instant.now());
-                            orderRepository.save(currentOrder);
-                            log.info("Order {} status successfully synchronized to DELIVERED in database", orderId);
-                        }
-                    } catch (Exception ex) {
-                        log.error("Failed to update order {} status to DELIVERED in database: {}", orderId, ex.getMessage());
-                    }
-
-                    // Send DELIVERED event to all connected clients
-                    broadcastStatus(orderId, "DELIVERED", "Tài xế đã giao hàng thành công!");
-                    cancelSimulation(orderId);
-                }
-            } catch (Exception e) {
-                log.error("Error during SSE simulation for order {}: {}", orderId, e.getMessage());
-                cancelSimulation(orderId);
-            }
-        }, 500, 1000, TimeUnit.MILLISECONDS);
-
-        activeSimulationJobs.put(orderId, future);
-        log.info("Started autonomous route SSE simulation for order {} ({} steps)", orderId, totalSteps);
-    }
-
-    private void broadcastStatus(UUID orderId, String status, String message) {
-        List<SseEmitter> emitters = orderEmitters.get(orderId);
-        if (emitters == null || emitters.isEmpty()) return;
-
-        Map<String, Object> payload = Map.of(
-                "order_id", orderId.toString(),
-                "status", status,
-                "message", message,
-                "timestamp", Instant.now().toString()
-        );
-
-        for (SseEmitter emitter : emitters) {
-            try {
-                emitter.send(SseEmitter.event()
-                        .name("status_update")
-                        .data(payload));
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    private void cancelSimulation(UUID orderId) {
-        ScheduledFuture<?> future = activeSimulationJobs.remove(orderId);
-        if (future != null) {
-            future.cancel(false);
-            log.info("Stopped SSE simulation for order {}", orderId);
-        }
-    }
-
     private void removeEmitter(UUID orderId, SseEmitter emitter) {
         List<SseEmitter> emitters = orderEmitters.get(orderId);
-        if (emitters != null) {
-            emitters.remove(emitter);
-            if (emitters.isEmpty()) {
-                orderEmitters.remove(orderId);
+        if (emitters == null) return;
+        emitters.remove(emitter);
+        if (emitters.isEmpty()) orderEmitters.remove(orderId, emitters);
+    }
+
+    private Map<String, Object> locationPayload(
+            UUID streamKey,
+            DriverPositionSnapshot snapshot,
+            String status,
+            Integer step,
+            Integer totalSteps) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("stream_id", streamKey.toString());
+        payload.put("driver_id", snapshot.driverId().toString());
+        payload.put("lat", snapshot.lat());
+        payload.put("lng", snapshot.lng());
+        payload.put("accuracy_m", snapshot.accuracyM());
+        payload.put("speed_mps", snapshot.speedMps());
+        payload.put("speed_kmh", snapshot.speedMps() != null ? snapshot.speedMps() * 3.6 : 30.0);
+        payload.put("bearing", snapshot.bearing());
+        payload.put("recorded_at", snapshot.recordedAt().toString());
+        payload.put("sequence", snapshot.sequence());
+        payload.put("status", status);
+        if (step != null) payload.put("step", step);
+        if (totalSteps != null) payload.put("total_steps", totalSteps);
+        return payload;
+    }
+
+    private void persistSimulationWaypoints(UUID streamKey, List<StartSimulationRequest.Waypoint> waypoints) {
+        try {
+            redis.opsForValue().set(
+                    SIM_WAYPOINTS_KEY_PREFIX + streamKey,
+                    objectMapper.writeValueAsString(waypoints),
+                    SNAPSHOT_TTL);
+        } catch (JsonProcessingException | RuntimeException error) {
+            log.warn("Unable to persist simulation waypoints for {}: {}", streamKey, error.getMessage());
+        }
+    }
+
+    private void setSimulationLock(UUID streamKey, boolean active) {
+        if (streamKey == null) return;
+        if (active) {
+            simulatingStreams.add(streamKey);
+            try {
+                redis.opsForValue().set(SIM_ACTIVE_KEY_PREFIX + streamKey, "true", SNAPSHOT_TTL);
+            } catch (RuntimeException error) {
+                log.debug("Redis unavailable for simulation lock {}: {}", streamKey, error.getMessage());
+            }
+        } else {
+            simulatingStreams.remove(streamKey);
+            try {
+                redis.delete(SIM_ACTIVE_KEY_PREFIX + streamKey);
+            } catch (RuntimeException error) {
+                log.debug("Redis unavailable when clearing simulation lock {}: {}", streamKey, error.getMessage());
             }
         }
     }
 
-    /**
-     * Generates linearly interpolated street waypoints with forward bearing calculation.
-     */
-    private List<Waypoint> generateWaypoints(double lat1, double lng1, double lat2, double lng2, int steps) {
-        List<Waypoint> points = new ArrayList<>(steps);
-        double bearing = calculateBearing(lat1, lng1, lat2, lng2);
-
-        for (int i = 0; i < steps; i++) {
-            double fraction = (double) i / (steps - 1);
-            // Slight natural curve perturbation for realistic street rendering
-            double curve = Math.sin(fraction * Math.PI) * 0.00035;
-            double lat = lat1 + fraction * (lat2 - lat1) + curve;
-            double lng = lng1 + fraction * (lng2 - lng1);
-            double speed = 25.0 + (i % 4) * 2.5;
-
-            points.add(new Waypoint(
-                    Math.round(lat * 1_000_000.0) / 1_000_000.0,
-                    Math.round(lng * 1_000_000.0) / 1_000_000.0,
-                    Math.round(bearing * 10.0) / 10.0,
-                    speed
-            ));
-        }
-        return points;
-    }
-
-    /**
-     * Calculates the great-circle initial bearing from point A to point B in degrees (0 - 360).
-     */
-    private double calculateBearing(double lat1, double lon1, double lat2, double lon2) {
+    private static double calculateBearing(double lat1, double lng1, double lat2, double lng2) {
+        double dLng = Math.toRadians(lng2 - lng1);
         double phi1 = Math.toRadians(lat1);
         double phi2 = Math.toRadians(lat2);
-        double deltaLambda = Math.toRadians(lon2 - lon1);
-
-        double y = Math.sin(deltaLambda) * Math.cos(phi2);
-        double x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
-        double theta = Math.atan2(y, x);
-
-        return (Math.toDegrees(theta) + 360.0) % 360.0;
+        double y = Math.sin(dLng) * Math.cos(phi2);
+        double x = Math.cos(phi1) * Math.sin(phi2)
+                - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLng);
+        return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0;
     }
 
-    @PreDestroy
-    public void cleanup() {
-        activeSimulationJobs.values().forEach(f -> f.cancel(true));
-        scheduler.shutdownNow();
+    private void writeSnapshot(String key, DriverPositionSnapshot snapshot) {
+        try {
+            redis.opsForValue().set(key, objectMapper.writeValueAsString(snapshot), SNAPSHOT_TTL);
+        } catch (JsonProcessingException | RuntimeException error) {
+            log.warn("Unable to persist tracking snapshot {}: {}", key, error.getMessage());
+        }
+    }
+
+    private Optional<DriverPositionSnapshot> readSnapshot(String key) {
+        try {
+            String value = redis.opsForValue().get(key);
+            if (value == null || value.isBlank()) return Optional.empty();
+            return Optional.of(objectMapper.readValue(value, DriverPositionSnapshot.class));
+        } catch (Exception error) {
+            log.warn("Unable to restore tracking snapshot {}: {}", key, error.getMessage());
+            return Optional.empty();
+        }
     }
 }
-

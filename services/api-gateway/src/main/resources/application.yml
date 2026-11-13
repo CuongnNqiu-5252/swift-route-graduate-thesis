@@ -31,17 +31,58 @@ spring:
               predicates:
                 - Path=/api/orders/**
 
-            # --- Payment Service ---
-            - id: payment-service
-              uri: ${PAYMENT_SERVICE_URL:http://localhost:8085}
+            - id: delivery-tasks-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
               predicates:
-                - Path=/api/payments/**
+                - Path=/api/delivery-tasks/**
 
-            # --- Tenant onboarding (owned by Order Service) ---
+            # --- Operator in-app notifications ---
+            - id: notification-service
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/notifications/**
+
+            # --- Exception, return and COD operations ---
+            - id: operations-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/operations/**
+
+            # --- Embedded Payment/COD ledger (owned by Order Service runtime) ---
+            - id: cod-ledger
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/cod/**
+
+            # --- Package custody and dual-confirmation handovers ---
+            - id: custody-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/custody/**
+
+            # --- File and Image Uploads (Cloudinary) ---
+            - id: upload-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/uploads/**
+
+            # --- Tenant Memberships & Invitations (owned by Auth Service) ---
+            - id: tenant-members-service
+              uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/tenants/*/members/**
+
+            # --- Tenant onboarding & Settings (owned by Order Service) ---
             - id: tenant-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}
               predicates:
-                - Path=/api/tenants/**
+                - Path=/api/tenants/**,/api/v1/tenants/**
+
+            # --- Pickup Locations (owned by Order Service) ---
+            - id: pickup-locations-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/pickup-locations/**
 
             # --- Driver Service ---
             # /api/drivers/** → driver-service:8083
@@ -49,7 +90,7 @@ spring:
             - id: driver-service
               uri: ${DRIVER_SERVICE_URL:http://localhost:8083}
               predicates:
-                - Path=/api/drivers/**
+                - Path=/api/drivers/**,/api/earnings/**,/api/settlements/**
 
             # --- Routing Engine Service (FastAPI) ---
             # /api/routing/** → routing-engine:8084

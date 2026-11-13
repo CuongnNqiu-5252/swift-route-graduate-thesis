@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -21,11 +22,7 @@ class AuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    const publicPaths = [
-      '/auth/login',
-      '/auth/register',
-      '/auth/refresh',
-    ];
+    const publicPaths = ['/auth/login', '/auth/register', '/auth/refresh'];
     if (publicPaths.any((p) => options.path.contains(p))) {
       return handler.next(options);
     }
@@ -40,6 +37,12 @@ class AuthInterceptor extends Interceptor {
 
       if (token != null && token.isNotEmpty) {
         options.headers['Authorization'] = 'Bearer $token';
+        if (!options.headers.containsKey('X-Tenant-Id')) {
+          final tenantId = _extractClaim(token, 'tenant_id');
+          if (tenantId != null && tenantId.isNotEmpty) {
+            options.headers['X-Tenant-Id'] = tenantId;
+          }
+        }
       }
     } catch (e) {
       debugPrint('[AuthInterceptor] Safe-caught storage read error on Web: $e');
@@ -123,6 +126,12 @@ class AuthInterceptor extends Interceptor {
 
   Future<bool> _refreshToken() async {
     try {
+      final previousToken = tokenStorage != null
+          ? await tokenStorage!.getAccessToken()
+          : await storage.read(key: 'access_token');
+      final previousTenantId = previousToken != null
+          ? _extractClaim(previousToken, 'tenant_id')
+          : null;
       final refreshToken = tokenStorage != null
           ? await tokenStorage!.getRefreshToken()
           : await storage.read(key: 'refresh_token');
@@ -147,18 +156,46 @@ class AuthInterceptor extends Interceptor {
         return false;
       }
 
-      final newAccessToken = (data['access_token'] ?? data['accessToken']) as String?;
-      final newRefreshToken = (data['refresh_token'] ?? data['refreshToken']) as String?;
+      final newAccessToken =
+          (data['access_token'] ?? data['accessToken']) as String?;
+      final newRefreshToken =
+          (data['refresh_token'] ?? data['refreshToken']) as String?;
 
       if (newAccessToken == null || newAccessToken.isEmpty) return false;
+      String effectiveAccessToken = newAccessToken;
+
+      // Preserve tenant-scoped token across refresh when the user held a workspace context
+      if (previousTenantId != null &&
+          previousTenantId.isNotEmpty &&
+          _extractClaim(effectiveAccessToken, 'tenant_id') == null) {
+        try {
+          final switchResp = await cleanDio.post(
+            '/auth/tenants/$previousTenantId/switch',
+            options: Options(headers: {'Authorization': 'Bearer $effectiveAccessToken'}),
+          );
+          final switchBody = switchResp.data;
+          final switchData = switchBody is Map<String, dynamic> &&
+                  switchBody['data'] is Map<String, dynamic>
+              ? switchBody['data'] as Map<String, dynamic>
+              : (switchBody is Map<String, dynamic> ? switchBody : null);
+          final switchedToken =
+              (switchData?['access_token'] ?? switchData?['accessToken'])
+                  as String?;
+          if (switchedToken != null && switchedToken.isNotEmpty) {
+            effectiveAccessToken = switchedToken;
+          }
+        } catch (_) {
+          // Keep refreshed base token if switch is rejected
+        }
+      }
 
       if (tokenStorage != null) {
         await tokenStorage!.saveTokens(
-          accessToken: newAccessToken,
+          accessToken: effectiveAccessToken,
           refreshToken: newRefreshToken ?? refreshToken,
         );
       } else {
-        await storage.write(key: 'access_token', value: newAccessToken);
+        await storage.write(key: 'access_token', value: effectiveAccessToken);
         if (newRefreshToken != null && newRefreshToken.isNotEmpty) {
           await storage.write(key: 'refresh_token', value: newRefreshToken);
         }
@@ -167,6 +204,21 @@ class AuthInterceptor extends Interceptor {
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  String? _extractClaim(String jwt, String key) {
+    try {
+      final parts = jwt.split('.');
+      if (parts.length != 3) return null;
+      final padded = parts[1].padRight((parts[1].length + 3) & ~3, '=');
+      final jsonMap =
+          jsonDecode(utf8.decode(base64Url.decode(padded)))
+              as Map<String, dynamic>;
+      final value = jsonMap[key];
+      return value?.toString();
+    } catch (_) {
+      return null;
     }
   }
 }

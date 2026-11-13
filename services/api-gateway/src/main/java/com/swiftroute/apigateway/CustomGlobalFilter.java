@@ -21,7 +21,7 @@ import java.util.UUID;
  *  3. Log HTTP status sau khi request hoàn thành
  *
  * Thứ tự thực thi:
- *  - JwtAuthFilter (order = -2): verify JWT, inject X-User-Id/X-User-Role/X-Tenant-Id
+ *  - JwtAuthFilter (order = -2): verify JWT, inject X-User-Id/X-System-Role/X-Tenant-Role/X-Tenant-Id
  *  - CustomGlobalFilter (order = -1): log + gán X-Request-ID (đọc được header đã inject)
  *
  * Lý do đọc X-User-Id từ header thay vì từ Principal:
@@ -40,7 +40,9 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered {
 
         // Đọc user context đã được JwtAuthFilter inject (nếu có)
         String userId = exchange.getRequest().getHeaders().getFirst("X-User-Id");
-        String userRole = exchange.getRequest().getHeaders().getFirst("X-User-Role");
+        String tenantRole = exchange.getRequest().getHeaders().getFirst("X-Tenant-Role");
+        String systemRole = exchange.getRequest().getHeaders().getFirst("X-System-Role");
+        String userRole = tenantRole != null ? tenantRole : systemRole;
 
         log.info("[{}] {} {} | user={} role={}",
                 requestId,

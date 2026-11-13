@@ -15,15 +15,16 @@ class DriverModel {
   final String fullName;
   final String phone;
   final String licensePlate;
-  final String vehicleType;  // MOTORCYCLE | CAR | TRUCK | VAN
+  final String vehicleType; // MOTORCYCLE | CAR | TRUCK | VAN
   final int? capacity;
-  final String driverType;   // FULL_TIME | PART_TIME | FREELANCE
-  final String? shiftStart;  // "HH:mm:ss"
+  final String driverType; // DEDICATED
+  final String? shiftStart; // "HH:mm:ss"
   final String? shiftEnd;
   final double? currentLat;
   final double? currentLng;
   final bool isAvailable;
-  final String status;       // ACTIVE | SUSPENDED | INACTIVE
+  final String status; // ACTIVE | SUSPENDED | INACTIVE
+  final String? reviewNote;
 
   const DriverModel({
     required this.id,
@@ -41,6 +42,7 @@ class DriverModel {
     this.currentLng,
     required this.isAvailable,
     required this.status,
+    this.reviewNote,
   });
 
   factory DriverModel.fromJson(Map<String, dynamic> json) {
@@ -51,34 +53,33 @@ class DriverModel {
       fullName: json['full_name'] as String? ?? '',
       phone: json['phone'] as String? ?? '',
       licensePlate: json['license_plate'] as String? ?? '',
-      vehicleType: json['vehicle_type'] as String? ?? 'CAR',
+      vehicleType: json['vehicle_type'] as String? ?? '',
       capacity: (json['capacity'] as num?)?.toInt(),
-      driverType: json['driver_type'] as String? ?? 'FULL_TIME',
+      driverType: json['driver_type'] as String? ?? '',
       shiftStart: json['shift_start'] as String?,
       shiftEnd: json['shift_end'] as String?,
       currentLat: (json['current_lat'] as num?)?.toDouble(),
       currentLng: (json['current_lng'] as num?)?.toDouble(),
       isAvailable: json['is_available'] as bool? ?? false,
-      status: json['status'] as String? ?? 'ACTIVE',
+      status: json['status'] as String? ?? '',
+      reviewNote: json['review_note'] as String?,
     );
   }
 
   /// Human-readable vehicle type label
   String get vehicleTypeLabel => switch (vehicleType) {
-        'MOTORCYCLE' => 'Xe máy',
-        'CAR' => 'Ô tô',
-        'TRUCK' => 'Xe tải',
-        'VAN' => 'Van',
-        _ => vehicleType,
-      };
+    'MOTORCYCLE' => 'Xe máy',
+    'CAR' => 'Ô tô',
+    'TRUCK' => 'Xe tải',
+    'VAN' => 'Van',
+    _ => 'Chưa bổ sung',
+  };
 
   /// Human-readable driver type label
   String get driverTypeLabel => switch (driverType) {
-        'FULL_TIME' => 'Toàn thời gian',
-        'PART_TIME' => 'Bán thời gian',
-        'FREELANCE' => 'Tự do',
-        _ => driverType,
-      };
+    'DEDICATED' => 'Tài xế doanh nghiệp',
+    _ => 'Chưa bổ sung',
+  };
 
   /// Shift hours formatted as "08:00 - 17:00"
   String get shiftDisplay {
@@ -106,6 +107,7 @@ class DriverModel {
       currentLng: currentLng,
       isAvailable: isAvailable ?? this.isAvailable,
       status: status,
+      reviewNote: reviewNote,
     );
   }
 }

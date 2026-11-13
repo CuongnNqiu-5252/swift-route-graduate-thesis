@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
  * Thứ tự bắt lỗi:
  *  1. AppException  → lỗi nghiệp vụ có kiểm soát (Order/Tenant không tìm thấy, v.v.)
  *  2. MethodArgumentNotValidException → lỗi @Valid trên DTO
- *  3. MissingRequestHeaderException   → thiếu header X-User-Id, X-Tenant-Id từ Gateway
+ *  3. MissingRequestHeaderException   → thiếu header bắt buộc (vd: Idempotency-Key, X-Service-Key)
  *  4. Exception (generic)             → lưới vét cuối — 500
  */
 @RestControllerAdvice
@@ -44,13 +44,31 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
     }
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        log.warn("Malformed JSON request: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
+    }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.warn("Resource not found: {}", ex.getResourcePath());
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ErrorCode.ORDER_NOT_FOUND));
+    }
+
     /**
-     * Khi Gateway không inject header (ví dụ test trực tiếp bỏ qua Gateway).
-     * Trả về 401 thay vì 400 vì thiếu header = chưa qua xác thực.
+     * Trả về 400 nếu thiếu Idempotency-Key, và 401 nếu thiếu header xác thực nội bộ (vd: X-Service-Key).
      */
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<ApiResponse<Void>> handleMissingHeader(MissingRequestHeaderException ex) {
         log.warn("Missing required header: {}", ex.getHeaderName());
+        if ("Idempotency-Key".equalsIgnoreCase(ex.getHeaderName())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
+        }
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.error(ErrorCode.UNAUTHENTICATED));
@@ -62,6 +80,16 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleAsyncDisconnect(AsyncRequestNotUsableException ex) {
         log.info("Client disconnected from SSE tracking stream: {}", ex.getMessage());
+    }
+
+    @ExceptionHandler({org.springframework.dao.DataIntegrityViolationException.class,org.springframework.orm.ObjectOptimisticLockingFailureException.class})
+    public ResponseEntity<ApiResponse<Void>> conflict(Exception ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(ErrorCode.CONCURRENT_UPDATE));
+    }
+
+    @ExceptionHandler({org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,IllegalArgumentException.class})
+    public ResponseEntity<ApiResponse<Void>> invalidArgument(Exception ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ApiResponse.error(ErrorCode.VALIDATION_ERROR));
     }
 
     @ExceptionHandler(Exception.class)

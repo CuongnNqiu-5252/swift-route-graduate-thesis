@@ -20,11 +20,11 @@ public record RegisterDriverRequest(
 
                 @NotBlank(message = "phone is required") @Pattern(regexp = "^\\+?[0-9]{9,15}$", message = "phone format is invalid") String phone,
 
-                @NotBlank(message = "license_plate is required") @Size(max = 20) String licensePlate,
+                @Size(max = 20) String licensePlate,
 
                 @NotNull(message = "vehicle_type is required") VehicleType vehicleType,
 
-                Integer capacity,
+                @jakarta.validation.constraints.Positive Integer capacity,
 
                 @NotNull(message = "driver_type is required") DriverType driverType,
 

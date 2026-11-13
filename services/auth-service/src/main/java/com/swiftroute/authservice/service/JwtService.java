@@ -12,6 +12,7 @@ import java.util.HexFormat;
 import javax.crypto.SecretKey;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.authservice.config.JwtConfig;
 import com.swiftroute.authservice.entity.RefreshToken;
@@ -26,7 +27,6 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class JwtService {
@@ -46,12 +46,17 @@ public class JwtService {
     }
 
     public String generateAccessToken(User user, long ttlMinutes) {
+        return generateTenantAccessToken(user, null, null, ttlMinutes);
+    }
+
+    public String generateTenantAccessToken(User user, java.util.UUID tenantId, String role, long ttlMinutes) {
         return Jwts.builder()
                 .subject(user.getId().toString())
-                .claim("_ROLE", user.getRole().toString())
-                .claim("tenant_id", user.getTenantId() != null ? user.getTenantId().toString() : null)
+                .claim("system_role", user.getRole().name())
+                .claim("tenant_id", tenantId != null ? tenantId.toString() : null)
+                .claim("tenant_role", role)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + ttlMinutes * 60 * 1000))
+                .expiration(new Date(System.currentTimeMillis() + ttlMinutes * 60_000L))
                 .signWith(secretKey)
                 .compact();
     }
@@ -150,6 +155,11 @@ public class JwtService {
 
     public String extractRole(String token) {
         Claims claims = jwtParser.parseSignedClaims(token).getPayload();
-        return claims.get("_ROLE", String.class);
+        return claims.get("system_role", String.class);
+    }
+
+    public String extractTenantRole(String token) {
+        Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+        return claims.get("tenant_role", String.class);
     }
 }

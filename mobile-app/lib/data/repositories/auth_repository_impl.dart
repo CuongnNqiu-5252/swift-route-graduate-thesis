@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
+import 'package:swiftroute_app/core/offline/sqlite_offline_store.dart';
 import 'package:swiftroute_app/data/models/auth_model.dart';
 import 'package:swiftroute_app/domain/entities/user.dart';
 import 'package:swiftroute_app/domain/repositories/auth_repository.dart';
@@ -32,12 +33,12 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
         password: password,
         fullName: username,
-        phoneNumber: phoneNumber,
-        address: address,
-        city: city,
-        state: state,
-        zipCode: zipCode,
-        country: country,
+        phoneNumber: phoneNumber.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        zipCode: zipCode.trim(),
+        country: country.trim(),
       );
       // POST /api/auth/register → 201 { data: null }
       await _dio.post('/auth/register', data: request.toJson());
@@ -58,6 +59,15 @@ class AuthRepositoryImpl implements AuthRepository {
         response.data as Map<String, dynamic>,
       );
 
+      final previousToken = await _tokenStorage.getAccessToken();
+      final previousUser = previousToken == null
+          ? null
+          : _decodeUserFromToken(previousToken);
+      final nextUser = _decodeUserFromToken(loginResponse.accessToken);
+      if (previousUser == null || previousUser.id != nextUser.id) {
+        await SqliteOfflineStore.instance.clearAll();
+      }
+
       await _tokenStorage.saveTokens(
         accessToken: loginResponse.accessToken,
         refreshToken: loginResponse.refreshToken,
@@ -67,11 +77,14 @@ class AuthRepositoryImpl implements AuthRepository {
       try {
         final meResponse = await _dio.get('/auth/me');
         final meData = meResponse.data['data'] as Map<String, dynamic>;
+        final tokenUser = _decodeUserFromToken(loginResponse.accessToken);
         return UserModel(
           id: meData['id'] as String? ?? '',
           email: meData['email'] as String? ?? identifier,
           name: meData['full_name'] as String? ?? '',
-          role: (meData['role'] as String? ?? 'CUSTOMER').toUpperCase(),
+          // The signed access token carries the active tenant membership role.
+          // account_role from /auth/me is platform-scoped and must not drive the Driver app.
+          role: tokenUser.role,
         );
       } catch (_) {
         // Fallback: decode user info from the access token payload (JWT)
@@ -93,9 +106,14 @@ class AuthRepositoryImpl implements AuthRepository {
       final padded = payload.padRight((payload.length + 3) & ~3, '=');
       final decoded = utf8.decode(base64Url.decode(padded));
       final claims = jsonDecode(decoded) as Map<String, dynamic>;
-      final rawRole = claims['_ROLE'] ?? claims['role'] ?? claims['roles'] ?? 'CUSTOMER';
+      final rawRole =
+          claims['tenant_role'] ??
+          claims['system_role'] ??
+          claims['role'] ??
+          claims['roles'] ??
+          'USER';
       final role = (rawRole is List)
-          ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'CUSTOMER')
+          ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'USER')
           : rawRole.toString();
       return UserModel(
         id: (claims['sub'] ?? '') as String,
@@ -105,7 +123,7 @@ class AuthRepositoryImpl implements AuthRepository {
       );
     } catch (_) {
       // Fallback: return placeholder until /auth/me is called
-      return const UserModel(id: '', email: '', name: '', role: 'CUSTOMER');
+      return const UserModel(id: '', email: '', name: '', role: 'USER');
     }
   }
 
@@ -123,6 +141,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (_) {
       // Ignore network errors on logout — always clear local tokens
     } finally {
+      await SqliteOfflineStore.instance.clearAll();
       await _tokenStorage.clearAll();
     }
   }
@@ -136,11 +155,13 @@ class AuthRepositoryImpl implements AuthRepository {
       try {
         final response = await _dio.get('/auth/me');
         final data = response.data['data'] as Map<String, dynamic>;
+        final effectiveToken = await _tokenStorage.getAccessToken() ?? token;
+        final tokenUser = _decodeUserFromToken(effectiveToken);
         return UserModel(
           id: data['id'] as String? ?? '',
           email: data['email'] as String? ?? '',
           name: data['full_name'] as String? ?? '',
-          role: (data['role'] as String? ?? 'CUSTOMER').toUpperCase(),
+          role: tokenUser.role,
         );
       } catch (_) {
         return _decodeUserFromToken(token);

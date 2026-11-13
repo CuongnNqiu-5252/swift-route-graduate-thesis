@@ -19,11 +19,11 @@ import reactor.core.scheduler.Schedulers;
  * - Trong WebFlux reactive pipeline, blocking calls cần được offload
  * sang bounded elastic thread pool để không block event loop
  *
- * Claims được parse tương ứng với những gì JwtService.generateAccessToken()
- * của auth-service đặt vào:
- * - subject = userId
- * - "_ROLE" = role
- * - "tenant_id" = tenantId
+ * Claims match what auth-service's JwtService embeds into tokens:
+ * - subject       = userId
+ * - "system_role" = systemRole (SYSTEM_ADMIN, USER)
+ * - "tenant_id"   = tenantId (nullable)
+ * - "tenant_role" = tenantRole (nullable)
  */
 @Component
 public class JwtVerifier {
@@ -35,9 +35,9 @@ public class JwtVerifier {
     }
 
     /**
-     * Verify token và trả về JwtClaims nếu hợp lệ.
-     * Throw exception (được onErrorResume xử lý trong JwtAuthFilter)
-     * nếu token hết hạn, sai chữ ký, hoặc malformed.
+     * Verify token and return parsed JwtClaims when valid.
+     * Throws an exception (handled by onErrorResume in JwtAuthFilter)
+     * when the token is expired, has an invalid signature, or is malformed.
      */
     public Mono<JwtClaims> verify(String token) {
         return Mono.fromCallable(() -> {
@@ -46,9 +46,10 @@ public class JwtVerifier {
                     .getPayload();
 
             return new JwtClaims(
-                    claims.getSubject(), // userId (UUID string)
-                    claims.get("_ROLE", String.class), // role enum name
-                    claims.get("tenant_id", String.class) // tenantId (nullable)
+                    claims.getSubject(),
+                    claims.get("system_role", String.class),
+                    claims.get("tenant_id", String.class),
+                    claims.get("tenant_role", String.class)
             );
         }).subscribeOn(Schedulers.boundedElastic());
     }

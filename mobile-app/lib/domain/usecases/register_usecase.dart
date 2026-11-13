@@ -5,7 +5,17 @@ class RegisterUseCase {
 
   RegisterUseCase(this._repository);
 
-  Future<void> execute(String email, String password, String username) {
-    return _repository.register(email, password, username);
+  Future<void> execute(
+    String email,
+    String password,
+    String username, {
+    String phoneNumber = '',
+  }) {
+    return _repository.register(
+      email,
+      password,
+      username,
+      phoneNumber: phoneNumber,
+    );
   }
 }

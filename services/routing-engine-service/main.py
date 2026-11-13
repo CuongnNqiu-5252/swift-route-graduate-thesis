@@ -2,50 +2,62 @@
 """
 SwiftRoute Routing Engine — FastAPI application entry point.
 Runs on port 8084. API Gateway forwards /api/routing/** to this service.
-Includes background RabbitMQ consumer for asynchronous order processing.
+Stateless route optimisation microservice called by Order Service.
 """
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
+import logging
+import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
-from service.rabbitmq_consumer import start_consumer
+from service.grpc_server import start_grpc_server, stop_grpc_server
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+logger = logging.getLogger("routing-engine.main")
+
+
+def _load_root_env() -> None:
+    """Populate missing env vars from workspace root .env for local non-Docker runs."""
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_root_env()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Manages application lifecycle:
-      - Starts RabbitMQ consumer in background on startup
-      - Gracefully terminates consumer task on shutdown
-    """
-    stop_event = asyncio.Event()
-    consumer_task = asyncio.create_task(start_consumer(stop_event))
-    yield
-    stop_event.set()
-    consumer_task.cancel()
+    """Starts the gRPC server alongside FastAPI on startup and stops it on shutdown."""
+    start_grpc_server()
     try:
-        await consumer_task
-    except (asyncio.CancelledError, Exception):
-        pass
+        yield
+    finally:
+        stop_grpc_server()
 
 
 app = FastAPI(
     title="SwiftRoute Routing Engine",
     version="1.0.0",
     description=(
-        "TSP/VRP route optimisation engine with Held-Karp Bitmask DP, "
-        "Nearest Neighbor heuristic and Genetic Algorithm. "
-        "Accepts depot + delivery stops, returns an optimised route with distances and ETA. "
-        "Integrates with RabbitMQ for event-driven shift planning and plan persistence."
+        "Industrial TSP/VRP route optimisation engine powered by Google OR-Tools. "
+        "Accepts depot + delivery stops, returns an optimised route with distances and ETA."
     ),
-    lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Allow calls from API Gateway, Swagger UI, and mobile app during local development

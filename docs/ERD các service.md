@@ -70,14 +70,14 @@ tenants 1 ──▶ 1 tenant_profiles
 business_profile_templates 1 ──▶ N tenant_profiles
 tenants 1 ──▶ N tenant_upgrade_requests
 tenants 1 ──▶ N onboarding_progress
-tenants 1 ──▶ N pickup_points
-tenants 1 ──▶ N products
+tenants 1 ──▶ N pickup_locations
 tenants 1 ──▶ N orders
-pickup_points 1 ──▶ N orders
-orders 1 ──▶ N order_items (ít nhất 1)
-products 1 ──▶ N order_items (product_id có thể rỗng)
-orders 1 ──▶ N order_status_history
-orders 1 ──▶ 0..1 order_reviews
+pickup_locations 1 ──▶ N orders
+orders 1 ──▶ N dispatch_plan_orders
+dispatch_plans 1 ──▶ N dispatch_plan_orders
+orders 1 ──▶ N delivery_tasks
+orders 1 ──▶ N package_units
+orders 1 ──▶ N cod_collections
 ```
 
 Cột chính:
@@ -87,12 +87,12 @@ Cột chính:
 - tenant\_profiles: tenant\_id (uuid, PK, FK), template\_id (uuid, FK), time\_weight và cost\_weight (decimal 3,2, tổng bằng 1), max\_orders\_per\_trip (int), max\_delivery\_minutes (int), allow\_pooled\_drivers (boolean), overrides (jsonb), schema\_version (int), updated\_at (timestamptz), version (int)
 - tenant\_upgrade\_requests: request\_id (uuid, PK), tenant\_id (uuid, FK), tax\_code (varchar 20), business\_address (varchar 500), license\_url (varchar 500), status (PENDING, APPROVED, REJECTED), reviewed\_by (uuid), review\_note (text), submitted\_at và reviewed\_at (timestamptz)
 - onboarding\_progress: tenant\_id (uuid, FK), step\_code (varchar 50), completed\_at (timestamptz); khoá ghép tenant\_id và step\_code
-- pickup\_points: pickup\_point\_id (uuid, PK), tenant\_id (uuid, FK), name (varchar 255), address (varchar 500), lat và lng (double), is\_default và is\_active (boolean)
-- products: product\_id (uuid, PK), tenant\_id (uuid, FK), name (varchar 255), price (decimal 12,2), category (varchar 100), is\_active (boolean), created\_at và updated\_at (timestamptz)
-- orders: order\_id (uuid, PK), tenant\_id (uuid, FK), customer\_id (uuid), pickup\_point\_id (uuid, FK), delivery\_lat và delivery\_lng (double), delivery\_address (varchar 500), window\_start và window\_end (timestamptz), weight\_kg (double), subtotal\_amount, delivery\_fee và total\_amount (decimal 12,2), priority (NORMAL, HIGH, URGENT), status (PENDING\_PAYMENT, PAYMENT\_FAILED, PAID, PLANNED, IN\_TRANSIT, DELIVERED, FAILED, CANCELLED), shift\_date (date), assigned\_driver\_id và plan\_id (uuid), created\_at và updated\_at (timestamptz), version (int)
-- order\_items: order\_item\_id (uuid, PK), order\_id (uuid, FK), product\_id (uuid, FK, có thể rỗng), item\_name (varchar 255), quantity (int, lớn hơn 0), unit\_price và subtotal (decimal 12,2), note (varchar 255)
-- order\_status\_history: history\_id (uuid, PK), order\_id (uuid, FK), from\_status và to\_status (varchar 30), changed\_by (uuid), reason (varchar 255), changed\_at (timestamptz)
-- order\_reviews: review\_id (uuid, PK), order\_id (uuid, FK, UK), customer\_id và driver\_id (uuid), rating (int, từ 1 đến 5), comment (text), created\_at (timestamptz)
+- pickup_locations: pickup_location_id (uuid, PK), tenant_id (uuid, FK), name (varchar 255), address (varchar 500), lat và lng (double), is_default (boolean), status (varchar 20)
+- orders: order_id (uuid, PK), tenant_id (uuid, FK), external_order_code (varchar 100), tracking_token (varchar 64, UK), sender_name, sender_phone, recipient_name, recipient_phone, pickup_location_id (uuid, FK), delivery_lat và delivery_lng (double), delivery_address (varchar 500), time_window_start và time_window_end (timestamptz), weight_kg (double), package_count (int), package_category (varchar 30), cod_amount, declared_value, delivery_fee (decimal 12,2), payer (SENDER, RECIPIENT), priority (NORMAL, HIGH, URGENT), status (CREATED, READY_FOR_DISPATCH, ASSIGNED, PICKED_UP, IN_TRANSIT, DELIVERED, FAILED, RETURNED, CANCELLED), assigned_driver_id (uuid), created_at và updated_at (timestamptz)
+- dispatch_plans: plan_id (uuid, PK), tenant_id (uuid, FK), driver_id (uuid), plan_status (DRAFT, APPROVED, DISPATCHED, COMPLETED, CANCELLED), total_distance_km, estimated_duration_minutes, created_at (timestamptz)
+- dispatch_plan_orders: plan_id (uuid, FK), order_id (uuid, FK), stop_index (int), estimated_arrival_time (timestamptz)
+- delivery_tasks: task_id (uuid, PK), order_id (uuid, FK), driver_id (uuid), task_type (PICKUP, DELIVERY, RETURN), status (ASSIGNED, ARRIVED, COMPLETED, FAILED)
+- cod_collections: collection_id (uuid, PK), order_id (uuid, FK), tenant_id (uuid), driver_id (uuid), collected_amount (decimal 12,2), status (COLLECTED, DECLARED, VERIFIED, DISCREPANCY)
 
 * tenant\_profiles chép các tham số từ business\_profile\_templates khi chọn loại hình, tenant ghi đè trong overrides hoặc các cột riêng; Routing Engine đọc trực tiếp các cột riêng.
 * onboarding\_progress có khoá ghép (tenant\_id, step\_code) để tính phần trăm checklist.

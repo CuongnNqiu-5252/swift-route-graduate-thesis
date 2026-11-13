@@ -30,12 +30,20 @@ class StopItem(BaseModel):
 class BatchOptimizationRequest(BaseModel):
     depot: LocationPoint
     stops: List[StopItem] = Field(..., min_length=1)
-    algorithm: str = Field("auto", description="held_karp | nearest_neighbor | genetic | auto")
+    algorithm: str = Field("auto", description="auto | ortools")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for delivery time in multi-objective function")
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for distance/cost in multi-objective function")
+    vehicle_count: int = Field(1, ge=1, le=50, description="Number of available delivery vehicles/drivers for CVRP partitioning")
+    vehicle_capacities: Optional[List[float]] = Field(None, description="Optional cargo capacity (kg) per vehicle")
+    max_stops_per_vehicle: Optional[int] = Field(None, ge=1, le=100, description="Optional maximum stops per vehicle")
 
     @field_validator("algorithm")
     @classmethod
     def validate_algorithm(cls, v: str) -> str:
-        allowed = {"held_karp", "nearest_neighbor", "genetic", "auto"}
+        # Gracefully normalize any legacy algorithm names to ortools for backward compatibility
+        if v in {"held_karp", "nearest_neighbor", "genetic"}:
+            return "ortools"
+        allowed = {"ortools", "auto"}
         if v not in allowed:
             raise ValueError(f"algorithm must be one of {allowed}")
         return v
@@ -49,12 +57,21 @@ class OrderedStop(BaseModel):
     estimated_arrival_minutes: float
 
 
+class VehicleRoute(BaseModel):
+    vehicle_index: int
+    total_distance_km: float
+    total_duration_minutes: float
+    total_load_kg: float
+    ordered_stops: List[OrderedStop]
+
+
 class BatchOptimizationResponse(BaseModel):
     job_id: str
     algorithm_used: str
     total_distance_km: float
     total_duration_minutes: float
     ordered_stops: List[OrderedStop]
+    vehicle_routes: List[VehicleRoute] = Field(default_factory=list)
     execution_time_ms: float
     timestamp: str
 
@@ -83,60 +100,56 @@ class WhatIfOptimizationResponse(BaseModel):
     late_risk_delta: int
 
 
-class PendingOrder(BaseModel):
-    order_id: str
-    tenant_id: str
-    customer_id: Optional[str] = None
-    pickup_lat: float
-    pickup_lng: float
-    pickup_address: Optional[str] = None
-    delivery_lat: float
-    delivery_lng: float
-    delivery_address: Optional[str] = None
-    weight_kg: float = 1.0
+class RouteStopState(BaseModel):
+    id: str = Field(..., description="Stop / order UUID")
+    name: Optional[str] = None
+    location: LocationPoint
+    demand_kg: float = Field(0.0, ge=0.0)
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
-    status: str = "PENDING_PAYMENT"
-    shift: str = "MORNING"  # MORNING | AFTERNOON | EVENING | ALL
-    received_at: str
+    is_completed: bool = Field(False, description="True if driver already completed this stop")
 
 
-class ShiftOptimizationRequest(BaseModel):
-    tenant_id: str
-    shift: str = Field("ALL", description="MORNING | AFTERNOON | EVENING | ALL")
-    depot: Optional[LocationPoint] = None
-    driver_ids: Optional[List[str]] = Field(
-        default=None,
-        description="Optional list of driver UUIDs to partition deliveries across"
-    )
-    algorithm: str = Field("auto", description="held_karp | nearest_neighbor | genetic | auto")
+class RouteInsertRequest(BaseModel):
+    driver_location: LocationPoint = Field(..., description="Current GPS position of the active driver")
+    current_stops: List[RouteStopState] = Field(..., description="Existing route stops with completion flags")
+    new_stop: StopItem = Field(..., description="New order stop to dynamically insert into remaining route")
+    max_added_duration_minutes: float = Field(30.0, gt=0.0, description="Max acceptable ETA increase in minutes")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
 
 
-class DriverRoutePlan(BaseModel):
-    driver_id: Optional[str] = None
-    driver_name: Optional[str] = None
+class RouteInsertResponse(BaseModel):
+    job_id: str
+    algorithm_used: str
+    feasible: bool
+    inserted_stop_index: int
+    added_distance_km: float
+    added_duration_minutes: float
     total_distance_km: float
     total_duration_minutes: float
     ordered_stops: List[OrderedStop]
+    execution_time_ms: float
+    timestamp: str
 
 
-class RoutingPlan(BaseModel):
-    plan_id: str
-    tenant_id: str
-    shift: str
-    status: str = "DRAFT"  # DRAFT | APPROVED | DISPATCHED
+class RouteReoptimizeRequest(BaseModel):
+    driver_location: LocationPoint = Field(..., description="Current GPS position of the active driver")
+    current_stops: List[RouteStopState] = Field(..., min_length=1, description="Route stops with is_completed flags")
+    reason: Optional[str] = Field("DELAY_DETECTED", description="Reason for reoptimization")
+    min_improvement_km: float = Field(0.2, ge=0.0, description="Minimum distance saved to justify changing route")
+    time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+    cost_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0)
+
+
+class RouteReoptimizeResponse(BaseModel):
+    job_id: str
     algorithm_used: str
-    total_orders: int
+    stops_changed: bool
+    distance_saved_km: float
     total_distance_km: float
     total_duration_minutes: float
-    driver_routes: List[DriverRoutePlan]
-    created_at: str
-    dispatched_at: Optional[str] = None
+    ordered_stops: List[OrderedStop]
+    execution_time_ms: float
+    timestamp: str
 
-
-class DispatchPlanResponse(BaseModel):
-    plan_id: str
-    status: str
-    dispatched_orders_count: int
-    assignments: List[dict]
-    message: str

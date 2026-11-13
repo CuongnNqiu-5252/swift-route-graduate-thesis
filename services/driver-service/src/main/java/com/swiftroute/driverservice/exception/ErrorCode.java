@@ -25,7 +25,11 @@ public enum ErrorCode {
     // ===== Driver business errors =====
     DRIVER_NOT_FOUND(404, "Driver not found", HttpStatus.NOT_FOUND),
     DRIVER_ALREADY_EXISTS(409, "Driver already exists", HttpStatus.CONFLICT),
-    DRIVER_SUSPENDED(403, "Driver account is suspended", HttpStatus.FORBIDDEN);
+    DRIVER_SUSPENDED(403, "Driver account is suspended", HttpStatus.FORBIDDEN),
+    EARNING_NOT_FOUND(404, "Driver earning not found", HttpStatus.NOT_FOUND),
+    SETTLEMENT_NOT_FOUND(404, "Driver settlement not found", HttpStatus.NOT_FOUND),
+    SETTLEMENT_EMPTY(409, "No pending earnings are available for this settlement", HttpStatus.CONFLICT),
+    INVALID_SETTLEMENT_STATUS(409, "Settlement status does not allow this action", HttpStatus.CONFLICT);
 
     private final int code;
     private final String message;

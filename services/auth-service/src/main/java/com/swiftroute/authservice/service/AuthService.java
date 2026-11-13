@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
+import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
 import com.swiftroute.authservice.dto.response.LoginResponseDTO;
 import com.swiftroute.authservice.dto.response.UserProfileResponseDTO;
 
@@ -14,12 +15,14 @@ public interface AuthService {
 
     public LoginResponseDTO login(LoginRequestDTO request, HttpServletRequest httpRequest);
 
-    void register(RegisterRequestDTO request);
+    public void register(RegisterRequestDTO request);
 
     public LoginResponseDTO refreshAccessToken(String refreshToken, HttpServletRequest httpRequest);
 
     public void logout(String refreshToken);
 
-    UserProfileResponseDTO getProfile(java.util.UUID userId);
+    UserProfileResponseDTO getProfile(java.util.UUID userId, String effectiveRole);
+
+    UserProfileResponseDTO updateProfile(java.util.UUID userId, UpdateProfileRequestDTO request, String effectiveRole);
 
 }
