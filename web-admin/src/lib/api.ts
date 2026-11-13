@@ -138,6 +138,18 @@ api.interceptors.request.use((config) => {
 // Response interceptor: Unwrap API response and handle transparent token refresh on 401
 api.interceptors.response.use(
   (response: AxiosResponse<ApiResponse<unknown>>) => {
+    if (response.config.responseType === 'stream' || response.config.baseURL === '') {
+      const raw = response.data as { error?: unknown } | undefined;
+      if (response.config.baseURL === '' && raw && typeof raw === 'object' && 'error' in raw && raw.error) {
+        const msg =
+          typeof raw.error === 'string'
+            ? raw.error
+            : (raw.error as { message?: string }).message || 'Lỗi kết nối máy chủ';
+        return Promise.reject(new Error(msg));
+      }
+      return response;
+    }
+
     const body = response.data;
     if (body?.error) {
       return Promise.reject(new Error(body.error.message));
@@ -146,6 +158,10 @@ api.interceptors.response.use(
     return { ...response, data: body.data } as AxiosResponse;
   },
   async (error: AxiosError<ApiResponse<unknown>>) => {
+    if (axios.isCancel(error) || error.name === 'AbortError') {
+      return Promise.reject(error);
+    }
+
     const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
 
     const requestUrl = originalRequest?.url || '';
@@ -198,15 +214,76 @@ api.interceptors.response.use(
       }
     }
 
-    const errorPayload = error.response?.data as { error?: { message?: string }; message?: string } | undefined;
+    const errorPayload = error.response?.data as
+      | { error?: { message?: string } | string; message?: string }
+      | undefined;
+    const nestedMessage =
+      typeof errorPayload?.error === 'string' ? errorPayload.error : errorPayload?.error?.message;
     const msg =
-      errorPayload?.error?.message ||
+      nestedMessage ||
       errorPayload?.message ||
       error.message ||
       'Lỗi kết nối máy chủ';
 
-    return Promise.reject(new Error(msg));
+    const rejected = new Error(msg) as Error & { status?: number };
+    if (status !== undefined) {
+      rejected.status = status;
+    }
+    return Promise.reject(rejected);
   }
 );
+
+/**
+ * Open a Server-Sent Events stream through the shared Axios client
+ * so auth headers, tenant context, and 401 token refresh stay centralized.
+ */
+export async function streamSse(
+  path: string,
+  options: {
+    signal: AbortSignal;
+    headers?: Record<string, string>;
+    onOpen?: () => void | Promise<void>;
+    onEvent: (eventName: string, data: string) => void;
+  },
+): Promise<void> {
+  const response = await api.get<ReadableStream<Uint8Array>>(path, {
+    adapter: 'fetch',
+    responseType: 'stream',
+    headers: options.headers,
+    signal: options.signal,
+  });
+
+  const stream = response.data;
+  if (!stream || typeof stream.getReader !== 'function') {
+    throw new Error('Máy chủ không trả về luồng SSE hợp lệ');
+  }
+
+  await options.onOpen?.();
+
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (!options.signal.aborted) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+
+    buffer += decoder.decode(chunk.value, { stream: true }).replaceAll('\r\n', '\n');
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+
+    for (const block of blocks) {
+      let eventName = 'message';
+      const dataLines: string[] = [];
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim();
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+      }
+      if (dataLines.length > 0) {
+        options.onEvent(eventName, dataLines.join('\n'));
+      }
+    }
+  }
+}
 
 export default api;

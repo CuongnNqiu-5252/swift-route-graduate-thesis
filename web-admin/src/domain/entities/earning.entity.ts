@@ -1,5 +1,5 @@
-export type EarningStatus = 'PENDING' | 'APPROVED' | 'PAID' | 'CANCELLED';
-export type SettlementStatus = 'DRAFT' | 'APPROVED' | 'PAID' | 'CANCELLED';
+export type EarningStatus = 'PENDING' | 'APPROVED' | 'PAID';
+export type SettlementStatus = 'DRAFT' | 'APPROVED' | 'PAID';
 
 export interface DriverEarning {
   id: string;

@@ -29,6 +29,8 @@ export const tenantSettingsRepository = {
         max_orders_per_driver: data.dispatch_config?.max_orders_per_driver ?? 5,
         algorithm: data.dispatch_config?.algorithm || 'auto',
         allow_pool_drivers: data.dispatch_config?.allow_pool_drivers ?? false,
+        scheduled_dispatch_enabled: data.dispatch_config?.scheduled_dispatch_enabled ?? true,
+        scheduled_dispatch_time: data.dispatch_config?.scheduled_dispatch_time || '06:00',
       },
       optimization_weights: {
         time_weight: Number(data.optimization_weights?.time_weight ?? data.optimization_weights?.timeWeight ?? 0.5),

@@ -36,6 +36,7 @@ const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
   { label: 'Đang giao', value: 'IN_TRANSIT' },
   { label: 'Đã giao', value: 'DELIVERED' },
   { label: 'Sự cố', value: 'FAILED' },
+  { label: 'Chuyển hoàn', value: 'RETURNED' },
   { label: 'Đã hủy', value: 'CANCELLED' },
 ];
 
@@ -75,7 +76,13 @@ export default function OrdersPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      if (activeTab && order.status !== activeTab) return false;
+      if (activeTab) {
+        if (activeTab === 'READY_FOR_DISPATCH') {
+          if (order.status !== 'READY_FOR_DISPATCH' && (order.status as string) !== 'PAID') return false;
+        } else if (order.status !== activeTab) {
+          return false;
+        }
+      }
       if (warehouseFilter) {
         const key = order.pickup_location_id || order.pickup_location_name || order.pickup_address;
         if (key !== warehouseFilter) return false;

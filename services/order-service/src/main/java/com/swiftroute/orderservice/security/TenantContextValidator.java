@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.security;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Component;
@@ -9,6 +10,7 @@ import com.swiftroute.orderservice.entity.enums.TenantStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.TenantRepository;
+import com.swiftroute.orderservice.service.OperationalReadinessService;
 
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Validates tenant access authoritatively at the backend service layer.
- * Does NOT merely trust client headers; validates against JWT claims (when present)
- * and database tenant lifecycle status (single source of truth in order_db.tenants).
+ * Enforces stateless JWT claims (system_role, tenant_id, tenant_role) and
+ * database tenant lifecycle status (single source of truth in order_db.tenants).
  */
 @Component
 @RequiredArgsConstructor
@@ -26,76 +28,41 @@ public class TenantContextValidator {
 
     private final JwtTokenValidator jwtTokenValidator;
     private final TenantRepository tenantRepository;
-    @org.springframework.beans.factory.annotation.Autowired
-    private TenantIdentityClient identities;
 
     /**
-     * Authoritatively resolves and validates tenant access for the current request.
+     * Authoritatively resolves and validates tenant access for the current workspace request.
      *
      * @param tenantIdHeader Header X-Tenant-Id (optional if present in JWT)
-     * @param authHeader     Header Authorization Bearer token (optional if forwarded via Gateway)
-     * @return Validated active Tenant entity
+     * @param authHeader     Header Authorization Bearer token
+     * @return Validated Tenant entity
      */
     public Tenant validateWorkspaceAccess(String tenantIdHeader, String authHeader) {
-        var claims=jwtTokenValidator.parseAndValidate(authHeader);
-        if (claims==null) throw new AppException(ErrorCode.UNAUTHENTICATED);
-        String id=tenantIdHeader!=null && !tenantIdHeader.isBlank() ? tenantIdHeader : claims.get("tenant_id",String.class);
-        if (id==null) throw new AppException(ErrorCode.ACCESS_DENIED);
-        UUID tenantId=UUID.fromString(id);
-        identities.context(authHeader,tenantId);
-        return tenantRepository.findById(tenantId).orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
+        Claims claims = parseRequiredClaims(authHeader);
+        String effectiveTenantStr = resolveAuthorizedTenantString(tenantIdHeader, claims);
+        UUID tenantId = parseTenantUuid(effectiveTenantStr);
+        return tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
     }
-    public Tenant validateWorkspaceOwner(String tenantIdHeader,String authHeader) {
-        Tenant tenant=validateWorkspaceAccess(tenantIdHeader,authHeader);
-        identities.requireOwner(identities.context(authHeader,tenant.getId())); return tenant;
+
+    public Tenant validateWorkspaceOwner(String tenantIdHeader, String authHeader) {
+        Claims claims = parseRequiredClaims(authHeader);
+        String systemRole = claims.get("system_role", String.class);
+        String tenantRole = claims.get("tenant_role", String.class);
+        if (!"SYSTEM_ADMIN".equalsIgnoreCase(systemRole) && !"OWNER".equalsIgnoreCase(tenantRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        String effectiveTenantStr = resolveAuthorizedTenantString(tenantIdHeader, claims);
+        UUID tenantId = parseTenantUuid(effectiveTenantStr);
+        return tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
     }
 
     public Tenant validateTenantAccess(String tenantIdHeader, String authHeader) {
-        if (identities != null) {
-            Tenant workspace=validateWorkspaceAccess(tenantIdHeader,authHeader);
-            com.swiftroute.orderservice.service.OperationalReadinessService.requireApproved(workspace);
-            return workspace;
-        }
-        String effectiveTenantStr = null;
-
-        // 1. If Authorization header is present, enforce JWT membership claims
+        String effectiveTenantStr;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            Claims claims = jwtTokenValidator.parseAndValidate(authHeader);
-            if (claims == null) {
-                log.warn("Invalid or expired JWT bearer token provided to order-service");
-                throw new AppException(ErrorCode.UNAUTHENTICATED);
-            }
-
-            String tokenTenantId = claims.get("tenant_id", String.class);
-            String tokenRole = claims.get("_ROLE", String.class);
-
-            if (!"ADMIN".equalsIgnoreCase(tokenRole)) {
-                // Non-admin MUST have tenant membership in JWT
-                if (tokenTenantId == null || tokenTenantId.isBlank()) {
-                    log.warn("User {} with role {} has no tenant membership claim in JWT",
-                            claims.getSubject(), tokenRole);
-                    throw new AppException(ErrorCode.ACCESS_DENIED);
-                }
-
-                // If client also supplied an X-Tenant-Id header, it MUST match token's tenant claim
-                if (tenantIdHeader != null && !tenantIdHeader.isBlank()
-                        && !tenantIdHeader.trim().equalsIgnoreCase(tokenTenantId.trim())) {
-                    log.warn("Cross-tenant attempt blocked: token.tenantId={}, requested={}",
-                            tokenTenantId, tenantIdHeader);
-                    throw new AppException(ErrorCode.ACCESS_DENIED);
-                }
-
-                effectiveTenantStr = tokenTenantId;
-            } else {
-                // ADMIN can specify target tenant via header, or operate in their own tenant
-                if (tenantIdHeader != null && !tenantIdHeader.isBlank()) {
-                    effectiveTenantStr = tenantIdHeader;
-                } else {
-                    effectiveTenantStr = tokenTenantId;
-                }
-            }
+            Claims claims = parseRequiredClaims(authHeader);
+            effectiveTenantStr = resolveAuthorizedTenantString(tenantIdHeader, claims);
         } else {
-            // 2. No JWT token provided: rely on gateway-injected X-Tenant-Id header
             effectiveTenantStr = tenantIdHeader;
         }
 
@@ -103,28 +70,75 @@ public class TenantContextValidator {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        UUID tenantId;
-        try {
-            tenantId = UUID.fromString(effectiveTenantStr.trim());
-        } catch (IllegalArgumentException e) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
+        UUID tenantId = parseTenantUuid(effectiveTenantStr);
 
-        // 3. Single source of truth verification in order_db.tenants
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
 
-        if (tenant.getStatus() == TenantStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.TENANT_SUSPENDED);
+        OperationalReadinessService.requireApproved(tenant);
+        return tenant;
+    }
+
+    /**
+     * Extracts the authenticated user ID (JWT subject) without performing additional lookups.
+     */
+    public Optional<UUID> extractUserId(String authHeader) {
+        Claims claims = jwtTokenValidator.parseAndValidate(authHeader);
+        if (claims == null || claims.getSubject() == null || claims.getSubject().isBlank()) {
+            return Optional.empty();
         }
-        if (tenant.getStatus() == TenantStatus.PENDING) {
-            throw new AppException(ErrorCode.TENANT_PENDING);
+        try {
+            return Optional.of(UUID.fromString(claims.getSubject().trim()));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
         }
-        if (tenant.getStatus() == TenantStatus.REJECTED) {
-            throw new AppException(ErrorCode.TENANT_REJECTED);
+    }
+
+    private Claims parseRequiredClaims(String authHeader) {
+        Claims claims = jwtTokenValidator.parseAndValidate(authHeader);
+        if (claims == null) {
+            log.warn("Invalid or expired JWT bearer token provided to order-service");
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+        return claims;
+    }
+
+    private String resolveAuthorizedTenantString(String tenantIdHeader, Claims claims) {
+        String systemRole = claims.get("system_role", String.class);
+        String tokenTenantId = claims.get("tenant_id", String.class);
+        String tokenTenantRole = claims.get("tenant_role", String.class);
+
+        if ("SYSTEM_ADMIN".equalsIgnoreCase(systemRole)) {
+            String target = (tenantIdHeader != null && !tenantIdHeader.isBlank()) ? tenantIdHeader : tokenTenantId;
+            if (target == null || target.isBlank()) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+            return target;
         }
 
-        return tenant;
+        if (tokenTenantId == null || tokenTenantId.isBlank()
+                || tokenTenantRole == null || tokenTenantRole.isBlank()) {
+            log.warn("User {} with systemRole {} has no tenant membership claim in JWT",
+                    claims.getSubject(), systemRole);
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        if (tenantIdHeader != null && !tenantIdHeader.isBlank()
+                && !tenantIdHeader.trim().equalsIgnoreCase(tokenTenantId.trim())) {
+            log.warn("Cross-tenant attempt blocked: token.tenantId={}, requested={}",
+                    tokenTenantId, tenantIdHeader);
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        return tokenTenantId;
+    }
+
+    private UUID parseTenantUuid(String rawTenantId) {
+        try {
+            return UUID.fromString(rawTenantId.trim());
+        } catch (IllegalArgumentException e) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
     }
 }
 

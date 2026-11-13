@@ -43,3 +43,5 @@ tenant:
   internal-key: ${TENANT_INTERNAL_KEY:}
 verification:
   web-url: ${WEB_APP_URL:http://localhost:3000}
+password-reset:
+  url: ${PASSWORD_RESET_URL:${WEB_APP_URL:http://localhost:3000}/reset-password}

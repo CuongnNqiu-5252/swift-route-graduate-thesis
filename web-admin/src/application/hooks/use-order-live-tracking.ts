@@ -1,7 +1,8 @@
 'use client';
 
+import axios from 'axios';
 import { useEffect, useState } from 'react';
-import { refreshAccessToken } from '@/lib/api';
+import { streamSse } from '@/lib/api';
 
 export type TrackingSignal = 'waiting' | 'live' | 'stale' | 'reconnecting';
 
@@ -39,7 +40,6 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
     if (!orderId) return;
 
     let disposed = false;
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
     const controller = new AbortController();
     let staleTimer: number | undefined;
     const updateFreshness = (timestamp: Date) => {
@@ -83,34 +83,12 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
     const connect = async () => {
       while (!disposed) {
         try {
-          let token = localStorage.getItem('access_token');
-          let response = await fetch(`${baseUrl}/orders/${orderId}/tracking/stream`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal });
-          if (response.status === 401) {
-            token = await refreshAccessToken();
-            response = await fetch(`${baseUrl}/orders/${orderId}/tracking/stream`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
-          }
-          if (!response.ok || !response.body) throw new Error(`Tracking stream failed: ${response.status}`);
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          while (!disposed) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-            buffer += decoder.decode(chunk.value, { stream: true }).replaceAll('\r\n', '\n');
-            const blocks = buffer.split('\n\n');
-            buffer = blocks.pop() ?? '';
-            for (const block of blocks) {
-              let eventName = 'message';
-              const data: string[] = [];
-              for (const line of block.split('\n')) {
-                if (line.startsWith('event:')) eventName = line.slice(6).trim();
-                if (line.startsWith('data:')) data.push(line.slice(5).trim());
-              }
-              if (data.length) onEvent(eventName, data.join('\n'));
-            }
-          }
+          await streamSse(`/orders/${orderId}/tracking/stream`, {
+            signal: controller.signal,
+            onEvent,
+          });
         } catch (error) {
-          if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+          if (disposed || axios.isCancel(error) || controller.signal.aborted) return;
           if (staleTimer) window.clearTimeout(staleTimer);
           setSignal('reconnecting');
         }

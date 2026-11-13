@@ -1,9 +1,7 @@
 package com.swiftroute.orderservice.security;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -13,33 +11,66 @@ import org.springframework.web.client.*;
 
 import com.swiftroute.orderservice.exception.*;
 
+import io.jsonwebtoken.Claims;
+
 @Component
 public class TenantIdentityClient {
     private final RestClient client;
     private final String key;
-
-    // In-memory cache to avoid redundant network calls to auth-service
-    private record CacheEntry(Map<String, Object> data, Instant expiresAt) {}
-    private final Map<String, CacheEntry> contextCache = new ConcurrentHashMap<>();
+    private final JwtTokenValidator jwtTokenValidator;
 
     public TenantIdentityClient(@Value("${auth-service.url:http://localhost:8081}") String url,
-            @Value("${tenant.internal-key:}") String key) {
+            @Value("${tenant.internal-key:}") String key,
+            JwtTokenValidator jwtTokenValidator) {
         var factory = new JdkClientHttpRequestFactory();
         factory.setReadTimeout(Duration.ofSeconds(5));
         this.client = RestClient.builder().baseUrl(url).requestFactory(factory).build();
         this.key = key;
+        this.jwtTokenValidator = jwtTokenValidator;
     }
 
+    /**
+     * Stateless JWT context extraction (aligned with driver-service and notification-service).
+     * Verifies the Bearer token signature locally without calling auth-service.
+     */
+    public Map<String, Object> statelessContext(String authorization, UUID expectedTenantId) {
+        Claims claims = jwtTokenValidator.parseAndValidate(authorization);
+        if (claims == null || claims.getSubject() == null || claims.getSubject().isBlank()) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        String systemRole = claims.get("system_role", String.class);
+        String tokenTenantId = claims.get("tenant_id", String.class);
+        String tenantRole = claims.get("tenant_role", String.class);
+        boolean isSystemAdmin = "SYSTEM_ADMIN".equalsIgnoreCase(systemRole);
+
+        if (expectedTenantId != null && tokenTenantId != null && !tokenTenantId.isBlank()
+                && !expectedTenantId.toString().equals(tokenTenantId) && !isSystemAdmin) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("user_id", claims.getSubject());
+        if (systemRole != null) {
+            result.put("system_role", systemRole);
+        }
+        if (tokenTenantId != null) {
+            result.put("tenant_id", tokenTenantId);
+        }
+        if (tenantRole != null) {
+            result.put("membership_role", tenantRole);
+        }
+        return result;
+    }
+
+    /**
+     * Live identity lookup against auth-service for one-time tenant registration
+     * where fresh email_verified and email fields are required from auth_db.
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> context(String authorization, UUID tenantId) {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
-        }
-
-        String cacheKey = authorization + ":" + (tenantId != null ? tenantId.toString() : "");
-        CacheEntry cached = contextCache.get(cacheKey);
-        if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
-            return cached.data();
         }
 
         try {
@@ -53,15 +84,7 @@ public class TenantIdentityClient {
                 throw new AppException(ErrorCode.ACCESS_DENIED);
             }
 
-            Map<String, Object> data = (Map<String, Object>) body.get("data");
-
-            // Periodically clean up expired entries if map grows large
-            if (contextCache.size() > 1000) {
-                Instant now = Instant.now();
-                contextCache.entrySet().removeIf(e -> e.getValue().expiresAt().isBefore(now));
-            }
-            contextCache.put(cacheKey, new CacheEntry(data, Instant.now().plus(Duration.ofMinutes(2))));
-            return data;
+            return (Map<String, Object>) body.get("data");
         } catch (HttpClientErrorException ex) {
             throw new AppException(ex.getStatusCode().value() == 401 ? ErrorCode.UNAUTHENTICATED : ErrorCode.ACCESS_DENIED);
         } catch (RestClientException ex) {
@@ -80,7 +103,7 @@ public class TenantIdentityClient {
     }
 
     public static boolean systemAdmin(Map<String, Object> context) {
-        return Set.of("SYSTEM_ADMIN", "ADMIN").contains(String.valueOf(context.get("system_role")));
+        return "SYSTEM_ADMIN".equalsIgnoreCase(String.valueOf(context.get("system_role")));
     }
 
     public void requireOwner(Map<String, Object> context) {

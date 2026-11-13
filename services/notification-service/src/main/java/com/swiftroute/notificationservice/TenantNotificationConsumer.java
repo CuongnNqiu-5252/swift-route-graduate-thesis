@@ -26,11 +26,14 @@ import lombok.extern.slf4j.Slf4j;
 public class TenantNotificationConsumer {
     private final JdbcTemplate jdbc;
     private final NotificationSseService sseService;
+    private final EmailNotificationSender emailSender;
     private final ObjectMapper json = new ObjectMapper();
 
-    public TenantNotificationConsumer(JdbcTemplate jdbc, @Autowired(required = false) NotificationSseService sseService) {
+    public TenantNotificationConsumer(JdbcTemplate jdbc, @Autowired(required = false) NotificationSseService sseService,
+            EmailNotificationSender emailSender) {
         this.jdbc = jdbc;
         this.sseService = sseService;
+        this.emailSender = emailSender;
     }
 
     @RabbitListener(queues = TenantNotificationConfig.QUEUE)
@@ -38,7 +41,7 @@ public class TenantNotificationConsumer {
     public void receive(Message message) throws Exception {
         var p = json.readTree(message.getBody());
         String type = p.path("eventType").asText(p.path("event_type").asText());
-        if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "tenant.created.v1",
+        if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "user.password_reset_requested.v1", "tenant.created.v1",
                 "tenant.verification_submitted.v1", "tenant.verification_changes_requested.v1", "tenant.approved.v1",
                 "tenant.rejected.v1", "tenant.suspended.v1").contains(type)) {
             return;
@@ -56,6 +59,7 @@ public class TenantNotificationConsumer {
 
         String title = switch (type) {
             case "user.email_verification.v1" -> "Xác minh tài khoản SwiftRoute";
+            case "user.password_reset_requested.v1" -> "Đặt lại mật khẩu SwiftRoute";
             case "tenant.driver_invited.v1" -> "Lời mời tham gia đội ngũ giao hàng";
             case "tenant.created.v1" -> "Doanh nghiệp mới đã được tạo";
             case "tenant.approved.v1" -> "Hồ sơ doanh nghiệp đã được phê duyệt";
@@ -73,6 +77,10 @@ public class TenantNotificationConsumer {
                 yield businessName + " đã gửi lời mời tham gia đội ngũ giao hàng."
                     + "\nLiên kết chấp nhận: " + p.path("verificationUrl").asText();
             }
+            case "user.password_reset_requested.v1" ->
+                "Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản " + p.path("email").asText()
+                + ".\nLiên kết có hiệu lực trong 15 phút: " + p.path("verificationUrl").asText()
+                + "\nNếu bạn không yêu cầu, hãy bỏ qua email này.";
             default -> "Trạng thái: " + type + (p.hasNonNull("reason") ? " - Lý do: " + p.path("reason").asText() : "");
         };
 
@@ -90,6 +98,12 @@ public class TenantNotificationConsumer {
                 ) VALUES (?, ?, ?, 'IN_APP', ?, ?, ?, 'SENT', now())
                 """,
                 eventId, tenant, recipientId, type, title, body);
+
+        if (type.equals("user.email_verification.v1")
+                || type.equals("user.password_reset_requested.v1")
+                || type.equals("tenant.driver_invited.v1")) {
+            emailSender.send(p.path("email").asText(), title, body);
+        }
 
         // Broadcast over SSE to connected tenant operator sessions
         if (sseService != null && tenant != null) {

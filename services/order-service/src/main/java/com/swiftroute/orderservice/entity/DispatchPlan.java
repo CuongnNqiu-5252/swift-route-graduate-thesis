@@ -185,14 +185,28 @@ public class DispatchPlan {
     }
 
     /**
+     * Transitions DISPATCHED → COMPLETED.
+     * Called when all delivery tasks associated with this plan reach terminal states.
+     *
+     * @throws IllegalStateException if current status is not DISPATCHED
+     */
+    public void complete() {
+        if (this.planStatus != PlanStatus.DISPATCHED) {
+            throw new IllegalStateException("Plan can only be completed from DISPATCHED state. Current: " + planStatus);
+        }
+        this.planStatus = PlanStatus.COMPLETED;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
      * Cancels the plan from any non-terminal state.
      *
      * @param reason human-readable cancellation reason
-     * @throws IllegalStateException if plan is already CANCELLED
+     * @throws IllegalStateException if plan is already CANCELLED or COMPLETED
      */
     public void cancel(String reason) {
-        if (this.planStatus == PlanStatus.CANCELLED) {
-            throw new IllegalStateException("Plan is already cancelled.");
+        if (this.planStatus == PlanStatus.CANCELLED || this.planStatus == PlanStatus.COMPLETED) {
+            throw new IllegalStateException("Plan is already in terminal state: " + planStatus);
         }
         this.planStatus = PlanStatus.CANCELLED;
         this.cancelledAt = Instant.now();

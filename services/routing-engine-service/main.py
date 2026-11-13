@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import logging
+import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +20,22 @@ from service.grpc_server import start_grpc_server, stop_grpc_server
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 logger = logging.getLogger("routing-engine.main")
+
+
+def _load_root_env() -> None:
+    """Populate missing env vars from workspace root .env for local non-Docker runs."""
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_root_env()
 
 
 @asynccontextmanager

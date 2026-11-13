@@ -2,6 +2,7 @@ package com.swiftroute.driverservice.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -9,14 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.driverservice.dto.event.DriverAvailabilityEventPayload;
-import com.swiftroute.driverservice.dto.event.DriverDeliveryReportEventPayload;
 import com.swiftroute.driverservice.dto.event.DriverLocationUpdatedEvent;
 import com.swiftroute.driverservice.dto.request.RegisterDriverRequest;
-import com.swiftroute.driverservice.dto.request.ReportDeliveryEventRequest;
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
 import com.swiftroute.driverservice.dto.request.UpdateDriverRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
-import com.swiftroute.driverservice.dto.response.DriverPublicResponse;
 import com.swiftroute.driverservice.dto.response.DriverResponse;
 import com.swiftroute.driverservice.entity.Driver;
 import com.swiftroute.driverservice.entity.OutboxEvent;
@@ -34,17 +32,20 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class DriverService {
 
+    private static final Set<String> TENANT_MANAGEMENT_ROLES = Set.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN");
+    private static final Set<String> OPERATOR_ROLES = Set.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR");
+
     private final DriverRepository driverRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final DriverLocationCache locationCache;
 
     @Transactional
     public DriverResponse registerDriver(RegisterDriverRequest request, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
+        if (!OPERATOR_ROLES.contains(requesterRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(request.tenantId());
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(request.tenantId());
         if (driverRepository.existsByPhone(request.phone())) {
             throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
         }
@@ -96,65 +97,11 @@ public class DriverService {
     }
 
     @Transactional(readOnly = true)
-    public DriverResponse getDriverById(UUID driverId, UUID requesterId, String requesterRole) {
-        return getDriverById(driverId, requesterId, requesterRole, null);
-    }
-
-    @Transactional(readOnly = true)
-    public DriverResponse getDriverById(UUID driverId, UUID requesterId, String requesterRole, UUID requesterTenantId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
-
-        if (java.util.Set.of("ADMIN", "SYSTEM_ADMIN").contains(requesterRole)) {
-            return toResponse(driver);
-        }
-
-        if (List.of("OPS_STAFF", "OWNER", "TENANT_ADMIN").contains(requesterRole)) {
-            if (requesterTenantId != null && !driver.getTenantId().equals(requesterTenantId)) {
-                throw new AppException(ErrorCode.ACCESS_DENIED);
-            }
-            return toResponse(driver);
-        }
-
-        boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
-                || (driver.getId() != null && driver.getId().equals(requesterId));
-        if (!isSelf) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        return toResponse(driver);
-    }
-
-    @Transactional(readOnly = true)
-    public DriverPublicResponse getDriverPublicInfo(UUID driverId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
-        return toPublicResponse(driver);
-    }
-
-    @Transactional(readOnly = true)
-    public DriverPublicResponse getDriverPublicInfoByUserId(UUID userId) {
-        return toPublicResponse(driverRepository.findByUserId(userId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND)));
-    }
-
-    @Transactional(readOnly = true)
-    public List<DriverResponse> getDriversByTenant(UUID tenantId, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(tenantId);
-        return driverRepository.findAllByTenantId(tenantId).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
-    }
-
-    @Transactional(readOnly = true)
     public List<DriverResponse> getAllDrivers(UUID tenantId, String requesterRole) {
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(tenantId);
+        if (tenantId == null && requesterRole != null && !"SYSTEM_ADMIN".equals(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(tenantId);
         List<Driver> drivers;
         if (tenantId != null) {
             drivers = driverRepository.findAllByTenantId(tenantId);
@@ -166,25 +113,16 @@ public class DriverService {
                 .collect(Collectors.toList());
     }
 
-    @Transactional(readOnly = true)
-    public List<DriverResponse> getAvailableDriversByTenant(UUID tenantId) {
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(tenantId);
-        return driverRepository.findAllByTenantIdAndIsAvailableTrue(tenantId).stream()
-                .filter(this::isOperationallyReady)
-                .map(this::toResponse)
-                .collect(Collectors.toList());
-    }
-
     @Transactional
     public DriverResponse updateDriver(UUID driverId, UpdateDriverRequest request, UUID requesterId,
             String requesterRole) {
-        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
+        if (!OPERATOR_ROLES.contains(requesterRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
         Driver driver = driverRepository.findById(driverId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(driver.getTenantId());
 
         if (request.fullName() != null && request.fullName().isBlank()) throw new AppException(ErrorCode.VALIDATION_ERROR);
         if (request.fullName() != null)
@@ -233,25 +171,6 @@ public class DriverService {
     }
 
     @Transactional
-    public DriverResponse updateLocation(UUID driverId, UpdateLocationRequest request, UUID requesterId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
-
-        if (driver.getStatus() == DriverStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.DRIVER_SUSPENDED);
-        }
-
-        boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
-                || (driver.getId() != null && driver.getId().equals(requesterId));
-        if (!isSelf) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        return updateLocationState(driver, request);
-    }
-
-    @Transactional
     public DriverResponse updateMyAvailability(UUID userId, UpdateAvailabilityRequest request) {
         Driver driver = driverRepository.findByUserId(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
@@ -264,106 +183,6 @@ public class DriverService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
         driver.setIsAvailable(request.isAvailable());
-        driver = driverRepository.save(driver);
-
-        saveOutboxEvent(
-                "DRIVER",
-                driver.getId(),
-                "driver.availability_changed.v1",
-                new DriverAvailabilityEventPayload(
-                        driver.getId(),
-                        driver.getTenantId(),
-                        driver.getUserId(),
-                        driver.getIsAvailable(),
-                        Instant.now()
-                )
-        );
-
-        return toResponse(driver);
-    }
-
-    @Transactional
-    public DriverResponse updateAvailability(UUID driverId, UpdateAvailabilityRequest request, UUID requesterId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
-
-        if (driver.getStatus() == DriverStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.DRIVER_SUSPENDED);
-        }
-
-        boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
-                || (driver.getId() != null && driver.getId().equals(requesterId));
-        if (!isSelf) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        if (Boolean.TRUE.equals(request.isAvailable()) && !isOperationallyReady(driver)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-        driver.setIsAvailable(request.isAvailable());
-        driver = driverRepository.save(driver);
-
-        saveOutboxEvent(
-                "DRIVER",
-                driver.getId(),
-                "driver.availability_changed.v1",
-                new DriverAvailabilityEventPayload(
-                        driver.getId(),
-                        driver.getTenantId(),
-                        driver.getUserId(),
-                        driver.getIsAvailable(),
-                        Instant.now()
-                )
-        );
-
-        return toResponse(driver);
-    }
-
-    @Transactional
-    public void reportDeliveryEvent(UUID userId, ReportDeliveryEventRequest request) {
-        Driver driver = driverRepository.findByUserId(userId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-
-        if (driver.getStatus() == DriverStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.DRIVER_SUSPENDED);
-        }
-
-        saveOutboxEvent(
-                "DRIVER",
-                driver.getId(),
-                "driver.delivery_reported.v1",
-                new DriverDeliveryReportEventPayload(
-                        driver.getId(),
-                        driver.getTenantId(),
-                        request.orderId(),
-                        request.eventType(),
-                        request.reason(),
-                        request.notes(),
-                        Instant.now()
-                )
-        );
-    }
-
-    @Transactional
-    public DriverResponse changeStatus(UUID driverId, DriverStatus newStatus, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OWNER").contains(requesterRole)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
-
-        if (newStatus == DriverStatus.ACTIVE && (!hasCompleteLinkedProfile(driver)
-                || driver.getStatus() != DriverStatus.PENDING_APPROVAL)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-        driver.setStatus(newStatus);
-        if (newStatus != DriverStatus.ACTIVE) {
-            driver.setIsAvailable(false);
-        }
-
         driver = driverRepository.save(driver);
 
         saveOutboxEvent(
@@ -417,12 +236,12 @@ public class DriverService {
 
     @Transactional
     public DriverResponse reviewProfile(UUID driverId, boolean approved, String note, UUID requesterId, String role) {
-        if (!List.of("ADMIN", "SYSTEM_ADMIN", "TENANT_ADMIN", "OWNER").contains(role)) {
+        if (!TENANT_MANAGEMENT_ROLES.contains(role)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
         Driver driver = driverRepository.findById(driverId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        com.swiftroute.driverservice.security.GatewayHeaderAuthFilter.assertTenant(driver.getTenantId());
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(driver.getTenantId());
         if (driver.getStatus() != DriverStatus.PENDING_APPROVAL || (approved && !hasCompleteLinkedProfile(driver))) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
@@ -517,11 +336,6 @@ public class DriverService {
     private DriverResponse toResponse(Driver driver) {
         locationCache.enrichWithCachedLocation(driver);
         return DriverResponse.fromEntity(driver);
-    }
-
-    private DriverPublicResponse toPublicResponse(Driver driver) {
-        locationCache.enrichWithCachedLocation(driver);
-        return DriverPublicResponse.fromEntity(driver);
     }
 
     private void saveOutboxEvent(UUID eventId, String aggregateType, UUID aggregateId, String eventType, Object payload) {

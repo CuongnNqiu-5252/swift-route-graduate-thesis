@@ -4,6 +4,7 @@
 // Uses AsyncNotifier pattern for async API flows (as per Flutter coding rules).
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:swiftroute_app/core/offline/offline_action.dart';
 import 'package:swiftroute_app/features/driver/data/datasources/driver_remote_data_source.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
@@ -110,6 +111,9 @@ class DriverNotifier extends AsyncNotifier<DriverModel?> {
             sequence: sequence,
           );
       state = AsyncData(updated);
+      return true;
+    } on OfflineActionQueuedException {
+      if (current != null) state = AsyncData(current);
       return true;
     } catch (_) {
       if (current != null) {

@@ -14,6 +14,19 @@ spring:
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    from: ${SMTP_FROM:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:true}
+          starttls:
+            enable: ${SMTP_STARTTLS:true}
+            required: ${SMTP_STARTTLS:true}
 
   flyway:
     enabled: true
@@ -22,6 +35,3 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET:your_super_secret_key_change_in_production}
-
-auth-service:
-  url: ${AUTH_SERVICE_URL:http://localhost:8081}

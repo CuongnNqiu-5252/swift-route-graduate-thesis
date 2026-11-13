@@ -45,8 +45,8 @@ import lombok.extern.slf4j.Slf4j;
 public class CodLedgerService {
 
     private static final Set<String> OPERATOR_ROLES = Set.of(
-            "ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "CASHIER",
-            "WAREHOUSE_STAFF", "OWNER", "TENANT_OWNER", "MANAGER", "STAFF");
+            "SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "CASHIER",
+            "WAREHOUSE_STAFF", "TENANT_OWNER", "MANAGER", "STAFF");
 
     private final OrderRepository orders;
     private final CodHandoverBatchRepository handovers;
@@ -66,16 +66,19 @@ public class CodLedgerService {
 
         Order order = ownedOrder(orderId, tenantId);
 
-        if (order.getStatus() == OrderStatus.DELIVERED && order.getAssignedDriverId() == null) {
-            order.setAssignedDriverId(driverId);
-        }
-
         if (order.getStatus() != OrderStatus.DELIVERED
                 || order.getAssignedDriverId() == null
-                || !order.getAssignedDriverId().equals(driverId)
                 || order.getCodAmount() == null
                 || order.getCodAmount().signum() <= 0) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        if (!order.getAssignedDriverId().equals(driverId)) {
+            throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+
+        BigDecimal collected = money(request.amount());
+        if (collected.compareTo(order.getCodAmount()) != 0) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
 
         // Idempotent retry: if already collected, return current state
@@ -284,47 +287,107 @@ public class CodLedgerService {
 
         BigDecimal counted = money(request.countedTotal());
         BigDecimal difference = counted.subtract(batch.getLedgerTotal());
+        boolean matched = difference.signum() == 0;
+        if (!matched && isBlank(request.notes())) {
+            throw new AppException(ErrorCode.COD_REASON_REQUIRED);
+        }
 
-        batch.setStatus("VERIFIED");
+        Instant now = Instant.now();
+        batch.setStatus(matched ? "VERIFIED" : "DISCREPANCY");
         batch.setCountedTotal(counted);
         batch.setDiscrepancyAmount(difference);
         batch.setVerifiedBy(cashierId);
-        batch.setVerifiedAt(Instant.now());
+        batch.setVerifiedAt(now);
         batch.setVerificationOperationId(request.operationId());
-        batch.setUpdatedAt(Instant.now());
+        batch.setUpdatedAt(now);
         if (!isBlank(request.notes())) {
             batch.setNotes(request.notes());
         }
         handovers.save(batch);
 
-        // Mark all associated orders as HANDED_OVER
-        List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
-        for (Order o : batchOrders) {
-            o.setCodStatus("HANDED_OVER");
-            o.setPaymentStatus("PAID");
-            o.setUpdatedAt(Instant.now());
-            orders.save(o);
+        if (matched) {
+            // Only finalize order COD settlement when counted cash matches the ledger total
+            List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
+            for (Order o : batchOrders) {
+                o.setCodStatus("HANDED_OVER");
+                o.setPaymentStatus("PAID");
+                o.setUpdatedAt(now);
+                orders.save(o);
+            }
         }
 
-        emitCodEvent("cod.handover_verified", batch.getId(), Map.of(
+        emitCodEvent(matched ? "cod.handover_verified" : "cod.handover_discrepancy", batch.getId(), Map.of(
                 "tenant_id", tenantId.toString(),
                 "driver_id", batch.getDriverId().toString(),
                 "handover_id", batch.getId().toString(),
+                "ledger_total", batch.getLedgerTotal(),
                 "counted_total", counted,
-                "discrepancy_amount", difference
+                "discrepancy_amount", difference,
+                "status", batch.getStatus()
         ));
 
-        log.info("COD handover verified: batch={}, cashier={}, counted={}, diff={}",
-                batch.getId(), cashierId, counted, difference);
+        log.info("COD handover {}: batch={}, cashier={}, counted={}, diff={}",
+                batch.getStatus(), batch.getId(), cashierId, counted, difference);
         return handoverResponse(batch);
     }
 
     @Transactional(readOnly = true)
-    public List<CodHandoverResponse> driverHandovers(UUID tenantId, UUID driverId, String role) {
-        requireDriver(role);
-        return handovers.findByTenantIdAndDriverIdOrderBySubmittedAtDesc(tenantId, driverId).stream()
-                .map(this::handoverResponse)
+    public List<CodDisputeResponse> disputes(UUID tenantId, String role, String status) {
+        requireOperator(role);
+        String targetStatus = isBlank(status) ? "DISCREPANCY" : status.toUpperCase(Locale.ROOT);
+        return handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, targetStatus).stream()
+                .map(this::disputeResponse)
                 .toList();
+    }
+
+    @Transactional
+    public CodHandoverResponse resolveDispute(
+            UUID handoverId,
+            UUID tenantId,
+            UUID actorId,
+            String role,
+            String resolutionNotes) {
+        requireOperator(role);
+        if (isBlank(resolutionNotes)) {
+            throw new AppException(ErrorCode.COD_REASON_REQUIRED);
+        }
+
+        CodHandoverBatch batch = handovers.findByIdAndTenantId(handoverId, tenantId)
+                .orElseThrow(() -> new AppException(ErrorCode.COD_HANDOVER_NOT_FOUND));
+
+        if (!"DISCREPANCY".equals(batch.getStatus())) {
+            throw new AppException(ErrorCode.INVALID_COD_DISPUTE);
+        }
+
+        Instant now = Instant.now();
+        String combinedNotes = isBlank(batch.getNotes())
+                ? resolutionNotes.trim()
+                : batch.getNotes() + " | Resolved: " + resolutionNotes.trim();
+        batch.setStatus("RESOLVED");
+        batch.setNotes(combinedNotes.length() > 1000 ? combinedNotes.substring(0, 1000) : combinedNotes);
+        batch.setVerifiedBy(actorId);
+        batch.setVerifiedAt(now);
+        batch.setUpdatedAt(now);
+        handovers.save(batch);
+
+        List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
+        for (Order o : batchOrders) {
+            o.setCodStatus("HANDED_OVER");
+            o.setPaymentStatus("PAID");
+            o.setUpdatedAt(now);
+            orders.save(o);
+        }
+
+        emitCodEvent("cod.dispute_resolved", batch.getId(), Map.of(
+                "tenant_id", tenantId.toString(),
+                "driver_id", batch.getDriverId().toString(),
+                "handover_id", batch.getId().toString(),
+                "discrepancy_amount", batch.getDiscrepancyAmount() != null ? batch.getDiscrepancyAmount() : BigDecimal.ZERO,
+                "resolved_by", actorId.toString()
+        ));
+
+        log.info("COD discrepancy resolved: batch={}, actor={}", batch.getId(), actorId);
+        return handoverResponse(batch);
     }
 
     @Transactional(readOnly = true)
@@ -343,6 +406,7 @@ public class CodLedgerService {
         List<Order> pendingOrders = orders.findByTenant_IdAndCodStatusOrderByUpdatedAtDesc(tenantId, "COD_PENDING");
         List<Order> custodyOrders = orders.findByTenant_IdAndCodStatusOrderByUpdatedAtDesc(tenantId, "IN_CUSTODY");
         List<CodHandoverBatch> submittedBatches = handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, "SUBMITTED");
+        List<CodHandoverBatch> discrepancyBatches = handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, "DISCREPANCY");
         List<CodHandoverBatch> allBatches = handovers.findByTenantIdOrderBySubmittedAtDesc(tenantId);
 
         BigDecimal outstanding = pendingOrders.stream()
@@ -357,22 +421,55 @@ public class CodLedgerService {
                 .map(CodHandoverBatch::getDeclaredTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        BigDecimal openDiscrepancy = discrepancyBatches.stream()
+                .map(b -> b.getDiscrepancyAmount() != null ? b.getDiscrepancyAmount().abs() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         List<CodHandoverResponse> recentHandovers = allBatches.stream()
                 .limit(50)
                 .map(this::handoverResponse)
+                .toList();
+
+        List<CodDisputeResponse> openDisputes = discrepancyBatches.stream()
+                .map(this::disputeResponse)
                 .toList();
 
         return new CodDashboardResponse(
                 outstanding,
                 inCustody,
                 awaitingCashier,
-                BigDecimal.ZERO,
+                openDiscrepancy,
                 pendingOrders.size(),
                 custodyOrders.size(),
                 submittedBatches.size(),
-                0L,
+                discrepancyBatches.size(),
                 recentHandovers,
-                List.of());
+                openDisputes);
+    }
+
+    private CodDisputeResponse disputeResponse(CodHandoverBatch batch) {
+        BigDecimal difference = batch.getDiscrepancyAmount() != null ? batch.getDiscrepancyAmount() : BigDecimal.ZERO;
+        String type = difference.signum() < 0 ? "SHORTAGE" : (difference.signum() > 0 ? "SURPLUS" : "NONE");
+        return new CodDisputeResponse(
+                batch.getId(),
+                null,
+                batch.getId(),
+                null,
+                null,
+                batch.getDriverId(),
+                type,
+                batch.getLedgerTotal(),
+                batch.getCountedTotal(),
+                difference,
+                batch.getStatus(),
+                batch.getNotes(),
+                null,
+                "RESOLVED".equals(batch.getStatus()) ? "MANUAL_RECONCILED" : null,
+                difference.abs(),
+                "RESOLVED".equals(batch.getStatus()) ? batch.getNotes() : null,
+                "RESOLVED".equals(batch.getStatus()) ? batch.getVerifiedBy() : null,
+                "RESOLVED".equals(batch.getStatus()) ? batch.getVerifiedAt() : null,
+                batch.getVerifiedAt() != null ? batch.getVerifiedAt() : batch.getSubmittedAt());
     }
 
     // =========================================================================

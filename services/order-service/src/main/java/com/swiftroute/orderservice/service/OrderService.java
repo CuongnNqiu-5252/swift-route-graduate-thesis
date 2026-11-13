@@ -49,6 +49,7 @@ public class OrderService {
     private final OutboxEventRepository outboxEventRepository;
     private final RabbitTemplate rabbitTemplate;
     private final PickupLocationRepository pickupLocationRepository;
+    private final DeliveryZoneService deliveryZoneService;
     @org.springframework.beans.factory.annotation.Autowired
     private OperationalReadinessService operationalReadiness;
 
@@ -57,13 +58,14 @@ public class OrderService {
      *
      * Phù hợp với mô hình SaaS Vận hành Giao hàng:
      * - Không bắt buộc người nhận phải có tài khoản auth.
-     * - Không bắt buộc chọn hàng hóa từ Product Catalog SKU.
+     * - Hàng hóa được ghi nhận trực tiếp bằng mô tả và snapshot tài chính của vận đơn.
      * - Tự động sinh mã tra cứu công khai tracking_token.
-     * - Trạng thái khởi tạo: PAID (sẵn sàng điều phối) để có thể lập kế hoạch tuyến đường ngay.
+     * - Trạng thái khởi tạo: PAID (sẵn sàng điều phối) để có thể lập kế hoạch tuyến
+     * đường ngay.
      *
      * @param request            DTO tạo vận đơn
-     * @param creatorUserId      UUID người tạo (nhân viên/chủ shop, lấy từ header X-User-Id)
-     * @param tenantIdFromHeader UUID doanh nghiệp (lấy từ header X-Tenant-Id)
+     * @param creatorUserId      UUID người tạo (từ JWT subject đã xác thực)
+     * @param tenantIdFromHeader UUID doanh nghiệp (từ context JWT/tenant đã xác thực)
      */
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request,
@@ -94,6 +96,14 @@ public class OrderService {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
 
+        // Enforce active tenant delivery zone before creating the order
+        if (request.deliveryLat() != null && request.deliveryLng() != null) {
+            deliveryZoneService.validateDeliveryLocation(
+                    tenant.getId(),
+                    request.deliveryLat(),
+                    request.deliveryLng());
+        }
+
         // Xác định điểm lấy hàng (Pickup Location)
         PickupLocation pickupLocation = null;
         Double pickupLat = request.pickupLat();
@@ -106,16 +116,23 @@ public class OrderService {
             if (pickupLocation.getStatus() != PickupLocationStatus.ACTIVE) {
                 throw new AppException(ErrorCode.PICKUP_LOCATION_INACTIVE);
             }
-            if (pickupLat == null) pickupLat = pickupLocation.getLat();
-            if (pickupLng == null) pickupLng = pickupLocation.getLng();
-            if (pickupAddress == null || pickupAddress.isBlank()) pickupAddress = pickupLocation.getAddress();
+            if (pickupLat == null)
+                pickupLat = pickupLocation.getLat();
+            if (pickupLng == null)
+                pickupLng = pickupLocation.getLng();
+            if (pickupAddress == null || pickupAddress.isBlank())
+                pickupAddress = pickupLocation.getAddress();
         } else {
-            var defaultLocOpt = pickupLocationRepository.findByTenantIdAndIsDefaultTrueAndStatus(tenant.getId(), PickupLocationStatus.ACTIVE);
+            var defaultLocOpt = pickupLocationRepository.findByTenantIdAndIsDefaultTrueAndStatus(tenant.getId(),
+                    PickupLocationStatus.ACTIVE);
             if (defaultLocOpt.isPresent()) {
                 pickupLocation = defaultLocOpt.get();
-                if (pickupLat == null) pickupLat = pickupLocation.getLat();
-                if (pickupLng == null) pickupLng = pickupLocation.getLng();
-                if (pickupAddress == null || pickupAddress.isBlank()) pickupAddress = pickupLocation.getAddress();
+                if (pickupLat == null)
+                    pickupLat = pickupLocation.getLat();
+                if (pickupLng == null)
+                    pickupLng = pickupLocation.getLng();
+                if (pickupAddress == null || pickupAddress.isBlank())
+                    pickupAddress = pickupLocation.getAddress();
             }
         }
 
@@ -151,7 +168,8 @@ public class OrderService {
         BigDecimal codAmount = request.codAmount() != null ? request.codAmount() : BigDecimal.ZERO;
         BigDecimal declaredValue = request.declaredValue() != null ? request.declaredValue() : BigDecimal.ZERO;
         BigDecimal deliveryFee = request.deliveryFee() != null ? request.deliveryFee() : BigDecimal.ZERO;
-        String payer = (request.payer() != null && !request.payer().isBlank()) ? request.payer().toUpperCase() : "SENDER";
+        String payer = (request.payer() != null && !request.payer().isBlank()) ? request.payer().toUpperCase()
+                : "SENDER";
 
         BigDecimal totalAmount = "RECIPIENT".equalsIgnoreCase(payer)
                 ? codAmount.add(deliveryFee)
@@ -203,16 +221,6 @@ public class OrderService {
     }
 
     /**
-     * Tra cứu vận đơn công khai qua tracking_token dành cho Người nhận (không cần đăng nhập).
-     */
-    @Transactional(readOnly = true)
-    public OrderResponse getOrderByTrackingToken(String trackingToken) {
-        Order order = orderRepository.findByTrackingToken(trackingToken)
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        return OrderResponse.fromEntity(order);
-    }
-
-    /**
      * Lấy chi tiết một đơn hàng theo ID.
      */
     @Transactional(readOnly = true)
@@ -226,11 +234,14 @@ public class OrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
 
-        // ADMIN và OPERATOR được xem tất cả
-        if (!"ADMIN".equals(requesterRole) && !"OPERATOR".equals(requesterRole) && !"SYSTEM_ADMIN".equals(requesterRole)) {
-            boolean isTenantMember = tenantIdFromContext != null && order.getTenant().getId().equals(tenantIdFromContext);
-            boolean isAssignedDriver = order.getAssignedDriverId() != null && order.getAssignedDriverId().equals(requesterId);
-            boolean isTenantOwner = order.getTenant().getOwnerUserId() != null && order.getTenant().getOwnerUserId().equals(requesterId);
+        // SYSTEM_ADMIN, OWNER, TENANT_ADMIN, and OPERATOR can view all orders within scope
+        if (!List.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR").contains(requesterRole)) {
+            boolean isTenantMember = tenantIdFromContext != null
+                    && order.getTenant().getId().equals(tenantIdFromContext);
+            boolean isAssignedDriver = order.getAssignedDriverId() != null
+                    && order.getAssignedDriverId().equals(requesterId);
+            boolean isTenantOwner = order.getTenant().getOwnerUserId() != null
+                    && order.getTenant().getOwnerUserId().equals(requesterId);
 
             if (!isTenantMember && !isAssignedDriver && !isTenantOwner) {
                 throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
@@ -266,17 +277,21 @@ public class OrderService {
                         OrderStatus.FAILED, OrderStatus.CANCELLED));
 
         return new OperationsQueueResponse(
-                orders.stream().filter(order -> order.getStatus() == OrderStatus.PAID).map(OrderResponse::fromEntity).toList(),
-                orders.stream().filter(order -> order.getStatus() == OrderStatus.PLANNED || order.getStatus() == OrderStatus.IN_TRANSIT)
+                orders.stream().filter(order -> order.getStatus() == OrderStatus.PAID).map(OrderResponse::fromEntity)
+                        .toList(),
+                orders.stream()
+                        .filter(order -> order.getStatus() == OrderStatus.PLANNED
+                                || order.getStatus() == OrderStatus.IN_TRANSIT)
                         .map(OrderResponse::fromEntity).toList(),
-                orders.stream().filter(order -> order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED)
+                orders.stream().filter(
+                        order -> order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED)
                         .map(OrderResponse::fromEntity).toList());
     }
 
     private void assertTenantOperationsAccess(UUID tenantId, UUID requesterId, String requesterRole) {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
-        boolean isPrivilegedRole = List.of("ADMIN", "TENANT_ADMIN", "OPERATOR", "SYSTEM_ADMIN", "OPS_STAFF")
+        boolean isPrivilegedRole = List.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR")
                 .contains(requesterRole);
         boolean isTenantOwner = tenant.getOwnerUserId() != null && tenant.getOwnerUserId().equals(requesterId);
         if (!isPrivilegedRole && !isTenantOwner) {
@@ -289,6 +304,9 @@ public class OrderService {
      */
     @Transactional(readOnly = true)
     public List<OrderResponse> getAllOrders(UUID tenantId, OrderStatus status, String requesterRole) {
+        if (tenantId == null && !"SYSTEM_ADMIN".equals(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         List<Order> orders;
         if (tenantId != null && status != null) {
             orders = orderRepository.findAllByTenantIdAndStatus(tenantId, status);
@@ -317,7 +335,8 @@ public class OrderService {
      * Cập nhật trạng thái đơn hàng.
      */
     @Transactional
-    public OrderResponse updateOrderStatus(UUID orderId, OrderStatus newStatus, UUID requesterId, String requesterRole) {
+    public OrderResponse updateOrderStatus(UUID orderId, OrderStatus newStatus, UUID requesterId,
+            String requesterRole) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
@@ -393,7 +412,8 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponse reportIncident(UUID orderId, ReportIncidentRequest request, UUID requesterId, String requesterRole) {
+    public OrderResponse reportIncident(UUID orderId, ReportIncidentRequest request, UUID requesterId,
+            String requesterRole) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
@@ -434,7 +454,8 @@ public class OrderService {
         OrderStatus previous = order.getStatus();
         order.setStatus(OrderStatus.CANCELLED);
         order.setFulfillmentStatus("CANCELLED");
-        String cancelNote = "[HUỶ ĐƠN]: " + (request != null && request.reason() != null ? request.reason() : "Khách hàng huỷ đơn");
+        String cancelNote = "[HUỶ ĐƠN]: "
+                + (request != null && request.reason() != null ? request.reason() : "Khách hàng huỷ đơn");
         order.setNotes(cancelNote);
         order.setUpdatedAt(Instant.now());
 
@@ -446,11 +467,9 @@ public class OrderService {
 
     private void validateStatusTransition(OrderStatus current, OrderStatus next) {
         boolean valid = switch (current) {
-            case PENDING_PAYMENT ->
-                next == OrderStatus.PAID || next == OrderStatus.PAYMENT_FAILED || next == OrderStatus.CANCELLED;
-            case PAYMENT_FAILED -> next == OrderStatus.PENDING_PAYMENT || next == OrderStatus.CANCELLED;
             case PAID -> next == OrderStatus.PLANNED || next == OrderStatus.CANCELLED;
-            case PLANNED -> next == OrderStatus.IN_TRANSIT || next == OrderStatus.FAILED || next == OrderStatus.CANCELLED;
+            case PLANNED ->
+                next == OrderStatus.IN_TRANSIT || next == OrderStatus.FAILED || next == OrderStatus.CANCELLED;
             case IN_TRANSIT -> next == OrderStatus.DELIVERED || next == OrderStatus.FAILED;
             default -> false;
         };

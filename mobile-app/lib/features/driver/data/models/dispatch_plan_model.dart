@@ -65,6 +65,41 @@ class DispatchPlanModel {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+    'plan_id': planId,
+    'tenant_id': tenantId,
+    'plan_status': planStatus,
+    'driver_id': driverId,
+    'algorithm_used': algorithmUsed,
+    'total_distance_km': totalDistanceKm,
+    'estimated_duration_minutes': estimatedDurationMinutes,
+    'trigger_type': triggerType,
+    'order_count': orderCount,
+    'ordered_stop_ids': orderedStopIds,
+    'dispatched_at': dispatchedAt?.toUtc().toIso8601String(),
+    'ack_deadline_at': ackDeadlineAt?.toUtc().toIso8601String(),
+    'acknowledged_at': acknowledgedAt?.toUtc().toIso8601String(),
+    'created_at': createdAt.toUtc().toIso8601String(),
+  };
+
+  DispatchPlanModel copyWith({String? planStatus, DateTime? acknowledgedAt}) =>
+      DispatchPlanModel(
+        planId: planId,
+        tenantId: tenantId,
+        planStatus: planStatus ?? this.planStatus,
+        driverId: driverId,
+        algorithmUsed: algorithmUsed,
+        totalDistanceKm: totalDistanceKm,
+        estimatedDurationMinutes: estimatedDurationMinutes,
+        triggerType: triggerType,
+        orderCount: orderCount,
+        orderedStopIds: orderedStopIds,
+        dispatchedAt: dispatchedAt,
+        ackDeadlineAt: ackDeadlineAt,
+        acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
+        createdAt: createdAt,
+      );
+
   static DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
     if (value is String && value.isNotEmpty) {

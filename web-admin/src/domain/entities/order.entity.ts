@@ -1,11 +1,12 @@
 export type OrderStatus =
-  | 'PENDING_PAYMENT'
+  | 'PAID'
   | 'READY_FOR_DISPATCH'
   | 'PLANNED'
   | 'IN_TRANSIT'
   | 'DELIVERED'
   | 'CANCELLED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'RETURNED';
 
 export type PackageCategory = 'DOCUMENT' | 'PARCEL' | 'FRAGILE' | 'PERISHABLE';
 
@@ -39,21 +40,23 @@ export interface Order {
 }
 
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
-  PENDING_PAYMENT: 'Chờ thanh toán',
+  PAID: 'Sẵn sàng điều phối',
   READY_FOR_DISPATCH: 'Sẵn sàng điều phối',
   PLANNED: 'Đã lên lịch',
   IN_TRANSIT: 'Đang giao',
   DELIVERED: 'Đã giao',
   CANCELLED: 'Đã huỷ',
   FAILED: 'Sự cố / Thất bại',
+  RETURNED: 'Đã chuyển hoàn',
 };
 
 export const ORDER_STATUS_COLOR: Record<OrderStatus, string> = {
-  PENDING_PAYMENT: 'bg-yellow-100 text-yellow-800',
+  PAID: 'bg-blue-100 text-blue-800',
   READY_FOR_DISPATCH: 'bg-blue-100 text-blue-800',
   PLANNED: 'bg-purple-100 text-purple-800',
   IN_TRANSIT: 'bg-orange-100 text-orange-800',
   DELIVERED: 'bg-green-100 text-green-800',
   CANCELLED: 'bg-gray-100 text-gray-800',
   FAILED: 'bg-rose-100 text-rose-800',
+  RETURNED: 'bg-amber-100 text-amber-800',
 };

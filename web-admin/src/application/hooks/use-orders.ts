@@ -24,6 +24,26 @@ export function useOrders(statusFilter?: OrderStatus) {
 
   useEffect(() => {
     void Promise.resolve().then(fetchOrders);
+
+    if (typeof window === 'undefined') return;
+
+    // Auto-refresh when an SSE real-time operational event arrives
+    const handleRealtimeUpdate = () => {
+      void fetchOrders();
+    };
+    window.addEventListener('swiftroute:realtime-update', handleRealtimeUpdate);
+
+    // Fallback periodic sync every 30 seconds when tab is active
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void fetchOrders();
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('swiftroute:realtime-update', handleRealtimeUpdate);
+      window.clearInterval(interval);
+    };
   }, [fetchOrders]);
 
   const updateStatus = async (orderId: string, status: OrderStatus) => {

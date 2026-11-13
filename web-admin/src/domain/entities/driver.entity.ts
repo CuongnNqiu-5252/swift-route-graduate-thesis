@@ -26,19 +26,7 @@ export interface CreateDriverPayload {
   licensePlate?: string;
   vehicleType: 'MOTORCYCLE' | 'CAR' | 'VAN';
   capacity: number;
-  driverType: 'DEDICATED' | 'POOLED';
+  driverType: 'DEDICATED';
   shiftStart?: string;
   shiftEnd?: string;
 }
-
-export const DRIVER_STATUS_LABEL: Record<DriverStatus, string> = {
-  AVAILABLE: 'Sẵn sàng',
-  BUSY: 'Đang giao',
-  OFFLINE: 'Offline',
-};
-
-export const DRIVER_STATUS_COLOR: Record<DriverStatus, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  BUSY: 'bg-orange-100 text-orange-800',
-  OFFLINE: 'bg-gray-100 text-gray-600',
-};

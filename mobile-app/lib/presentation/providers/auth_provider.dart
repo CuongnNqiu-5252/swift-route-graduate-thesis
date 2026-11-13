@@ -82,7 +82,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
        super(const AuthState()) {
     // Kiểm tra phiên đăng nhập khi khởi động app
     _checkAuthStatus();
-    getCurrentUser();
   }
 
   Future<void> getCurrentUser() async {
@@ -151,6 +150,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       final user = await _loginUseCase.execute(email.trim(), password);
+      if (user.role != 'DRIVER') {
+        await _logoutUseCase.execute();
+        state = state.copyWith(
+          isLoading: false,
+          user: null,
+          isAuthenticated: false,
+          errorMessage:
+              'Tài khoản chưa được liên kết với hồ sơ tài xế. Hãy kiểm tra lời mời từ doanh nghiệp.',
+        );
+        return false;
+      }
       state = state.copyWith(
         isLoading: false,
         user: user,

@@ -20,6 +20,10 @@ const STATUS_META: Record<PlanStatus, { label: string; className: string }> = {
     label: 'Đã điều phối cho tài xế',
     className: 'border-emerald-300 bg-emerald-50 text-emerald-900',
   },
+  COMPLETED: {
+    label: 'Đã hoàn thành tuyến',
+    className: 'border-blue-300 bg-blue-50 text-blue-900',
+  },
   CANCELLED: {
     label: 'Đã hủy kế hoạch',
     className: 'border-neutral-300 bg-neutral-100 text-neutral-700',

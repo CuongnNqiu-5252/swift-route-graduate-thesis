@@ -85,6 +85,7 @@ services:
       - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
       - AUTH_FLYWAY_BASELINE_VERSION=${AUTH_FLYWAY_BASELINE_VERSION:-1}
       - WEB_APP_URL=${WEB_APP_URL:-http://localhost:3000}
+      - PASSWORD_RESET_URL=${PASSWORD_RESET_URL:-http://localhost:3000/reset-password}
       - ORDER_SERVICE_URL=http://order-service:8082
       - DRIVER_SERVICE_URL=http://driver-service:8083
       - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
@@ -97,6 +98,8 @@ services:
       - RABBITMQ_PORT=5672
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
@@ -126,6 +129,8 @@ services:
       - RABBITMQ_PORT=5672
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
       - AUTH_SERVICE_URL=http://auth-service:8081
       - DRIVER_SERVICE_URL=http://driver-service:8083
       - ROUTING_ENGINE_URL=http://routing-engine:8084
@@ -164,6 +169,8 @@ services:
       - RABBITMQ_PORT=5672
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
     networks:
       - swiftroute-net
     depends_on:
@@ -185,7 +192,10 @@ services:
     environment:
       - AUTH_SERVICE_URL=http://auth-service:8081
       - GRPC_PORT=50051
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
       - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
     networks:
       - swiftroute-net
 

@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,12 +39,10 @@ import lombok.RequiredArgsConstructor;
 /**
  * Controller xử lý API cho Order.
  *
- * Quan trọng: Controller này KHÔNG xử lý JWT.
- * Toàn bộ xác thực đã được API Gateway làm.
- * Controller chỉ đọc các header đã được Gateway inject:
- * - X-User-Id : UUID của người đang gọi API
- * - X-User-Role : Role (CUSTOMER, DRIVER, ADMIN, OPERATOR)
- * - X-Tenant-Id : UUID của Tenant (nếu user thuộc về Tenant)
+ * TenantRequestInterceptor xác thực chữ ký JWT và gắn các request attribute đáng tin cậy:
+ * - authorizedUserId: UUID người gọi từ JWT subject
+ * - effectiveRole: Role từ JWT đã verify (SYSTEM_ADMIN, USER, OWNER, TENANT_ADMIN, OPERATOR, DRIVER, VIEWER)
+ * - authorizedTenantId: UUID doanh nghiệp từ JWT tenant_id (hoặc target workspace của SYSTEM_ADMIN)
  */
 @RestController
 @RequestMapping("/api/orders")
@@ -58,37 +56,28 @@ public class OrderController {
     @PostMapping("/assign-batch")
     @Operation(summary = "Assign ready orders through authoritative dispatch plans")
     public ResponseEntity<ApiResponse<Void>> assignBatch(
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID operatorId,
-            @RequestHeader("X-User-Role") String role,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID operatorId,
+            @RequestAttribute("effectiveRole") String role,
             @Valid @RequestBody ManualAssignmentRequest request) {
-        if (!java.util.Set.of("OWNER", "TENANT_ADMIN", "ADMIN", "SYSTEM_ADMIN", "OPS_STAFF", "MANAGER", "OPERATOR")
+        if (!java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR")
                 .contains(role))
             throw new AppException(ErrorCode.ACCESS_DENIED);
-        orchestration.assignManualBatch(tenantId, operatorId, request);
+        orchestration.assignManualBatch(requireTenantId(tenantId), operatorId, request);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     /**
      * GET /api/orders
-     * Danh sách tất cả đơn hàng (hỗ trợ lọc theo status, tenant).
+     * Danh sách tất cả đơn hàng (lọc theo tenant đã xác thực và status nếu có).
      * Dùng cho Web Admin và Dispatch console.
      */
     @Operation(summary = "Lấy danh sách tất cả đơn hàng (hỗ trợ lọc status, tenant)")
     @GetMapping
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getAllOrders(
             @RequestParam(value = "status", required = false) String statusStr,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
-            @RequestParam(value = "tenant_id", required = false) String tenantIdParam,
-            @RequestHeader(value = "X-User-Role", required = false, defaultValue = "ADMIN") String userRole) {
-
-        String effectiveTenant = (tenantIdHeader != null && !tenantIdHeader.isBlank())
-                ? tenantIdHeader
-                : tenantIdParam;
-
-        UUID tenantUuid = (effectiveTenant != null && !effectiveTenant.isBlank())
-                ? UUID.fromString(effectiveTenant)
-                : null;
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantUuid,
+            @RequestAttribute(name = "effectiveRole", required = false) String userRole) {
 
         OrderStatus status = null;
         if (statusStr != null && !statusStr.isBlank()) {
@@ -110,11 +99,11 @@ public class OrderController {
     @Operation(summary = "Get tenant-scoped dispatch operations queues")
     @GetMapping("/operations/queue")
     public ResponseEntity<ApiResponse<OperationsQueueResponse>> getOperationsQueue(
-            @RequestHeader("X-Tenant-Id") String tenantId,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole) {
         OperationsQueueResponse queue = orderService.getOperationsQueue(
-                UUID.fromString(tenantId), UUID.fromString(userId), userRole);
+                requireTenantId(tenantId), userId, userRole);
         return ResponseEntity.ok(ApiResponse.success(queue));
     }
 
@@ -128,50 +117,28 @@ public class OrderController {
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
             @Valid @RequestBody CreateOrderRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) String userId,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantId) {
+            @RequestAttribute("authorizedUserId") UUID creatorUserId,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
 
-        UUID creatorUserId = (userId != null && !userId.isBlank()) ? UUID.fromString(userId) : null;
-        UUID tenantIdUUID = (tenantId != null && !tenantId.isBlank())
-                ? UUID.fromString(tenantId)
-                : null;
-
-        OrderResponse response = orderService.createOrder(request, creatorUserId, tenantIdUUID);
+        OrderResponse response = orderService.createOrder(request, creatorUserId, tenantId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response));
     }
 
     /**
-     * GET /api/orders/track/{trackingToken}
-     * Tra cứu vận đơn công khai cho người nhận qua mã trackingToken.
-     * Không yêu cầu JWT đăng nhập.
-     */
-    @Operation(summary = "Track delivery order publicly by tracking token")
-    @GetMapping("/track/{trackingToken}")
-    public ResponseEntity<ApiResponse<OrderResponse>> trackOrderByToken(
-            @PathVariable String trackingToken) {
-
-        OrderResponse response = orderService.getOrderByTrackingToken(trackingToken);
-        return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    /**
      * GET /api/orders/{orderId}
      * Lấy chi tiết một đơn hàng.
-     * Role được phép: CUSTOMER (chỉ đơn của mình), ADMIN, OPERATOR
+     * Role được phép: USER (chỉ đơn của mình), OWNER, TENANT_ADMIN, OPERATOR, SYSTEM_ADMIN
      */
     @GetMapping("/{orderId}")
     public ResponseEntity<ApiResponse<OrderResponse>> getOrderById(
             @PathVariable UUID orderId,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
 
-        UUID tenantId = (tenantIdHeader != null && !tenantIdHeader.isBlank())
-                ? UUID.fromString(tenantIdHeader)
-                : null;
         OrderResponse response = orderService.getOrderById(
-                orderId, UUID.fromString(userId), userRole, tenantId);
+                orderId, userId, userRole, tenantId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -183,8 +150,8 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> updateOrderStatus(
             @PathVariable UUID orderId,
             @RequestBody Object rawBody,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole) {
 
         OrderStatus newStatus;
         if (rawBody instanceof Map<?, ?> map && map.containsKey("status")) {
@@ -195,7 +162,7 @@ public class OrderController {
             newStatus = OrderStatus.valueOf(rawBody.toString().replace("\"", "").trim());
         }
 
-        OrderResponse response = orderService.updateOrderStatus(orderId, newStatus, UUID.fromString(userId), userRole);
+        OrderResponse response = orderService.updateOrderStatus(orderId, newStatus, userId, userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -208,9 +175,9 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> reportIncident(
             @PathVariable UUID orderId,
             @Valid @RequestBody ReportIncidentRequest request,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
-        OrderResponse response = orderService.reportIncident(orderId, request, UUID.fromString(userId), userRole);
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole) {
+        OrderResponse response = orderService.reportIncident(orderId, request, userId, userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -223,10 +190,10 @@ public class OrderController {
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
             @PathVariable UUID orderId,
             @RequestBody(required = false) CancelOrderRequest request,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole) {
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole) {
         OrderResponse response = orderService.cancelOrder(orderId,
-                request != null ? request : new CancelOrderRequest(null), UUID.fromString(userId), userRole);
+                request != null ? request : new CancelOrderRequest(null), userId, userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -238,11 +205,10 @@ public class OrderController {
     @GetMapping(value = "/{orderId}/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamOrderTracking(
             @PathVariable UUID orderId,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
-        UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
-        orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        orderService.getOrderById(orderId, userId, userRole, tenantId);
         return trackingSimulationService.subscribe(orderId);
     }
 
@@ -255,11 +221,10 @@ public class OrderController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> startOrderSimulation(
             @PathVariable UUID orderId,
             @Valid @RequestBody StartSimulationRequest request,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
-        UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
-        OrderResponse order = orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        OrderResponse order = orderService.getOrderById(orderId, userId, userRole, tenantId);
         trackingSimulationService.startRouteSimulation(
                 orderId,
                 order.assignedDriverId(),
@@ -280,14 +245,20 @@ public class OrderController {
     @PostMapping("/{orderId}/tracking/simulate/stop")
     public ResponseEntity<ApiResponse<Map<String, Object>>> stopOrderSimulation(
             @PathVariable UUID orderId,
-            @RequestHeader("X-User-Id") String userId,
-            @RequestHeader("X-User-Role") String userRole,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader) {
-        UUID tenantId = tenantIdHeader == null || tenantIdHeader.isBlank() ? null : UUID.fromString(tenantIdHeader);
-        orderService.getOrderById(orderId, UUID.fromString(userId), userRole, tenantId);
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        orderService.getOrderById(orderId, userId, userRole, tenantId);
         trackingSimulationService.stopRouteSimulation(orderId, List.of());
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "order_id", orderId,
                 "status", "STOPPED")));
+    }
+
+    private UUID requireTenantId(UUID tenantId) {
+        if (tenantId == null) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        return tenantId;
     }
 }

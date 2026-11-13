@@ -15,6 +15,10 @@ export function useOperationsQueue() {
   const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
+    if (typeof window !== 'undefined' && !localStorage.getItem('tenant_id')) {
+      setQueue(emptyQueue);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -28,6 +32,26 @@ export function useOperationsQueue() {
 
   useEffect(() => {
     void Promise.resolve().then(refetch);
+
+    if (typeof window === 'undefined') return;
+
+    // Auto-refresh operations queue when real-time SSE alerts or updates arrive
+    const handleRealtimeUpdate = () => {
+      void refetch();
+    };
+    window.addEventListener('swiftroute:realtime-update', handleRealtimeUpdate);
+
+    // Fallback periodic sync every 30 seconds when tab is active
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void refetch();
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('swiftroute:realtime-update', handleRealtimeUpdate);
+      window.clearInterval(interval);
+    };
   }, [refetch]);
 
   const reassignOrder = async (orderId: string, driverId: string) => {

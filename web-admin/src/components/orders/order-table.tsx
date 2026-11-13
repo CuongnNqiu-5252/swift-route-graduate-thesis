@@ -77,8 +77,7 @@ export function OrderTable({
             const codAmount = Number(order.cod_amount ?? 0);
             const canCancel =
               order.status === 'READY_FOR_DISPATCH' ||
-              order.status === 'PLANNED' ||
-              order.status === 'PENDING_PAYMENT';
+              order.status === 'PLANNED';
             const shortCode = formatShortOrderCode(order.order_code, order.id);
 
             return (

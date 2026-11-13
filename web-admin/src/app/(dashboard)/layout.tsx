@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/application/contexts/auth-context';
 import { NotificationProvider } from '@/application/contexts/notification-context';
 import { Sidebar } from '@/components/layout/sidebar';
@@ -16,14 +16,17 @@ export default function DashboardLayout({
 }) {
   const { user, token, isLoading, refreshProfile, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!isLoading && !token) {
       router.replace('/login');
-    } else if (!isLoading && user && isSystemAdmin(user.role)) {
-      router.replace(portalHome(user.role));
+    } else if (!isLoading && user && isSystemAdmin(user)) {
+      router.replace(portalHome(user));
+    } else if (!isLoading && user && !user.tenantId && pathname !== '/organizations' && pathname !== '/profile') {
+      router.replace('/organizations');
     }
-  }, [isLoading, token, user, router]);
+  }, [isLoading, token, user, router, pathname]);
 
   if (isLoading) {
     return (
@@ -46,7 +49,7 @@ export default function DashboardLayout({
     );
   }
 
-  if (!token || !user || isSystemAdmin(user.role)) {
+  if (!token || !user || isSystemAdmin(user) || (!user.tenantId && pathname !== '/organizations' && pathname !== '/profile')) {
     return null;
   }
 

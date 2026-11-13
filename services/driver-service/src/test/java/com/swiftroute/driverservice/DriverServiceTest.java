@@ -19,7 +19,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.swiftroute.driverservice.dto.request.ReportDeliveryEventRequest;
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
 import com.swiftroute.driverservice.dto.response.DriverResponse;
@@ -131,25 +130,6 @@ class DriverServiceTest {
 
         assertEquals(10.8231, response.currentLat());
         assertEquals(106.6297, response.currentLng());
-    }
-
-    @Test
-    @DisplayName("reportDeliveryEvent - creates driver.delivery_reported.v1 outbox event")
-    void reportDeliveryEvent_Success() {
-        when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
-
-        UUID orderId = UUID.randomUUID();
-        ReportDeliveryEventRequest request = new ReportDeliveryEventRequest(orderId, "DELIVERED", null,
-                "Delivered to customer");
-
-        driverService.reportDeliveryEvent(sampleUserId, request);
-
-        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outboxEventRepository).save(outboxCaptor.capture());
-
-        OutboxEvent event = outboxCaptor.getValue();
-        assertEquals("driver.delivery_reported.v1", event.getEventType());
-        assertEquals(sampleDriverId, event.getAggregateId());
     }
 
     @Test

@@ -66,6 +66,8 @@ The product is used on mobile devices in outdoor field conditions. GPS quality, 
 - Customer ordering screens.
 - Tenant admin/dispatch web screens.
 - Subscription, driver payouts, banking, or wallet architecture.
+- Product catalog, SKU master data, coupons, pricing campaigns, or promotions.
+- FR-10 analytics read model and on-time/cost reporting (pending future scope).
 - Backend, database, or Flutter implementation changes in this design task.
 
 ## Assumptions to validate later

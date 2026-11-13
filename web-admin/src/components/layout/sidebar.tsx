@@ -12,7 +12,6 @@ const navItems = [
   { href: '/dispatch', label: 'Điều phối', icon: Route },
   { href: '/operations', label: 'Sự cố & COD', icon: AlertTriangle },
   { href: '/drivers', label: 'Tài xế', icon: Users },
-  { href: '/fleet', label: 'Phương tiện', icon: Truck },
   { href: '/locations', label: 'Điểm lấy hàng', icon: MapPin },
   { href: '/settlements', label: 'Đối soát tài xế', icon: WalletCards },
   { href: '/members', label: 'Nhân sự', icon: Users },

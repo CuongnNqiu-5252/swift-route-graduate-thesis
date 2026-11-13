@@ -7,7 +7,9 @@ export interface AuthUser {
   id: string;
   email: string;
   role: string;
+  systemRole?: string;
   accountRole?: string;
+  tenantRole?: string | null;
   name?: string;
   phone?: string;
   tenantId?: string | null;
@@ -23,6 +25,31 @@ interface AuthContextValue {
   logout: () => void;
   refreshProfile: () => Promise<AuthUser | null>;
   isLoading: boolean;
+}
+
+interface JwtClaimsPayload {
+  system_role?: string;
+  tenant_id?: string | null;
+  tenant_role?: string | null;
+}
+
+function decodeJwtClaims(jwt: string | null): JwtClaimsPayload {
+  if (!jwt) return {};
+  try {
+    const parts = jwt.split('.');
+    if (parts.length < 2) return {};
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const json = decodeURIComponent(
+      atob(padded)
+        .split('')
+        .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join('')
+    );
+    return JSON.parse(json) as JwtClaimsPayload;
+  } catch {
+    return {};
+  }
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -56,14 +83,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = response.data;
       if (!data) return null;
 
+      const storedToken = localStorage.getItem('access_token');
+      const claims = decodeJwtClaims(storedToken);
+      const resolvedTenantId =
+        claims.tenant_id ?? localStorage.getItem('tenant_id') ?? data.tenant_id ?? data.tenantId ?? null;
+      if (resolvedTenantId && !localStorage.getItem('tenant_id')) {
+        localStorage.setItem('tenant_id', resolvedTenantId);
+      }
+      const systemRole = claims.system_role || data.account_role || data.accountRole;
+      const tenantRole = claims.tenant_role ?? null;
+
       const profile: AuthUser = {
         id: data.id,
         email: data.email,
-        role: data.role,
-        accountRole: data.account_role || data.accountRole,
+        role: tenantRole || data.role || systemRole || '',
+        systemRole,
+        accountRole: systemRole,
+        tenantRole,
         name: data.full_name || data.fullName || data.email,
         phone: data.phone,
-        tenantId: localStorage.getItem('tenant_id') ?? data.tenant_id ?? data.tenantId ?? null,
+        tenantId: resolvedTenantId,
         emailVerified: data.email_verified ?? data.emailVerified ?? false,
         status: data.status,
         createdAt: data.created_at || data.createdAt,

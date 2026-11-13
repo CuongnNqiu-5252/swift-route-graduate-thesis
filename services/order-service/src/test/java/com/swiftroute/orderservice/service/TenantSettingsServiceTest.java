@@ -15,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swiftroute.orderservice.dto.request.UpdateTenantSettingsRequest;
 import com.swiftroute.orderservice.dto.response.TenantSettingsResponse;
 import com.swiftroute.orderservice.entity.OptimizationWeights;
@@ -116,6 +117,82 @@ class TenantSettingsServiceTest {
         assertThat(response.dispatchConfig().getMaxOrdersPerDriver()).isEqualTo(8);
         assertThat(response.dispatchConfig().getMaxWaitTimeSeconds()).isEqualTo(600);
         assertThat(response.dispatchConfig().getAllowPoolDrivers()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Should deserialize TenantDispatchConfig JSONB with scheduled_dispatch_time and ignore unknown fields")
+    void dispatchConfigDeserializesScheduledFieldsAndIgnoresUnknown() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String json = """
+                {
+                  "algorithm": "auto",
+                  "require_approval": false,
+                  "urgent_order_mode": "IMMEDIATE_SINGLE",
+                  "allow_pool_drivers": false,
+                  "batch_size_threshold": 5,
+                  "auto_dispatch_enabled": true,
+                  "max_orders_per_driver": 5,
+                  "max_wait_time_seconds": 300,
+                  "scheduled_dispatch_enabled": true,
+                  "scheduled_dispatch_time": "06:00",
+                  "future_unknown_field": "ignored"
+                }
+                """;
+
+        TenantDispatchConfig config = mapper.readValue(json, TenantDispatchConfig.class);
+
+        assertThat(config.getScheduledDispatchEnabled()).isTrue();
+        assertThat(config.getScheduledDispatchTime()).isEqualTo("06:00");
+        assertThat(config.getUrgentOrderMode()).isEqualTo("IMMEDIATE_SINGLE");
+    }
+
+    @Test
+    @DisplayName("Should accept valid scheduled dispatch time and reject invalid time or urgent mode")
+    void updateSettingsValidatesScheduledTimeAndUrgentMode() {
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(tenantRepository.save(any(Tenant.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateTenantSettingsRequest validRequest = new UpdateTenantSettingsRequest(
+                null,
+                null,
+                null,
+                TenantDispatchConfig.builder()
+                        .urgentOrderMode("BATCH_IMMEDIATE")
+                        .scheduledDispatchEnabled(true)
+                        .scheduledDispatchTime("07:00")
+                        .build(),
+                null
+        );
+
+        TenantSettingsResponse response = settingsService.updateSettings(tenantId, validRequest);
+        assertThat(response.dispatchConfig().getScheduledDispatchTime()).isEqualTo("07:00");
+        assertThat(response.dispatchConfig().getUrgentOrderMode()).isEqualTo("BATCH_IMMEDIATE");
+
+        UpdateTenantSettingsRequest invalidTimeRequest = new UpdateTenantSettingsRequest(
+                null,
+                null,
+                null,
+                TenantDispatchConfig.builder().scheduledDispatchTime("7:00").build(),
+                null
+        );
+
+        assertThatThrownBy(() -> settingsService.updateSettings(tenantId, invalidTimeRequest))
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+
+        UpdateTenantSettingsRequest invalidUrgentModeRequest = new UpdateTenantSettingsRequest(
+                null,
+                null,
+                null,
+                TenantDispatchConfig.builder().urgentOrderMode("INVALID").build(),
+                null
+        );
+
+        assertThatThrownBy(() -> settingsService.updateSettings(tenantId, invalidUrgentModeRequest))
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
     }
 }
 

@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
  * Thứ tự bắt lỗi:
  *  1. AppException  → lỗi nghiệp vụ có kiểm soát (Order/Tenant không tìm thấy, v.v.)
  *  2. MethodArgumentNotValidException → lỗi @Valid trên DTO
- *  3. MissingRequestHeaderException   → thiếu header X-User-Id, X-Tenant-Id từ Gateway
+ *  3. MissingRequestHeaderException   → thiếu header bắt buộc (vd: Idempotency-Key, X-Service-Key)
  *  4. Exception (generic)             → lưới vét cuối — 500
  */
 @RestControllerAdvice
@@ -61,8 +61,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Khi Gateway không inject header (ví dụ test trực tiếp bỏ qua Gateway).
-     * Trả về 401 thay vì 400 vì thiếu header = chưa qua xác thực.
+     * Trả về 400 nếu thiếu Idempotency-Key, và 401 nếu thiếu header xác thực nội bộ (vd: X-Service-Key).
      */
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<ApiResponse<Void>> handleMissingHeader(MissingRequestHeaderException ex) {

@@ -10,7 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import com.swiftroute.orderservice.entity.DeliveryIncident;
+import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
+import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
@@ -40,5 +42,28 @@ class RecoveryRuleEngineTest {
         assertThat(payload.get("reported_by")).isEqualTo(operator.toString());
         assertThat(payload.get("tenant_id")).isEqualTo(tenant.toString());
         assertThat(payload.get("action_url")).isEqualTo("/operations?incident=" + incidentId);
+    }
+
+    @Test
+    void offlineSyncConflictAlwaysRequiresManualReviewWithoutRecoveryMutation() {
+        var attempts = mock(DeliveryAttemptRepository.class);
+        var returns = mock(ReturnRequestRepository.class);
+        var outbox = mock(OutboxEventRepository.class);
+        var engine = new RecoveryRuleEngine(attempts, returns, outbox);
+        var order = Order.builder().id(UUID.randomUUID()).status(OrderStatus.CANCELLED).build();
+        var incident = DeliveryIncident.builder()
+                .id(UUID.randomUUID())
+                .tenantId(UUID.randomUUID())
+                .reportedBy(UUID.randomUUID())
+                .order(order)
+                .incidentType("OFFLINE_SYNC_CONFLICT")
+                .severity("HIGH")
+                .build();
+
+        String result = engine.evaluateAndApply(incident);
+
+        assertThat(result).isEqualTo("MANUAL_REVIEW");
+        verifyNoInteractions(attempts, returns);
+        verify(outbox).save(any(OutboxEvent.class));
     }
 }

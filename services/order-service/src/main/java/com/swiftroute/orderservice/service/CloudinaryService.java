@@ -3,7 +3,6 @@ package com.swiftroute.orderservice.service;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
-import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,12 +29,21 @@ public class CloudinaryService {
 
     /**
      * Upload an image to Cloudinary in folder 'swiftroute/evidence'.
-     * If Cloudinary keys are not yet provided by the user, returns a safe demo URL
-     * so workflows (POD, Incident evidence) continue working without interruption.
+     * Evidence uploads fail closed when durable storage is unavailable. Returning a
+     * demo URL would create a false proof-of-delivery record.
      */
     public FileUploadResponse uploadImage(MultipartFile file, String folder) {
         if (file == null || file.isEmpty()) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
+            throw new AppException(ErrorCode.INVALID_EVIDENCE_FILE);
+        }
+
+        String contentType = file.getContentType();
+        if (file.getSize() > 10L * 1024 * 1024
+                || contentType == null
+                || !(contentType.equalsIgnoreCase("image/jpeg")
+                    || contentType.equalsIgnoreCase("image/png")
+                    || contentType.equalsIgnoreCase("image/webp"))) {
+            throw new AppException(ErrorCode.INVALID_EVIDENCE_FILE);
         }
 
         String targetFolder = (folder != null && !folder.isBlank())
@@ -43,18 +51,8 @@ public class CloudinaryService {
                 : "swiftroute/evidence";
 
         if (cloudinary == null) {
-            String fakePublicId = "mock_" + UUID.randomUUID().toString().substring(0, 10);
-            String placeholderUrl = "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80";
-            log.info("Cloudinary is not configured yet (CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET missing). " +
-                    "Returning fallback demo URL for file '{}': {}", file.getOriginalFilename(), placeholderUrl);
-            return new FileUploadResponse(
-                    placeholderUrl,
-                    fakePublicId,
-                    "jpg",
-                    file.getSize(),
-                    file.getOriginalFilename(),
-                    Instant.now()
-            );
+            log.error("Evidence upload rejected because Cloudinary is not configured");
+            throw new AppException(ErrorCode.EVIDENCE_STORAGE_UNAVAILABLE);
         }
 
         try {
@@ -71,10 +69,15 @@ public class CloudinaryService {
             String format = (String) uploadResult.get("format");
             Number bytes = (Number) uploadResult.get("bytes");
 
+            if ((secureUrl == null || secureUrl.isBlank()) || publicId == null || publicId.isBlank()) {
+                log.error("Cloudinary returned an incomplete evidence upload result");
+                throw new AppException(ErrorCode.EVIDENCE_STORAGE_UNAVAILABLE);
+            }
+
             log.info("Uploaded image to Cloudinary: publicId={}, url={}", publicId, secureUrl);
 
             return new FileUploadResponse(
-                    secureUrl != null ? secureUrl : (String) uploadResult.get("url"),
+                    secureUrl,
                     publicId,
                     format != null ? format : "jpg",
                     bytes != null ? bytes.longValue() : file.getSize(),
@@ -83,8 +86,7 @@ public class CloudinaryService {
             );
         } catch (IOException e) {
             log.error("Failed to upload image to Cloudinary", e);
-            throw new RuntimeException("Image upload failed: " + e.getMessage(), e);
+            throw new AppException(ErrorCode.EVIDENCE_STORAGE_UNAVAILABLE);
         }
     }
 }
-

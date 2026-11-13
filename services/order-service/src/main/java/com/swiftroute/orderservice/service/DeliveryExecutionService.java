@@ -20,16 +20,19 @@ import com.swiftroute.orderservice.dto.response.DriverDeliveryTaskResponse;
 import com.swiftroute.orderservice.entity.AuditLog;
 import com.swiftroute.orderservice.entity.DeliveryAttempt;
 import com.swiftroute.orderservice.entity.DeliveryTask;
+import com.swiftroute.orderservice.entity.DispatchPlan;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
+import com.swiftroute.orderservice.entity.enums.PlanStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.AuditLogRepository;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryTaskRepository;
+import com.swiftroute.orderservice.repository.DispatchPlanRepository;
 import com.swiftroute.orderservice.repository.OrderRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
@@ -53,6 +56,7 @@ public class DeliveryExecutionService {
     private final ReturnRequestRepository returnRequests;
     private final PackageCustodyService custody;
     private final OutboxEventRepository outboxEvents;
+    private final DispatchPlanRepository dispatchPlans;
 
     @Transactional
     public DeliveryTask assign(Order order, UUID driverId) {
@@ -93,7 +97,8 @@ public class DeliveryExecutionService {
     public DeliveryTask createReturnTask(Order order, UUID driverId) {
         return tasks.findByOrder_IdAndTaskType(order.getId(), "RETURN")
                 .map(task -> {
-                    if (task.getStatus() != DeliveryTaskStatus.CANCELLED && task.getStatus() != DeliveryTaskStatus.FAILED) {
+                    if (task.getStatus() != DeliveryTaskStatus.CANCELLED
+                            && task.getStatus() != DeliveryTaskStatus.FAILED) {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                     }
                     task.setDriverId(driverId);
@@ -157,14 +162,6 @@ public class DeliveryExecutionService {
                 .filter(task -> task.getOrder().getStatus() != OrderStatus.CANCELLED)
                 .map(DriverDeliveryTaskResponse::from)
                 .toList();
-    }
-
-    @Transactional
-    public DeliveryTask updateForOrder(UUID orderId, UUID driverId, String role, UpdateDeliveryTaskRequest request) {
-        DeliveryTask task = tasks.findByOrder_IdAndTaskType(orderId, "DELIVERY")
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(task.getTenantId());
-        return update(task.getId(), driverId, role, request);
     }
 
     @Transactional
@@ -233,7 +230,57 @@ public class DeliveryExecutionService {
 
         orders.save(order);
         audit(task, previous, request, driverId);
+
+        if (request.status() == DeliveryTaskStatus.COMPLETED || request.status() == DeliveryTaskStatus.FAILED) {
+            checkAndCompleteDispatchPlan(task);
+        }
+
         return task;
+    }
+
+    private void checkAndCompleteDispatchPlan(DeliveryTask task) {
+        UUID planId = task.getDispatchPlanId();
+        if (planId == null && task.getOrder() != null) {
+            planId = task.getOrder().getPlanId();
+        }
+        if (planId == null) {
+            return;
+        }
+        dispatchPlans.findById(planId).ifPresent(plan -> {
+            if (plan.getPlanStatus() != PlanStatus.DISPATCHED) {
+                return;
+            }
+            List<DeliveryTask> planTasks = tasks.findByDispatchPlanId(plan.getId());
+            if (planTasks.isEmpty()) {
+                return;
+            }
+            boolean allTerminal = planTasks.stream()
+                    .allMatch(t -> t.getStatus() == DeliveryTaskStatus.COMPLETED
+                            || t.getStatus() == DeliveryTaskStatus.FAILED
+                            || t.getStatus() == DeliveryTaskStatus.CANCELLED);
+            if (allTerminal) {
+                plan.complete();
+                dispatchPlans.save(plan);
+                publishPlanCompleted(plan);
+            }
+        });
+    }
+
+    private void publishPlanCompleted(DispatchPlan plan) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("plan_id", plan.getId().toString());
+        payload.put("tenant_id", plan.getTenant().getId().toString());
+        payload.put("plan_status", plan.getPlanStatus().name());
+        payload.put("driver_id", plan.getDriverId() != null ? plan.getDriverId().toString() : null);
+        payload.put("completed_at", Instant.now().toString());
+
+        outboxEvents.save(OutboxEvent.builder()
+                .eventId(UUID.randomUUID())
+                .aggregateType("DispatchPlan")
+                .aggregateId(plan.getId())
+                .eventType("plan.completed")
+                .payload(payload)
+                .build());
     }
 
     private void publishDeliveryCompleted(DeliveryTask task, Order order) {
@@ -346,7 +393,8 @@ public class DeliveryExecutionService {
     }
 
     /**
-     * Accepts all (or specified) ASSIGNED tasks belonging to the authenticated driver in a single transaction.
+     * Accepts all (or specified) ASSIGNED tasks belonging to the authenticated
+     * driver in a single transaction.
      */
     @Transactional
     public List<DriverDeliveryTaskResponse> batchAccept(
@@ -371,8 +419,10 @@ public class DeliveryExecutionService {
     }
 
     /**
-     * Confirms physical pickup for all (or specified depot-grouped) tasks of the driver in one swipe,
-     * recording package custody acquisition and transitioning orders directly to IN_TRANSIT / OUT_FOR_DELIVERY.
+     * Confirms physical pickup for all (or specified depot-grouped) tasks of the
+     * driver in one swipe,
+     * recording package custody acquisition and transitioning orders directly to
+     * IN_TRANSIT / OUT_FOR_DELIVERY.
      */
     @Transactional
     public List<DriverDeliveryTaskResponse> batchPickup(

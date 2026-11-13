@@ -9,17 +9,19 @@
 //   PATCH  /drivers/{driverId}/location    -> DriverResponse
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
+import 'package:swiftroute_app/core/offline/offline_action.dart';
+import 'package:swiftroute_app/core/offline/offline_sync_controller.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_earning_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
 
 class DriverRemoteDataSource {
   final Dio _dio;
+  final OfflineSyncController _offline;
 
-  DriverRemoteDataSource(this._dio);
+  DriverRemoteDataSource(this._dio, this._offline);
 
   /// Fetch the current authenticated driver's profile from /drivers/me.
   Future<DriverModel> getMyProfile() async {
@@ -102,86 +104,41 @@ class DriverRemoteDataSource {
     required DateTime recordedAt,
     required int sequence,
   }) async {
-    final response = await _dio.post(
-      '/drivers/me/location',
-      data: {
-        'lat': lat,
-        'lng': lng,
-        'accuracy_m': accuracyM,
-        'speed_mps': speedMps,
-        'bearing': bearing,
-        'recorded_at': recordedAt.toUtc().toIso8601String(),
-        'sequence': sequence,
-      },
-    );
+    final body = <String, dynamic>{
+      'lat': lat,
+      'lng': lng,
+      'accuracy_m': accuracyM,
+      'speed_mps': speedMps,
+      'bearing': bearing,
+      'recorded_at': recordedAt.toUtc().toIso8601String(),
+      'sequence': sequence,
+    };
+    Response<dynamic> response;
+    try {
+      response = await _dio.post('/drivers/me/location', data: body);
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status != null && status < 500 && status != 408 && status != 429) {
+        rethrow;
+      }
+      await _offline.queue(
+        OfflineAction.create(
+          type: OfflineActionType.locationUpdate,
+          method: 'POST',
+          path: '/drivers/me/location',
+          body: body,
+        ),
+      );
+      throw const OfflineActionQueuedException(
+        'Vị trí đã lưu trên máy và sẽ được đồng bộ sau',
+      );
+    }
     final resData = response.data;
     final map = (resData is Map && resData['data'] is Map)
         ? resData['data'] as Map
         : (resData is Map ? resData : null);
     if (map == null) throw Exception('Failed to update driver location');
     return DriverModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
-  /// Fetch the driver profile by driverId (UUID string).
-  Future<DriverModel> getDriverProfile(String driverId) async {
-    final response = await _dio.get('/drivers/$driverId');
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Driver profile not found');
-    return DriverModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
-  /// Toggle the driver's availability status.
-  /// [driverId] is the driver entity UUID (not the auth userId).
-  Future<DriverModel> updateAvailability({
-    required String driverId,
-    required bool isAvailable,
-  }) async {
-    final response = await _dio.patch(
-      '/drivers/$driverId/availability',
-      data: {'is_available': isAvailable},
-    );
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Failed to update availability');
-    return DriverModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
-  /// Report current GPS coordinates to the backend.
-  Future<DriverModel> updateLocation({
-    required String driverId,
-    required double lat,
-    required double lng,
-  }) async {
-    final response = await _dio.patch(
-      '/drivers/$driverId/location',
-      data: {'lat': lat, 'lng': lng},
-    );
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Failed to update location');
-    return DriverModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
-  /// Fetch public driver profile (for customers tracking an order).
-  Future<Map<String, dynamic>> getDriverPublicInfo(String driverId) async {
-    try {
-      final response = await _dio.get('/drivers/$driverId/public');
-      final resData = response.data;
-      if (resData is Map && resData['data'] is Map) {
-        return Map<String, dynamic>.from(resData['data'] as Map);
-      }
-      return {};
-    } catch (e) {
-      debugPrint('[DriverRemoteDataSource] getDriverPublicInfo error: $e');
-      rethrow;
-    }
   }
 
   Future<DriverEarningsBundle> getMyEarnings() async {
@@ -219,9 +176,8 @@ class DriverRemoteDataSource {
     return raw
         .whereType<Map>()
         .map(
-          (item) => DriverNotificationModel.fromJson(
-            Map<String, dynamic>.from(item),
-          ),
+          (item) =>
+              DriverNotificationModel.fromJson(Map<String, dynamic>.from(item)),
         )
         .toList();
   }
@@ -229,5 +185,8 @@ class DriverRemoteDataSource {
 
 /// Riverpod provider for DriverRemoteDataSource
 final driverRemoteDataSourceProvider = Provider<DriverRemoteDataSource>((ref) {
-  return DriverRemoteDataSource(ref.read(dioProvider));
+  return DriverRemoteDataSource(
+    ref.read(dioProvider),
+    ref.read(offlineSyncProvider.notifier),
+  );
 });

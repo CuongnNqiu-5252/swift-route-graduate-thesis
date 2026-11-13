@@ -197,7 +197,7 @@ function SummaryCell({ icon: Icon, label, value, tone }: { icon: typeof Clock3; 
 }
 
 function StatusBadge({ status }: { status: SettlementStatus }) {
-  const meta = { DRAFT: ['Chờ duyệt', 'bg-amber-50 text-amber-700'], APPROVED: ['Đã duyệt', 'bg-blue-50 text-blue-700'], PAID: ['Đã trả', 'bg-emerald-50 text-emerald-700'], CANCELLED: ['Đã hủy', 'bg-slate-100 text-slate-600'] }[status];
+  const meta = { DRAFT: ['Chờ duyệt', 'bg-amber-50 text-amber-700'], APPROVED: ['Đã duyệt', 'bg-blue-50 text-blue-700'], PAID: ['Đã trả', 'bg-emerald-50 text-emerald-700'] }[status];
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${meta[1]}`}>{meta[0]}</span>;
 }
 
@@ -224,7 +224,7 @@ function PolicyPanel({ policy, onSaved }: { policy: EarningPolicy | null; onSave
   return <aside className="self-start rounded-2xl border border-slate-200 bg-white p-5 xl:sticky xl:top-0">
     <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700"><Settings2 size={18} /></div><div><h2 className="font-semibold text-slate-950">Chính sách thu nhập</h2><p className="text-xs text-slate-500">Áp dụng cho nhiệm vụ mới</p></div></div>
     <div className="mt-5 space-y-4">{field('base_amount', 'Phí cơ bản', 'đ')}{field('per_km_amount', 'Đơn giá khoảng cách', 'đ/km')}{field('minimum_amount', 'Mức tối thiểu', 'đ')}{field('heavy_weight_threshold_kg', 'Ngưỡng hàng nặng', 'kg')}{field('heavy_bonus_amount', 'Phụ phí hàng nặng', 'đ')}</div>
-    <div className="mt-5 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600"><ReceiptText className="mb-2 h-4 w-4 text-slate-500" />Tiền tài xế = phí cơ bản + khoảng cách × đơn giá + phụ phí, sau đó áp dụng mức tối thiểu. Mỗi khoản giữ nguyên công thức lúc ghi nhận.</div>
+    <div className="mt-5 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600"><ReceiptText className="mb-2 h-4 w-4 text-slate-500" />Tiền tài xế = phí cơ bản + (khoảng cách đường bộ Goong × đơn giá) + phụ phí, sau đó áp dụng mức tối thiểu. Mỗi khoản giữ nguyên công thức lúc ghi nhận.</div>
     <Button className="mt-5 w-full" isLoading={saving} onClick={() => void save()}>Lưu chính sách</Button>
   </aside>;
 }

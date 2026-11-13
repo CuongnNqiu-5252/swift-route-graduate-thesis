@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
+import 'package:swiftroute_app/core/offline/sqlite_offline_store.dart';
 import 'package:swiftroute_app/data/models/auth_model.dart';
 import 'package:swiftroute_app/domain/entities/user.dart';
 import 'package:swiftroute_app/domain/repositories/auth_repository.dart';
@@ -58,6 +59,15 @@ class AuthRepositoryImpl implements AuthRepository {
         response.data as Map<String, dynamic>,
       );
 
+      final previousToken = await _tokenStorage.getAccessToken();
+      final previousUser = previousToken == null
+          ? null
+          : _decodeUserFromToken(previousToken);
+      final nextUser = _decodeUserFromToken(loginResponse.accessToken);
+      if (previousUser == null || previousUser.id != nextUser.id) {
+        await SqliteOfflineStore.instance.clearAll();
+      }
+
       await _tokenStorage.saveTokens(
         accessToken: loginResponse.accessToken,
         refreshToken: loginResponse.refreshToken,
@@ -97,9 +107,13 @@ class AuthRepositoryImpl implements AuthRepository {
       final decoded = utf8.decode(base64Url.decode(padded));
       final claims = jsonDecode(decoded) as Map<String, dynamic>;
       final rawRole =
-          claims['_ROLE'] ?? claims['role'] ?? claims['roles'] ?? 'CUSTOMER';
+          claims['tenant_role'] ??
+          claims['system_role'] ??
+          claims['role'] ??
+          claims['roles'] ??
+          'USER';
       final role = (rawRole is List)
-          ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'CUSTOMER')
+          ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'USER')
           : rawRole.toString();
       return UserModel(
         id: (claims['sub'] ?? '') as String,
@@ -109,7 +123,7 @@ class AuthRepositoryImpl implements AuthRepository {
       );
     } catch (_) {
       // Fallback: return placeholder until /auth/me is called
-      return const UserModel(id: '', email: '', name: '', role: 'CUSTOMER');
+      return const UserModel(id: '', email: '', name: '', role: 'USER');
     }
   }
 
@@ -127,6 +141,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (_) {
       // Ignore network errors on logout — always clear local tokens
     } finally {
+      await SqliteOfflineStore.instance.clearAll();
       await _tokenStorage.clearAll();
     }
   }

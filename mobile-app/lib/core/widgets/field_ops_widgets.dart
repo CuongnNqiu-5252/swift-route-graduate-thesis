@@ -193,14 +193,30 @@ class GpsSyncBanner extends StatelessWidget {
     super.key,
     required this.hasLocationIssue,
     required this.onRetry,
+    this.pendingActions = 0,
+    this.conflicts = 0,
+    this.isSyncing = false,
+    this.onResolveConflicts,
   });
 
   final bool hasLocationIssue;
   final VoidCallback onRetry;
+  final int pendingActions;
+  final int conflicts;
+  final bool isSyncing;
+  final VoidCallback? onResolveConflicts;
 
   @override
   Widget build(BuildContext context) {
-    if (!hasLocationIssue) return const SizedBox.shrink();
+    if (!hasLocationIssue && pendingActions == 0 && conflicts == 0) {
+      return const SizedBox.shrink();
+    }
+
+    final message = conflicts > 0
+        ? '$conflicts thao tác bị xung đột, cần kiểm tra trước khi tiếp tục.'
+        : pendingActions > 0
+        ? '$pendingActions thao tác đang lưu trên máy và chờ đồng bộ.'
+        : 'GPS hoặc mạng đang gián đoạn. Kiểm tra vị trí để điều phối theo dõi chính xác.';
 
     return Container(
       width: double.infinity,
@@ -211,11 +227,19 @@ class GpsSyncBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.gps_off_rounded, size: 18, color: AppColors.warning),
+          Icon(
+            conflicts > 0
+                ? Icons.sync_problem_rounded
+                : pendingActions > 0
+                ? Icons.cloud_upload_outlined
+                : Icons.gps_off_rounded,
+            size: 18,
+            color: AppColors.warning,
+          ),
           const SizedBox(width: 10),
-          const Expanded(
+          Expanded(
             child: Text(
-              'GPS hoặc mạng đang gián đoạn. Kiểm tra vị trí để điều phối theo dõi chính xác.',
+              message,
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
@@ -224,15 +248,24 @@ class GpsSyncBanner extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: onRetry,
+            onPressed: isSyncing
+                ? null
+                : conflicts > 0 && onResolveConflicts != null
+                ? onResolveConflicts
+                : onRetry,
             style: TextButton.styleFrom(
               foregroundColor: AppColors.warning,
               minimumSize: const Size(56, 36),
             ),
-            child: const Text(
-              'Thử lại',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
+            child: isSyncing
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(
+                    conflicts > 0 ? 'Xử lý' : 'Đồng bộ',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
           ),
         ],
       ),

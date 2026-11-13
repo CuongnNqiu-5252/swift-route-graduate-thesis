@@ -42,6 +42,8 @@ public class SecurityConfig {
                                 "/api/auth/register",
                                 "/api/auth/email/verify",
                                 "/api/auth/email/resend-public",
+                                "/api/auth/password/forgot",
+                                "/api/auth/password/reset",
                                 "/internal/tenant-memberships/provision",
                                 "/api/auth/login",
                                 "/api/auth/refresh",

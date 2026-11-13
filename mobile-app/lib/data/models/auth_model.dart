@@ -101,7 +101,7 @@ class UserModel extends User {
       name:
           (json['full_name'] ?? json['fullName'] ?? json['name'] ?? '')
               as String,
-      role: (json['role'] ?? 'CUSTOMER') as String,
+      role: (json['role'] ?? 'USER') as String,
       avatar: (json['avatar'] ?? json['avatar_url']) as String?,
     );
   }

@@ -9,8 +9,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -25,6 +25,8 @@ import com.swiftroute.orderservice.dto.response.CodDisputeResponse;
 import com.swiftroute.orderservice.dto.response.CodHandoverResponse;
 import com.swiftroute.orderservice.dto.response.CodPaymentSummaryResponse;
 import com.swiftroute.orderservice.dto.response.DriverCodCustodyResponse;
+import com.swiftroute.orderservice.exception.AppException;
+import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.service.CodLedgerService;
 
 import jakarta.validation.Valid;
@@ -41,87 +43,94 @@ public class CodLedgerController {
     public ResponseEntity<ApiResponse<CodCollectionResponse>> recordCollection(
             @PathVariable UUID orderId,
             @Valid @RequestBody RecordCodCollectionRequest request,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID driverId,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID driverId,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(ledger.recordCollection(orderId, tenantId, driverId, role, request)));
+                .body(ApiResponse.success(ledger.recordCollection(orderId, requireTenantId(tenantId), driverId, role, request)));
     }
 
     @GetMapping("/orders/{orderId}")
     public ResponseEntity<ApiResponse<CodPaymentSummaryResponse>> orderSummary(
             @PathVariable UUID orderId,
-            @RequestHeader("X-Tenant-Id") UUID tenantId) {
-        return ResponseEntity.ok(ApiResponse.success(ledger.orderSummary(orderId, tenantId)));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        return ResponseEntity.ok(ApiResponse.success(ledger.orderSummary(orderId, requireTenantId(tenantId))));
     }
 
     @GetMapping("/mine/custody")
     public ResponseEntity<ApiResponse<DriverCodCustodyResponse>> myCustody(
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID driverId,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(ledger.driverCustody(tenantId, driverId, role)));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID driverId,
+            @RequestAttribute("effectiveRole") String role) {
+        return ResponseEntity.ok(ApiResponse.success(ledger.driverCustody(requireTenantId(tenantId), driverId, role)));
     }
 
     @PostMapping("/handovers")
     public ResponseEntity<ApiResponse<CodHandoverResponse>> submitHandover(
             @Valid @RequestBody SubmitCodHandoverRequest request,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID driverId,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID driverId,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(ledger.submitHandover(tenantId, driverId, role, request)));
-    }
-
-    @GetMapping("/handovers/mine")
-    public ResponseEntity<ApiResponse<List<CodHandoverResponse>>> myHandovers(
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID driverId,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(ledger.driverHandovers(tenantId, driverId, role)));
+                .body(ApiResponse.success(ledger.submitHandover(requireTenantId(tenantId), driverId, role, request)));
     }
 
     @GetMapping("/handovers")
     public ResponseEntity<ApiResponse<List<CodHandoverResponse>>> handovers(
             @RequestParam(required = false) String status,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(ledger.handoverQueue(tenantId, role, status)));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role) {
+        return ResponseEntity.ok(ApiResponse.success(ledger.handoverQueue(requireTenantId(tenantId), role, status)));
     }
 
     @PostMapping("/handovers/{handoverId}/verify")
     public ResponseEntity<ApiResponse<CodHandoverResponse>> verifyHandover(
             @PathVariable UUID handoverId,
             @Valid @RequestBody VerifyCodHandoverRequest request,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID cashierId,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID cashierId,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                ledger.verifyHandover(handoverId, tenantId, cashierId, role, request)));
+                ledger.verifyHandover(handoverId, requireTenantId(tenantId), cashierId, role, request)));
     }
 
     @GetMapping("/disputes")
     public ResponseEntity<ApiResponse<List<CodDisputeResponse>>> disputes(
             @RequestParam(required = false) String status,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(List.of()));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role) {
+        return ResponseEntity.ok(ApiResponse.success(ledger.disputes(requireTenantId(tenantId), role, status)));
     }
 
     @PostMapping("/disputes/{disputeId}/resolve")
-    public ResponseEntity<ApiResponse<Map<String, String>>> resolveDispute(
+    public ResponseEntity<ApiResponse<CodHandoverResponse>> resolveDispute(
             @PathVariable UUID disputeId,
             @RequestBody(required = false) Map<String, Object> request,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID actorId,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(Map.of("status", "RESOLVED")));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID actorId,
+            @RequestAttribute("effectiveRole") String role) {
+        String notes = null;
+        if (request != null) {
+            Object raw = request.get("resolution_notes");
+            if (raw == null) raw = request.get("notes");
+            if (raw == null) raw = request.get("reason");
+            notes = raw != null ? raw.toString() : null;
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+                ledger.resolveDispute(disputeId, requireTenantId(tenantId), actorId, role, notes)));
     }
 
     @GetMapping("/dashboard")
     public ResponseEntity<ApiResponse<CodDashboardResponse>> dashboard(
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(ledger.dashboard(tenantId, role)));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role) {
+        return ResponseEntity.ok(ApiResponse.success(ledger.dashboard(requireTenantId(tenantId), role)));
+    }
+
+    private UUID requireTenantId(UUID tenantId) {
+        if (tenantId == null) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        return tenantId;
     }
 }

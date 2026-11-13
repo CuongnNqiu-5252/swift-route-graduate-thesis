@@ -17,7 +17,7 @@ class DriverModel {
   final String licensePlate;
   final String vehicleType; // MOTORCYCLE | CAR | TRUCK | VAN
   final int? capacity;
-  final String driverType; // FULL_TIME | PART_TIME | FREELANCE
+  final String driverType; // DEDICATED
   final String? shiftStart; // "HH:mm:ss"
   final String? shiftEnd;
   final double? currentLat;
@@ -77,9 +77,6 @@ class DriverModel {
 
   /// Human-readable driver type label
   String get driverTypeLabel => switch (driverType) {
-    'FULL_TIME' => 'Toàn thời gian',
-    'PART_TIME' => 'Bán thời gian',
-    'FREELANCE' => 'Tự do',
     'DEDICATED' => 'Tài xế doanh nghiệp',
     _ => 'Chưa bổ sung',
   };

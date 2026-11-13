@@ -1,6 +1,6 @@
 package com.swiftroute.orderservice.security;
 
-import java.util.Set;
+import java.util.Locale;
 import java.util.UUID;
 
 import org.springframework.stereotype.Component;
@@ -16,17 +16,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Validates live membership as well as signed identity before legacy
- * header-based controllers.
+ * Enforces stateless JWT signature verification and strict tenant scoping
+ * from verified JWT claims before controllers execute.
  */
 @Component
 @RequiredArgsConstructor
 public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfigurer {
     private final JwtTokenValidator tokens;
-    private final TenantIdentityClient identities;
-    @org.springframework.beans.factory.annotation.Value("${tenant.internal-key:}")
-    private String serviceKey;
-    private final com.swiftroute.orderservice.repository.TenantRepository tenants;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -36,56 +32,89 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String path = request.getRequestURI();
-        if ("OPTIONS".equals(request.getMethod()) || path.startsWith("/api/orders/track/"))
+        if ("OPTIONS".equals(request.getMethod()))
             return true;
         String auth = request.getHeader("Authorization");
         var claims = tokens.parseAndValidate(auth);
-        if (claims == null)
+        if (claims == null || claims.getSubject() == null || claims.getSubject().isBlank())
             throw new AppException(ErrorCode.UNAUTHENTICATED);
-        String headerUser = request.getHeader("X-User-Id"), headerRole = request.getHeader("X-User-Role");
-        if (headerUser != null && !headerUser.equals(claims.getSubject()))
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        if (headerRole != null && !headerRole.equals(claims.get("_ROLE", String.class)))
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        String tenant = request.getHeader("X-Tenant-Id");
-        if (tenant == null)
-            tenant = claims.get("tenant_id", String.class);
+
+        UUID userId;
+        try {
+            userId = UUID.fromString(claims.getSubject().trim());
+        } catch (IllegalArgumentException ex) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        String systemRole = claims.get("system_role", String.class);
+        String tokenTenantId = claims.get("tenant_id", String.class);
+        String tokenTenantRole = claims.get("tenant_role", String.class);
+        boolean isSystemAdmin = "SYSTEM_ADMIN".equalsIgnoreCase(systemRole);
+        String initialRole = isSystemAdmin
+                ? "SYSTEM_ADMIN"
+                : (tokenTenantRole != null && !tokenTenantRole.isBlank()
+                        ? tokenTenantRole.toUpperCase(Locale.ROOT)
+                        : (systemRole != null && !systemRole.isBlank() ? systemRole.toUpperCase(Locale.ROOT) : "USER"));
+
+        request.setAttribute("authorizedUserId", userId);
+        request.setAttribute("effectiveRole", initialRole);
+
         boolean tenantApi = path.startsWith("/api/tenants") || path.startsWith("/api/v1/tenants");
         if (tenantApi) {
             return true;
         }
-        if (headerUser == null || headerRole == null)
-            throw new AppException(ErrorCode.UNAUTHENTICATED);
-        if (request.getHeader("X-Tenant-Id") == null && request.getParameter("tenant_id") == null)
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        if (tenant == null || tenant.isBlank())
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        UUID id;
-        try {
-            id = UUID.fromString(tenant);
-        } catch (IllegalArgumentException ex) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
+
+        String requestedTenant = request.getHeader("X-Tenant-Id");
+        if (requestedTenant == null || requestedTenant.isBlank()) {
+            requestedTenant = request.getParameter("tenant_id");
+        }
+        UUID parsedRequestedTenant = null;
+        if (requestedTenant != null && !requestedTenant.isBlank()) {
+            try {
+                parsedRequestedTenant = UUID.fromString(requestedTenant.trim());
+            } catch (IllegalArgumentException ex) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR);
+            }
         }
 
-        // Fast-path: if JWT claims already specify the matching tenant and role, validate locally without remote HTTP call
-        String tokenTenantId = claims.get("tenant_id", String.class);
-        String tokenRole = claims.get("_ROLE", String.class);
-        String systemRole = claims.get("system_role", String.class);
-        boolean isSystemAdmin = systemRole != null && Set.of("SYSTEM_ADMIN", "ADMIN").contains(systemRole);
-
-        if (id.toString().equalsIgnoreCase(tokenTenantId) && tokenRole != null) {
-            request.setAttribute("authorizedTenantId", id);
-            if (!"GET".equals(request.getMethod()) && !isSystemAdmin && "VIEWER".equalsIgnoreCase(tokenRole)) {
-                throw new AppException(ErrorCode.ACCESS_DENIED);
+        if (isSystemAdmin) {
+            UUID adminTenant = parsedRequestedTenant;
+            if (adminTenant == null && tokenTenantId != null && !tokenTenantId.isBlank()) {
+                try {
+                    adminTenant = UUID.fromString(tokenTenantId.trim());
+                } catch (IllegalArgumentException ex) {
+                    throw new AppException(ErrorCode.VALIDATION_ERROR);
+                }
             }
+            request.setAttribute("authorizedTenantId", adminTenant);
+            request.setAttribute("effectiveRole", "SYSTEM_ADMIN");
             return true;
         }
 
-        var context = identities.context(auth, id);
-        request.setAttribute("authorizedTenantId", id);
-        if (!"GET".equals(request.getMethod()) && !TenantIdentityClient.systemAdmin(context)
-                && "VIEWER".equals(context.get("membership_role")))
+        // Stateless tenant-scoped check: non-admin callers must hold a JWT scoped to a
+        // valid tenant
+        if (tokenTenantId == null || tokenTenantId.isBlank()
+                || tokenTenantRole == null || tokenTenantRole.isBlank()) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        UUID jwtTenantId;
+        try {
+            jwtTenantId = UUID.fromString(tokenTenantId.trim());
+        } catch (IllegalArgumentException ex) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        if (parsedRequestedTenant != null && !parsedRequestedTenant.equals(jwtTenantId)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        if (!"GET".equals(request.getMethod()) && "VIEWER".equalsIgnoreCase(tokenTenantRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        request.setAttribute("authorizedTenantId", jwtTenantId);
+        request.setAttribute("effectiveRole", tokenTenantRole.toUpperCase(Locale.ROOT));
         return true;
     }
 

@@ -3,6 +3,7 @@ package com.swiftroute.orderservice.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +15,10 @@ import com.swiftroute.orderservice.entity.TenantDispatchConfig;
 import com.swiftroute.orderservice.entity.enums.BusinessType;
 import com.swiftroute.orderservice.entity.enums.TenantStatus;
 import com.swiftroute.orderservice.service.BusinessTypeProfileRegistry.BusinessTypeProfile;
+
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 
 class BusinessTypeProfileRegistryTest {
 
@@ -98,6 +103,22 @@ class BusinessTypeProfileRegistryTest {
         // Preserved custom preferences
         assertThat(tenant.getDispatchConfig().getRequireApproval()).isTrue();
         assertThat(tenant.getDispatchConfig().getAlgorithm()).isEqualTo("held_karp");
+    }
+
+    @Test
+    @DisplayName("Every business preset produces a valid TenantDispatchConfig with HH:mm scheduled dispatch time")
+    void allPresetsProduceValidDispatchConfigs() {
+        Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+
+        for (BusinessTypeProfile profile : registry.getAllProfiles().values()) {
+            TenantDispatchConfig config = profile.toDispatchConfig();
+            Set<ConstraintViolation<TenantDispatchConfig>> violations = validator.validate(config);
+            assertThat(violations)
+                    .as("Preset %s dispatch config violations", profile.businessType())
+                    .isEmpty();
+            assertThat(config.getScheduledDispatchEnabled()).isNotNull();
+            assertThat(config.getScheduledDispatchTime()).matches("^([01]\\d|2[0-3]):[0-5]\\d$");
+        }
     }
 }
 

@@ -123,11 +123,19 @@ export default function DispatchPage() {
 
   const trackedDriverPlan = useMemo(() => {
     if (!trackedDriver) return null;
-    return plans.find((plan) =>
+    const driverPlans = plans.filter((plan) =>
       plan.plan_status === 'DISPATCHED'
       && (plan.driver_id === trackedDriver.id || plan.driver_id === trackedDriver.user_id),
-    ) ?? null;
-  }, [plans, trackedDriver]);
+    );
+    if (trackedDriverOrders.length > 0) {
+      const activeIds = new Set(trackedDriverOrders.map((order) => order.id));
+      const matched = driverPlans.find((plan) =>
+        plan.ordered_stop_ids?.some((stopId) => activeIds.has(stopId)),
+      );
+      if (matched) return matched;
+    }
+    return driverPlans[0] ?? null;
+  }, [plans, trackedDriver, trackedDriverOrders]);
 
   const latestAssignedOrder = useMemo(() => {
     if (trackedDriverId) return trackedDriverOrders[0];
@@ -155,9 +163,20 @@ export default function DispatchPage() {
     latestAssignedOrder?.assigned_driver_id,
   );
 
-  const activeDriverPosition = trackedDriverId ? planTracking.position : selectedPlan?.plan_status === 'DISPATCHED'
-    ? planTracking.position
-    : orderTracking.position ?? planTracking.position;
+  const trackedDriverCachedPosition = useMemo<[number, number] | undefined>(() => {
+    if (!trackedDriver) return undefined;
+    const { current_lat: lat, current_lng: lng } = trackedDriver;
+    if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+      return [lat, lng];
+    }
+    return undefined;
+  }, [trackedDriver]);
+
+  const activeDriverPosition = trackedDriverId
+    ? (planTracking.position ?? trackedDriverCachedPosition)
+    : selectedPlan?.plan_status === 'DISPATCHED'
+      ? planTracking.position
+      : orderTracking.position ?? planTracking.position;
   const activeStepProgress = selectedPlan?.plan_status === 'DISPATCHED'
     ? planTracking.stepProgress
     : orderTracking.stepProgress;
@@ -679,8 +698,17 @@ export default function DispatchPage() {
                 setTrackedDriverId(id);
                 setLastAssignedRoute(null);
                 const driver = drivers.find((item) => item.id === id);
-                const activePlan = plans.find((plan) => plan.plan_status === 'DISPATCHED'
+                const driverOrders = driver
+                  ? orders.filter((order) =>
+                    (order.status === 'PLANNED' || order.status === 'IN_TRANSIT')
+                    && (order.assigned_driver_id === driver.id || order.assigned_driver_id === driver.user_id))
+                  : [];
+                const activeOrderIds = new Set(driverOrders.map((order) => order.id));
+                const driverPlans = plans.filter((plan) => plan.plan_status === 'DISPATCHED'
                   && (plan.driver_id === driver?.id || plan.driver_id === driver?.user_id));
+                const activePlan = (activeOrderIds.size > 0
+                  ? driverPlans.find((plan) => plan.ordered_stop_ids?.some((stopId) => activeOrderIds.has(stopId)))
+                  : undefined) ?? driverPlans[0];
                 setSelectedPlan(activePlan ?? null);
                 setSimulationOrigin(driver && typeof driver.current_lat === 'number' && typeof driver.current_lng === 'number' && (driver.current_lat !== 0 || driver.current_lng !== 0)
                   ? [driver.current_lat, driver.current_lng] : undefined);

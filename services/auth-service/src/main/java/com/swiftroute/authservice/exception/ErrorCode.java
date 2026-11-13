@@ -20,6 +20,7 @@ public enum ErrorCode {
     EMAIL_NOT_VERIFIED(403, "Verify your email before creating an organization", HttpStatus.FORBIDDEN),
     INVALID_VERIFICATION_TOKEN(400, "Verification link is invalid, expired or already used", HttpStatus.BAD_REQUEST),
     VERIFICATION_RATE_LIMITED(429, "Wait before requesting another verification email", HttpStatus.TOO_MANY_REQUESTS),
+    INVALID_PASSWORD_RESET_TOKEN(400, "Liên kết đặt lại mật khẩu không hợp lệ, đã hết hạn hoặc đã được sử dụng", HttpStatus.BAD_REQUEST),
     VALIDATION_ERROR(400, "Dữ liệu đầu vào không hợp lệ", HttpStatus.BAD_REQUEST),
     ACCESS_DENIED(403, "Bạn không có quyền thực hiện thao tác này", HttpStatus.FORBIDDEN),
 

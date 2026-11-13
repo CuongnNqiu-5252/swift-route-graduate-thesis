@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.service;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -82,7 +83,7 @@ public class TenantSettingsService {
         }
 
         if (weights.getTimeWeight() < 0.0 || weights.getTimeWeight() > 1.0 ||
-            weights.getCostWeight() < 0.0 || weights.getCostWeight() > 1.0) {
+                weights.getCostWeight() < 0.0 || weights.getCostWeight() > 1.0) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
 
@@ -96,12 +97,26 @@ public class TenantSettingsService {
     }
 
     private void validateDispatchConfig(TenantDispatchConfig config) {
-        if (config.getMaxOrdersPerDriver() != null && (config.getMaxOrdersPerDriver() < 1 || config.getMaxOrdersPerDriver() > 20)) {
+        if (config.getMaxOrdersPerDriver() != null
+                && (config.getMaxOrdersPerDriver() < 1 || config.getMaxOrdersPerDriver() > 20)) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
-        if (config.getMaxWaitTimeSeconds() != null && (config.getMaxWaitTimeSeconds() < 30 || config.getMaxWaitTimeSeconds() > 3600)) {
+        if (config.getMaxWaitTimeSeconds() != null
+                && (config.getMaxWaitTimeSeconds() < 30 || config.getMaxWaitTimeSeconds() > 3600)) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (config.getUrgentOrderMode() != null
+                && !List.of("IMMEDIATE_SINGLE", "BATCH_IMMEDIATE").contains(config.getUrgentOrderMode())) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (config.getAlgorithm() != null
+                && !List.of("auto", "held_karp", "nearest_neighbor", "genetic").contains(config.getAlgorithm())) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (config.getScheduledDispatchTime() != null) {
+            if (!config.getScheduledDispatchTime().matches("^([01]\\d|2[0-3]):[0-5]\\d$")) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR);
+            }
         }
     }
 }
-

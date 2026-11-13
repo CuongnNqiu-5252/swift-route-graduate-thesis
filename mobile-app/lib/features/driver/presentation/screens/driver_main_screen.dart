@@ -3,7 +3,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:swiftroute_app/core/offline/offline_conflict_sheet.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/offline/offline_sync_controller.dart';
 import 'package:swiftroute_app/core/utils/location_helper.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
@@ -37,6 +39,7 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
     Future.microtask(() async {
       await ref.read(driverProvider.notifier).refreshProfile();
       await ref.read(driverOrdersProvider.notifier).refreshOrders();
+      await ref.read(offlineSyncProvider.notifier).synchronize();
       await _syncLocation();
     });
   }
@@ -101,6 +104,26 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
     );
   }
 
+  Future<void> _resolveSyncConflicts() async {
+    final controller = ref.read(offlineSyncProvider.notifier);
+    final conflicts = await controller.conflictedActions();
+    if (!mounted || conflicts.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.86,
+        child: OfflineConflictSheet(
+          conflicts: conflicts,
+          onAcceptServerState: controller.acceptServerState,
+          onEscalate: (actionId, note) =>
+              controller.escalateConflict(actionId, driverNote: note),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _locationTimer?.cancel();
@@ -110,15 +133,14 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
   @override
   Widget build(BuildContext context) {
     ref.listen(authProvider, (previous, next) {
-      if (!next.isAuthenticated) {
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil('/login', (route) => false);
+      if (!next.isAuthenticated && Navigator.of(context).canPop()) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     });
 
     final ordersState = ref.watch(driverOrdersProvider);
     final codState = ref.watch(driverCodHandoverProvider);
+    final syncState = ref.watch(offlineSyncProvider);
 
     final activeOrdersCount =
         ordersState.valueOrNull
@@ -142,7 +164,14 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
             top: _locationFailures >= 3,
             child: GpsSyncBanner(
               hasLocationIssue: _locationFailures >= 3,
-              onRetry: _syncLocation,
+              pendingActions: syncState.pending,
+              conflicts: syncState.conflicts,
+              isSyncing: syncState.isSyncing,
+              onResolveConflicts: _resolveSyncConflicts,
+              onRetry: () {
+                unawaited(ref.read(offlineSyncProvider.notifier).synchronize());
+                unawaited(_syncLocation());
+              },
             ),
           ),
           Expanded(

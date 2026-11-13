@@ -5,15 +5,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import lombok.RequiredArgsConstructor;
@@ -35,8 +32,8 @@ public class DispatchAlertController {
 
     @GetMapping("/dispatch-alerts")
     public Map<String, Object> alerts(@RequestHeader(value = "Authorization", required = false) String bearer,
-            @RequestHeader("X-Tenant-Id") UUID tenantId) {
-        authorization.requireOperator(bearer, tenantId);
+            @RequestHeader(value = "X-Tenant-Id", required = false) UUID tenantIdHeader) {
+        UUID tenantId = authorization.resolveOperatorTenantId(bearer, tenantIdHeader);
         List<DispatchAlert> alerts = jdbc.query("""
                 SELECT n.delivery_id, n.title, n.body, n.created_at,
                     n.payload->>'incident_id' AS incident_id,
@@ -67,8 +64,8 @@ public class DispatchAlertController {
     @GetMapping("/inbox")
     public Map<String, Object> tenantInbox(
             @RequestHeader(value = "Authorization", required = false) String bearer,
-            @RequestHeader("X-Tenant-Id") UUID tenantId) {
-        authorization.requireOperator(bearer, tenantId);
+            @RequestHeader(value = "X-Tenant-Id", required = false) UUID tenantIdHeader) {
+        UUID tenantId = authorization.resolveOperatorTenantId(bearer, tenantIdHeader);
         List<InboxNotification> items = jdbc.query("""
                 SELECT n.delivery_id, n.template_code, n.title, n.body, n.created_at,
                     COALESCE(n.payload->>'incident_id', n.payload->>'incidentId') AS incident_id,
@@ -116,9 +113,10 @@ public class DispatchAlertController {
     @GetMapping("/driver-inbox")
     public Map<String, Object> driverInbox(
             @RequestHeader(value = "Authorization", required = false) String bearer,
-            @RequestHeader("X-Tenant-Id") UUID tenantId,
-            @RequestHeader(value = "X-User-Id", required = false) UUID userIdHeader) {
-        UUID driverUserId = authorization.requireMemberUserId(bearer, tenantId, userIdHeader);
+            @RequestHeader(value = "X-Tenant-Id", required = false) UUID tenantIdHeader) {
+        NotificationAuthorization.AuthorizedContext context = authorization.resolveMember(bearer, tenantIdHeader);
+        UUID tenantId = context.tenantId();
+        UUID driverUserId = context.userId();
         String driverText = driverUserId.toString();
         List<InboxNotification> items = jdbc.query("""
                 SELECT n.delivery_id, n.template_code, n.title, n.body, n.created_at,
@@ -178,17 +176,8 @@ public class DispatchAlertController {
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(
             @RequestHeader(value = "Authorization", required = false) String bearer,
-            @RequestParam(value = "token", required = false) String tokenParam,
-            @RequestHeader(value = "X-Tenant-Id", required = false) UUID tenantIdHeader,
-            @RequestParam(value = "tenantId", required = false) UUID tenantIdParam) {
-        UUID tenantId = tenantIdHeader != null ? tenantIdHeader : tenantIdParam;
-        if (tenantId == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "X-Tenant-Id header or tenantId parameter is required");
-        }
-        String authHeader = (bearer != null && bearer.startsWith("Bearer "))
-                ? bearer
-                : (tokenParam != null && !tokenParam.isBlank() ? "Bearer " + tokenParam : null);
-        authorization.requireOperator(authHeader, tenantId);
+            @RequestHeader(value = "X-Tenant-Id", required = false) UUID tenantIdHeader) {
+        UUID tenantId = authorization.resolveOperatorTenantId(bearer, tenantIdHeader);
         return sseService.subscribe(tenantId);
     }
 }

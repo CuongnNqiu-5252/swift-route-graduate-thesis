@@ -1,8 +1,22 @@
-/** ADMIN is the existing legacy platform authority; tenant ADMIN maps to TENANT_ADMIN. */
-export function isSystemAdmin(role?: string | null): boolean {
-  return role === 'SYSTEM_ADMIN' || role === 'ADMIN';
+export type RoleContext =
+  | string
+  | {
+      role?: string | null;
+      systemRole?: string | null;
+      accountRole?: string | null;
+    }
+  | null
+  | undefined;
+
+/** Platform authority check using canonical SYSTEM_ADMIN role. */
+export function isSystemAdmin(roleOrUser?: RoleContext): boolean {
+  if (!roleOrUser) return false;
+  if (typeof roleOrUser === 'string') {
+    return roleOrUser === 'SYSTEM_ADMIN';
+  }
+  return (roleOrUser.systemRole ?? roleOrUser.accountRole ?? roleOrUser.role) === 'SYSTEM_ADMIN';
 }
 
-export function portalHome(role?: string | null): string {
-  return isSystemAdmin(role) ? '/admin/tenant-verifications' : '/organizations';
+export function portalHome(roleOrUser?: RoleContext): string {
+  return isSystemAdmin(roleOrUser) ? '/admin/tenant-verifications' : '/organizations';
 }

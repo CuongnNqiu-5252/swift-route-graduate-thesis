@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,6 +26,8 @@ import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.DeliveryIncidentResponse;
 import com.swiftroute.orderservice.dto.response.OperationsReviewResponse;
 import com.swiftroute.orderservice.dto.response.ReturnRequestResponse;
+import com.swiftroute.orderservice.exception.AppException;
+import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.service.ExceptionOperationsService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -49,11 +51,11 @@ public class ExceptionOperationsController {
     @PostMapping("/incidents")
     public ResponseEntity<ApiResponse<DeliveryIncidentResponse>> reportIncident(
             @Valid @RequestBody CreateIncidentRequest body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(service.reportIncident(body, id(tenant), id(user), role)));
+                .body(ApiResponse.success(service.reportIncident(body, requireTenantId(tenant), user, role)));
     }
 
     @Operation(summary = "Report an incident for a specific order (legacy/convenience endpoint)")
@@ -61,9 +63,9 @@ public class ExceptionOperationsController {
     public ResponseEntity<ApiResponse<DeliveryIncidentResponse>> reportOrderIncident(
             @PathVariable UUID orderId,
             @Valid @RequestBody CreateIncidentRequest body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         CreateIncidentRequest enriched = new CreateIncidentRequest(
                 orderId,
                 body.dispatchPlanId(),
@@ -75,7 +77,7 @@ public class ExceptionOperationsController {
                 body.needsImmediateAssistance(),
                 body.contactAttempts());
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(service.reportIncident(enriched, id(tenant), id(user), role)));
+                .body(ApiResponse.success(service.reportIncident(enriched, requireTenantId(tenant), user, role)));
     }
 
     @Operation(summary = "List delivery incidents with optional filters")
@@ -85,17 +87,17 @@ public class ExceptionOperationsController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) UUID driverId,
             @RequestParam(required = false) UUID orderId,
-            @RequestHeader("X-Tenant-Id") String tenant) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.getIncidents(id(tenant), status, severity, driverId, orderId)));
+                service.getIncidents(requireTenantId(tenant), status, severity, driverId, orderId)));
     }
 
     @Operation(summary = "Get delivery incident details")
     @GetMapping("/incidents/{id}")
     public ResponseEntity<ApiResponse<DeliveryIncidentResponse>> getIncident(
             @PathVariable UUID id,
-            @RequestHeader("X-Tenant-Id") String tenant) {
-        return ResponseEntity.ok(ApiResponse.success(service.getIncidentById(id, id(tenant))));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant) {
+        return ResponseEntity.ok(ApiResponse.success(service.getIncidentById(id, requireTenantId(tenant))));
     }
 
     @Operation(summary = "Resolve a delivery incident with an authorized action")
@@ -103,11 +105,11 @@ public class ExceptionOperationsController {
     public ResponseEntity<ApiResponse<DeliveryIncidentResponse>> resolveIncident(
             @PathVariable UUID id,
             @Valid @RequestBody ResolveIncidentRequest body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.resolveIncident(id, id(tenant), id(user), role, body)));
+                service.resolveIncident(id, requireTenantId(tenant), user, role, body)));
     }
 
     // =========================================================================
@@ -118,11 +120,11 @@ public class ExceptionOperationsController {
     @PostMapping("/returns")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> createReturn(
             @Valid @RequestBody CreateReturnRequest body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(service.createReturnRequest(id(tenant), id(user), role, body)));
+                .body(ApiResponse.success(service.createReturnRequest(requireTenantId(tenant), user, role, body)));
     }
 
     @Operation(summary = "List return requests with optional filters")
@@ -130,16 +132,16 @@ public class ExceptionOperationsController {
     public ResponseEntity<ApiResponse<List<ReturnRequestResponse>>> listReturns(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) UUID driverId,
-            @RequestHeader("X-Tenant-Id") String tenant) {
-        return ResponseEntity.ok(ApiResponse.success(service.getReturnRequests(id(tenant), status, driverId)));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant) {
+        return ResponseEntity.ok(ApiResponse.success(service.getReturnRequests(requireTenantId(tenant), status, driverId)));
     }
 
     @Operation(summary = "Get return request details")
     @GetMapping("/returns/{id}")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> getReturn(
             @PathVariable UUID id,
-            @RequestHeader("X-Tenant-Id") String tenant) {
-        return ResponseEntity.ok(ApiResponse.success(service.getReturnRequestById(id, id(tenant))));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant) {
+        return ResponseEntity.ok(ApiResponse.success(service.getReturnRequestById(id, requireTenantId(tenant))));
     }
 
     @Operation(summary = "Approve Return Request and assign return task")
@@ -147,33 +149,33 @@ public class ExceptionOperationsController {
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> approveReturn(
             @PathVariable UUID id,
             @RequestBody(required = false) ApproveReturnRequest body,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.approveReturn(id, id(tenant), id(user), role, body)));
+                service.approveReturn(id, requireTenantId(tenant), user, role, body)));
     }
 
     @Operation(summary = "Driver confirms arrival at return destination warehouse")
     @PatchMapping("/returns/{id}/arrive")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> arriveReturn(
             @PathVariable UUID id,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.arriveReturnLocation(id, id(tenant), id(user), role)));
+                service.arriveReturnLocation(id, requireTenantId(tenant), user, role)));
     }
 
     @Operation(summary = "Driver initiates package handover to warehouse staff")
     @PatchMapping("/returns/{id}/handover")
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> handoverReturn(
             @PathVariable UUID id,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.initiateReturnHandover(id, id(tenant), id(user), role)));
+                service.initiateReturnHandover(id, requireTenantId(tenant), user, role)));
     }
 
     @Operation(summary = "Warehouse receiving employee confirms physical receipt of returned goods")
@@ -181,11 +183,11 @@ public class ExceptionOperationsController {
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> confirmReturnReceipt(
             @PathVariable UUID id,
             @RequestBody(required = false) ConfirmReturnReceiptRequest req,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.confirmReturnReceipt(id, id(tenant), id(user), role, req == null ? null : req.notes())));
+                service.confirmReturnReceipt(id, requireTenantId(tenant), user, role, req == null ? null : req.notes())));
     }
 
     @Operation(summary = "Warehouse employee reports discrepancy (damaged or missing goods)")
@@ -193,11 +195,11 @@ public class ExceptionOperationsController {
     public ResponseEntity<ApiResponse<ReturnRequestResponse>> reportDiscrepancy(
             @PathVariable UUID id,
             @Valid @RequestBody ReportReturnDiscrepancyRequest req,
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Id") String user,
-            @RequestHeader("X-User-Role") String role) {
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("authorizedUserId") UUID user,
+            @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.reportReturnDiscrepancy(id, id(tenant), id(user), role, req)));
+                service.reportReturnDiscrepancy(id, requireTenantId(tenant), user, role, req)));
     }
 
     // =========================================================================
@@ -206,12 +208,15 @@ public class ExceptionOperationsController {
 
     @GetMapping("/review")
     public ResponseEntity<ApiResponse<OperationsReviewResponse>> review(
-            @RequestHeader("X-Tenant-Id") String tenant,
-            @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(service.review(id(tenant), role)));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
+            @RequestAttribute("effectiveRole") String role) {
+        return ResponseEntity.ok(ApiResponse.success(service.review(requireTenantId(tenant), role)));
     }
 
-    private UUID id(String value) {
-        return UUID.fromString(value);
+    private UUID requireTenantId(UUID value) {
+        if (value == null) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        return value;
     }
 }

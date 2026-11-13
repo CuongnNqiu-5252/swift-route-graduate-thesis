@@ -26,6 +26,7 @@ public class TenantNotificationConfig {
                 opsQueue,
                 BindingBuilder.bind(queue).to(exchange).with("tenant.#"),
                 BindingBuilder.bind(queue).to(exchange).with("user.email_verification.v1"),
+                BindingBuilder.bind(queue).to(exchange).with("user.password_reset_requested.v1"),
                 BindingBuilder.bind(opsQueue).to(exchange).with("plan.#"),
                 BindingBuilder.bind(opsQueue).to(exchange).with("route.#"),
                 BindingBuilder.bind(opsQueue).to(exchange).with("assignment.#"),

@@ -1,9 +1,8 @@
 package com.swiftroute.authservice.service;
 
-import java.util.Set;
-
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
@@ -18,14 +17,11 @@ import com.swiftroute.authservice.exception.InvalidCredentialsException;
 import com.swiftroute.authservice.repository.UserRepository;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class AuthserviceImpl implements AuthService {
-    private static final Set<String> SELF_REGISTERABLE_ROLES = Set.of("CUSTOMER", "DRIVER");
-
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final com.swiftroute.authservice.repository.TenantMembershipRepository tenantMembershipRepository;
@@ -52,7 +48,8 @@ public class AuthserviceImpl implements AuthService {
 
         User saved = userRepository.save(user);
         userRepository.flush();
-        if (emailVerificationService != null) emailVerificationService.resend(saved.getId());
+        if (emailVerificationService != null)
+            emailVerificationService.resend(saved.getId());
     }
 
     @Override
@@ -60,7 +57,6 @@ public class AuthserviceImpl implements AuthService {
         // 1. Dùng orElseThrow để lấy thẳng object User ra, khỏi check null dài dòng
         User user = userRepository.findByEmail(request.getUsername().trim().toLowerCase(java.util.Locale.ROOT))
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
-
         // 2. Check trạng thái
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
@@ -71,27 +67,9 @@ public class AuthserviceImpl implements AuthService {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        // 4. Tạo token (Access Token hạn 15 phút, Refresh Token hạn 7 ngày)
-        // 4. Tạo token: nếu user có membership ACTIVE trong tenant thì cấp token với role và tenant_id của membership đó
-        java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
-                .findByUser_IdAndStatus(user.getId(), com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
-
-        String accessToken;
-        if (!activeMemberships.isEmpty()) {
-            com.swiftroute.authservice.entity.TenantMembership primary = activeMemberships.get(0);
-            String tenantRole = primary.getMembershipRole().name();
-            accessToken = jwtService.generateTenantAccessToken(user, primary.getTenantId(), tenantRole, 15);
-        } else {
-            accessToken = jwtService.generateAccessToken(user, 15);
-        }
-        String refreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest); // Mượn tạm hàm tạo token để
-                                                                                          // làm refresh
-
-        // 5. Trả về DTO thuần (Sẽ được Controller gói vào ApiResponse sau)
-        return LoginResponseDTO.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .build();
+        // 4. Tạo token (Access Token hạn 15 phút, Refresh Token hạn 7 ngày) & user
+        // profile
+        return buildAuthResponse(user, 15, httpRequest);
     }
 
     @Override
@@ -104,26 +82,59 @@ public class AuthserviceImpl implements AuthService {
         User user = userRepository.findById(validatedOldToken.getUser().getId())
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
 
-        // Pass the unwrapped 'user' and use 60 (long) instead of 60.00 (double)
+        return buildAuthResponse(user, 60, httpRequest);
+    }
+
+    /**
+     * Issues access/refresh tokens and populates the user profile snapshot
+     * from the user's primary active tenant membership (if any).
+     */
+    private LoginResponseDTO buildAuthResponse(User user, long ttlMinutes, HttpServletRequest httpRequest) {
         java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
-                .findByUser_IdAndStatus(user.getId(), com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
+                .findByUser_IdAndStatus(user.getId(),
+                        com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
 
-        String newAccessToken;
-        if (!activeMemberships.isEmpty()) {
-            com.swiftroute.authservice.entity.TenantMembership primary = activeMemberships.get(0);
-            String tenantRole = primary.getMembershipRole().name();
-            newAccessToken = jwtService.generateTenantAccessToken(user, primary.getTenantId(), tenantRole, 60);
+        com.swiftroute.authservice.entity.TenantMembership primary = activeMemberships.isEmpty()
+                ? null
+                : activeMemberships.get(0);
+
+        String accessToken;
+        String effectiveRole;
+        java.util.UUID tenantId = null;
+
+        if (primary != null) {
+            effectiveRole = primary.getMembershipRole().name();
+            tenantId = primary.getTenantId();
+            accessToken = jwtService.generateTenantAccessToken(user, tenantId, effectiveRole, ttlMinutes);
         } else {
-            newAccessToken = jwtService.generateAccessToken(user, 60);
+            effectiveRole = user.getRole().name();
+            accessToken = jwtService.generateAccessToken(user, ttlMinutes);
         }
-        String newRefreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest);
 
-        // Return the actual response instead of throwing an
-        // UnsupportedOperationException
+        String refreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest);
+
         return LoginResponseDTO.builder()
-                .accessToken(newAccessToken)
-                .refreshToken(newRefreshToken)
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .user(toUserProfile(user, effectiveRole, tenantId))
                 .build();
+    }
+
+    private UserProfileResponseDTO toUserProfile(User user, String effectiveRole, java.util.UUID tenantId) {
+        String resolvedRole = (effectiveRole == null || effectiveRole.isBlank())
+                ? user.getRole().name()
+                : effectiveRole;
+        return new UserProfileResponseDTO(
+                user.getId(),
+                user.getEmail(),
+                user.getPhone(),
+                user.getFullName(),
+                user.getRole(),
+                resolvedRole,
+                tenantId,
+                user.getStatus(),
+                user.getCreatedAt(),
+                user.isEmailVerified());
     }
 
     @Override
@@ -137,21 +148,18 @@ public class AuthserviceImpl implements AuthService {
     public UserProfileResponseDTO getProfile(java.util.UUID userId, String effectiveRole) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new com.swiftroute.authservice.exception.AppException(ErrorCode.USER_NOT_FOUND));
-        return new UserProfileResponseDTO(
-                user.getId(),
-                user.getEmail(),
-                user.getPhone(),
-                user.getFullName(),
-                user.getRole(),
-                effectiveRole == null || effectiveRole.isBlank() ? user.getRole().name() : effectiveRole,
-                tenantMembershipRepository.findByUser_IdAndStatus(userId, com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE).stream().findFirst().map(com.swiftroute.authservice.entity.TenantMembership::getTenantId).orElse(null),
-                user.getStatus(),
-                user.getCreatedAt(), user.isEmailVerified());
+        java.util.UUID tenantId = tenantMembershipRepository
+                .findByUser_IdAndStatus(userId,
+                        com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE)
+                .stream().findFirst().map(com.swiftroute.authservice.entity.TenantMembership::getTenantId)
+                .orElse(null);
+        return toUserProfile(user, effectiveRole, tenantId);
     }
 
     @Override
     @Transactional
-    public UserProfileResponseDTO updateProfile(java.util.UUID userId, UpdateProfileRequestDTO request, String effectiveRole) {
+    public UserProfileResponseDTO updateProfile(java.util.UUID userId, UpdateProfileRequestDTO request,
+            String effectiveRole) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new com.swiftroute.authservice.exception.AppException(ErrorCode.USER_NOT_FOUND));
         user.setFullName(request.fullName().trim());

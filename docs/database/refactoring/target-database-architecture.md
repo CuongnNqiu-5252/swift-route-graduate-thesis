@@ -205,7 +205,6 @@ Trong kiến trúc Microservices mục tiêu, không có bất kỳ foreign key 
 | **`auth_db`** | `users` | `tenant_id` | `order_db.tenants(tenant_id)` | Tái định nghĩa thành `active_tenant_id` (cửa hàng người dùng đang thao tác). |
 | **`order_db`** | `orders` | `customer_id` | `auth_db.users(user_id)` | Định danh khách hàng đặt hàng. Xác thực khi tạo đơn qua JWT claim `sub`. |
 | **`order_db`** | `order_items` | `order_id` | `order_db.orders(order_id)` | **Khóa ngoại vật lý nội bộ** trong `order_db` (ON DELETE CASCADE). Không vi phạm ranh giới microservice. |
-| **`order_db`** | `order_items` | `product_id` | `product_service.products(product_id)` | **Tham chiếu logic** định danh sản phẩm. KHÔNG tạo khóa ngoại vật lý xuyên CSDL. |
 | **`order_db`** | `orders` | `assigned_driver_id` | `driver_db.drivers(driver_id)` | Tài xế được phân công giao đơn. Nhận từ `order.batch.dispatched` hoặc REST call. |
 | **`order_db`** | `orders` | `plan_id` | `routing_db.routing_plans(plan_id)` | Kế hoạch định tuyến mà đơn hàng thuộc về. Nhận từ Routing Engine khi chốt lộ trình. |
 | **`order_db`** | `tenants` | `owner_user_id` | `auth_db.users(user_id)` | Tài khoản chủ cửa hàng. Xác thực qua Auth Service khi đăng ký tenant. |

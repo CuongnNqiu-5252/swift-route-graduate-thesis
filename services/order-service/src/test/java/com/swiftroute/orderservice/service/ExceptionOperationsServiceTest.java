@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -134,7 +135,6 @@ class ExceptionOperationsServiceTest {
                 3);
 
         when(orders.findById(orderId)).thenReturn(Optional.of(order));
-        when(incidents.existsByOrder_IdAndStatusIn(eq(orderId), any())).thenReturn(false);
         when(incidents.save(any(DeliveryIncident.class))).thenAnswer(inv -> {
             DeliveryIncident inc = inv.getArgument(0);
             inc.setId(UUID.randomUUID());
@@ -149,6 +149,37 @@ class ExceptionOperationsServiceTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.FAILED);
         verify(deliveryAttempts).save(any(DeliveryAttempt.class));
         verify(outboxEvents).save(any(OutboxEvent.class));
+    }
+
+    @Test
+    void reportIncident_OfflineSyncConflict_IsAuditOnlyAndPreservesTerminalOrder() {
+        order.setStatus(OrderStatus.CANCELLED);
+        CreateIncidentRequest req = new CreateIncidentRequest(
+                orderId,
+                null,
+                "OFFLINE_SYNC_CONFLICT",
+                "HIGH",
+                "Tài xế đã ghi nhận giao thành công khi ngoại tuyến",
+                List.of(),
+                false,
+                true,
+                1);
+
+        when(orders.findById(orderId)).thenReturn(Optional.of(order));
+        when(incidents.save(any(DeliveryIncident.class))).thenAnswer(inv -> {
+            DeliveryIncident inc = inv.getArgument(0);
+            inc.setId(UUID.randomUUID());
+            inc.setCreatedAt(Instant.now());
+            return inc;
+        });
+
+        DeliveryIncidentResponse response = service.reportIncident(req, tenantId, driverId, "DRIVER");
+
+        assertThat(response.incidentType()).isEqualTo("OFFLINE_SYNC_CONFLICT");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        verify(execution, never()).markDeliveryTaskFailed(any(Order.class), any(UUID.class));
+        verify(deliveryAttempts, never()).save(any(DeliveryAttempt.class));
+        verify(incidents).save(any(DeliveryIncident.class));
     }
 
     @Test

@@ -9,6 +9,8 @@ export interface TenantDispatchConfig {
   max_orders_per_driver: number;
   algorithm: string;
   allow_pool_drivers: boolean;
+  scheduled_dispatch_enabled?: boolean;
+  scheduled_dispatch_time?: string;
 }
 
 export interface OptimizationWeights {

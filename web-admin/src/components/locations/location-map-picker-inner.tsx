@@ -1,5 +1,6 @@
 'use client';
 
+import axios from 'axios';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   AttributionControl,
@@ -10,6 +11,7 @@ import {
 } from 'maplibre-gl';
 import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import api from '@/lib/api';
 
 if (typeof window !== 'undefined') {
   setWorkerUrl('/maplibre-gl-worker.mjs');
@@ -82,9 +84,11 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
     onChangeRef.current(nextLat, nextLng);
     onResolvingChangeRef.current?.(true);
     try {
-      const response = await fetch(`/api/maps/reverse?lat=${nextLat}&lng=${nextLng}`);
-      const body = await response.json() as { address?: string; error?: string };
-      if (!response.ok || !body.address) throw new Error(body.error || 'Không xác định được địa chỉ.');
+      const { data: body } = await api.get<{ address?: string; error?: string }>('/api/maps/reverse', {
+        baseURL: '',
+        params: { lat: nextLat, lng: nextLng },
+      });
+      if (!body.address) throw new Error(body.error || 'Không xác định được địa chỉ.');
       setQuery(body.address);
       onChangeRef.current(nextLat, nextLng, body.address);
     } catch {
@@ -140,13 +144,16 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
       setSearching(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ input: query.trim(), location: `${lat},${lng}`, sessiontoken: sessionToken.current });
-        const response = await fetch(`/api/maps/search?${params}`, { signal: controller.signal });
-        const body = await response.json() as { predictions?: Prediction[]; error?: string };
-        if (!response.ok) throw new Error(body.error || 'Không thể tìm địa chỉ.');
+        const { data: body } = await api.get<{ predictions?: Prediction[]; error?: string }>('/api/maps/search', {
+          baseURL: '',
+          params: { input: query.trim(), location: `${lat},${lng}`, sessiontoken: sessionToken.current },
+          signal: controller.signal,
+        });
         setPredictions(body.predictions ?? []);
       } catch (cause) {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Không thể tìm địa chỉ.');
+        if (!controller.signal.aborted && !axios.isCancel(cause)) {
+          setError(cause instanceof Error ? cause.message : 'Không thể tìm địa chỉ.');
+        }
       } finally {
         if (!controller.signal.aborted) setSearching(false);
       }
@@ -163,10 +170,14 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
     setSearchEnabled(false);
     setError(null);
     try {
-      const params = new URLSearchParams({ placeId: prediction.place_id, sessiontoken: sessionToken.current });
-      const response = await fetch(`/api/maps/place-detail?${params}`);
-      const body = await response.json() as { address?: string; lat?: number; lng?: number; error?: string };
-      if (!response.ok || body.lat == null || body.lng == null) throw new Error(body.error || 'Không lấy được vị trí đã chọn.');
+      const { data: body } = await api.get<{ address?: string; lat?: number; lng?: number; error?: string }>(
+        '/api/maps/place-detail',
+        {
+          baseURL: '',
+          params: { placeId: prediction.place_id, sessiontoken: sessionToken.current },
+        },
+      );
+      if (body.lat == null || body.lng == null) throw new Error(body.error || 'Không lấy được vị trí đã chọn.');
       const resolvedAddress = body.address || prediction.description;
       setQuery(resolvedAddress);
       onChangeRef.current(body.lat, body.lng, resolvedAddress);

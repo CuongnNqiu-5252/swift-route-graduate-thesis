@@ -1,5 +1,6 @@
 'use client';
 
+import axios from 'axios';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -9,7 +10,7 @@ import {
   InboxNotificationDto,
   notificationRepository,
 } from '@/infrastructure/repositories/notification.repository';
-import { refreshAccessToken } from '@/lib/api';
+import { streamSse } from '@/lib/api';
 
 interface NotificationContextValue {
   alerts: DispatchAlertDto[];
@@ -20,6 +21,8 @@ interface NotificationContextValue {
   refresh: () => Promise<void>;
   markAllAsRead: () => void;
 }
+
+const OPERATOR_NOTIFICATION_ROLES = new Set(['SYSTEM_ADMIN', 'OWNER', 'TENANT_ADMIN', 'OPERATOR']);
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
@@ -33,10 +36,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [error, setError] = useState<string | null>(null);
 
   const tenantId = user?.tenantId;
+  const hasOperatorAccess =
+    user?.systemRole?.toUpperCase() === 'SYSTEM_ADMIN' ||
+    OPERATOR_NOTIFICATION_ROLES.has((user?.tenantRole || user?.role || '').toUpperCase());
   const mountedRef = useRef<boolean>(true);
 
   const refresh = useCallback(async () => {
-    if (!tenantId) return;
+    if (!tenantId || !hasOperatorAccess) return;
     try {
       const [activeAlerts, inboxItems] = await Promise.all([
         notificationRepository.getDispatchAlerts(),
@@ -51,7 +57,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         setError('Chưa cập nhật được hòm thư thông báo. Dữ liệu hiển thị có thể đã cũ.');
       }
     }
-  }, [tenantId]);
+  }, [tenantId, hasOperatorAccess]);
 
   const markAllAsRead = useCallback(() => {
     setUnreadCount(0);
@@ -59,12 +65,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     mountedRef.current = true;
-    if (!tenantId || !token) {
+    if (!tenantId || !token || !hasOperatorAccess) {
       return;
     }
 
     let disposed = false;
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
     const controller = new AbortController();
 
     const prependToInbox = (item: InboxNotificationDto) => {
@@ -89,6 +94,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (eventName === 'heartbeat' || eventName === 'ping') {
         setIsConnected(true);
         return;
+      }
+
+      // Notify active screens (orders, operations queue, dispatch) to refresh data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('swiftroute:realtime-update', {
+            detail: { eventName },
+          })
+        );
       }
 
       if (eventName === 'dispatch-alert') {
@@ -217,66 +231,24 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const connectSse = async () => {
       while (!disposed) {
         try {
-          let currentToken = localStorage.getItem('access_token') || token;
           const currentTenantId = localStorage.getItem('tenant_id') || tenantId;
-
-          let response = await fetch(`${baseUrl}/notifications/stream`, {
-            headers: {
-              Authorization: `Bearer ${currentToken}`,
-              'X-Tenant-Id': currentTenantId,
-            },
+          await streamSse('/notifications/stream', {
             signal: controller.signal,
+            headers: { 'X-Tenant-Id': currentTenantId },
+            onOpen: async () => {
+              setIsConnected(true);
+              setError(null);
+              await refresh();
+            },
+            onEvent: handleSseMessage,
           });
-
-          if (response.status === 401) {
-            try {
-              currentToken = await refreshAccessToken();
-              response = await fetch(`${baseUrl}/notifications/stream`, {
-                headers: {
-                  Authorization: `Bearer ${currentToken}`,
-                  'X-Tenant-Id': currentTenantId,
-                },
-                signal: controller.signal,
-              });
-            } catch {
-              break;
-            }
-          }
-
-          if (!response.ok || !response.body) {
-            throw new Error(`SSE connect error: status ${response.status}`);
-          }
-
-          setIsConnected(true);
-          setError(null);
-          await refresh();
-
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (!disposed) {
-            const chunk = await reader.read();
-            if (chunk.done) break;
-
-            buffer += decoder.decode(chunk.value, { stream: true }).replaceAll('\r\n', '\n');
-            const blocks = buffer.split('\n\n');
-            buffer = blocks.pop() ?? '';
-
-            for (const block of blocks) {
-              let eventName = 'message';
-              const dataLines: string[] = [];
-              for (const line of block.split('\n')) {
-                if (line.startsWith('event:')) eventName = line.slice(6).trim();
-                if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-              }
-              if (dataLines.length > 0) {
-                handleSseMessage(eventName, dataLines.join('\n'));
-              }
-            }
-          }
         } catch (err) {
-          if (disposed || (err instanceof DOMException && err.name === 'AbortError')) {
+          if (disposed || axios.isCancel(err) || controller.signal.aborted) {
+            return;
+          }
+          if ((err as { status?: number })?.status === 403) {
+            setIsConnected(false);
+            setError(null);
             return;
           }
           setIsConnected(false);
@@ -294,16 +266,16 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       mountedRef.current = false;
       controller.abort();
     };
-  }, [tenantId, token, refresh, router]);
+  }, [tenantId, token, hasOperatorAccess, refresh, router]);
 
   return (
     <NotificationContext.Provider
       value={{
-        alerts,
-        inbox,
-        unreadCount,
-        isConnected,
-        error,
+        alerts: hasOperatorAccess ? alerts : [],
+        inbox: hasOperatorAccess ? inbox : [],
+        unreadCount: hasOperatorAccess ? unreadCount : 0,
+        isConnected: hasOperatorAccess && Boolean(tenantId && token) ? isConnected : false,
+        error: hasOperatorAccess && Boolean(tenantId && token) ? error : null,
         refresh,
         markAllAsRead,
       }}

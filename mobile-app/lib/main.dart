@@ -14,7 +14,6 @@ import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 import 'package:swiftroute_app/presentation/screens/driver_activation_screen.dart';
 import 'package:swiftroute_app/presentation/screens/login_screen.dart';
 import 'package:swiftroute_app/presentation/screens/forgot_password_screen.dart';
-import 'package:swiftroute_app/presentation/screens/register_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,7 +51,6 @@ class SwiftRouteApp extends ConsumerWidget {
       routes: {
         '/login': (_) => const LoginScreen(),
         '/forgot-password': (_) => const ForgotPasswordScreen(),
-        '/register': (_) => RegisterScreen(),
         '/driver/activate': (_) => const DriverActivationScreen(),
         '/driver/home': (_) => const DriverMainScreen(),
       },

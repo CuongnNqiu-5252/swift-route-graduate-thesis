@@ -46,29 +46,7 @@ export interface OptimizationResult {
   route_polyline?: string;
 }
 
-export interface WhatIfRequest extends OptimizationRequest {
-  baseline_driver_count: number;
-  scenario_driver_count: number;
-  max_shift_minutes?: number;
-}
-
-export interface WhatIfScenario {
-  driver_count: number;
-  total_distance_km: number;
-  completion_minutes: number;
-  late_risk_orders: number;
-  algorithm_used: string;
-}
-
-export interface WhatIfResult {
-  baseline: WhatIfScenario;
-  scenario: WhatIfScenario;
-  distance_delta_percent: number;
-  completion_delta_percent: number;
-  late_risk_delta: number;
-}
-
-export type PlanStatus = 'DRAFT' | 'APPROVED' | 'DISPATCHED' | 'CANCELLED';
+export type PlanStatus = 'DRAFT' | 'APPROVED' | 'DISPATCHED' | 'COMPLETED' | 'CANCELLED';
 
 export interface DispatchPlanRecord {
   plan_id: string;

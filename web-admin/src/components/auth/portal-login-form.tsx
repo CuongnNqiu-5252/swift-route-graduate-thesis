@@ -19,7 +19,7 @@ export function PortalLoginForm({ portal }: { portal: 'tenant' | 'admin' }) {
 
   useEffect(() => {
     if (busy || isLoading || !token || !user) return;
-    if (!admin || isSystemAdmin(user.role)) router.replace(portalHome(user.role));
+    if (!admin || isSystemAdmin(user)) router.replace(portalHome(user));
   }, [admin, busy, isLoading, router, token, user]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -27,11 +27,11 @@ export function PortalLoginForm({ portal }: { portal: 'tenant' | 'admin' }) {
     const fields = new FormData(event.currentTarget);
     try {
       const profile = await login(String(fields.get('email')).trim(), String(fields.get('password')));
-      if (admin && !isSystemAdmin(profile.role)) {
+      if (admin && !isSystemAdmin(profile)) {
         setError('Tài khoản này không có quyền quản trị hệ thống. Hãy đăng nhập tại cổng khách thuê.');
         return;
       }
-      router.replace(portalHome(profile.role));
+      router.replace(portalHome(profile));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Đăng nhập thất bại');
     } finally {
@@ -51,8 +51,9 @@ export function PortalLoginForm({ portal }: { portal: 'tenant' | 'admin' }) {
         <form onSubmit={submit} className="space-y-4">
           <Input name="email" label="Email" type="email" autoComplete="username" required/>
           <Input name="password" label="Mật khẩu" type="password" autoComplete="current-password" required minLength={6}/>
+          {!admin && <div className="text-right"><Link href="/forgot-password" className="text-sm font-medium text-blue-700 underline-offset-4 hover:underline">Quên mật khẩu?</Link></div>}
           {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          {admin && token && user && !isSystemAdmin(user.role) && !error && <p role="alert" className="text-sm text-amber-700">Phiên hiện tại thuộc khách thuê. Hãy dùng tài khoản quản trị hệ thống.</p>}
+          {admin && token && user && !isSystemAdmin(user) && !error && <p role="alert" className="text-sm text-amber-700">Phiên hiện tại thuộc khách thuê. Hãy dùng tài khoản quản trị hệ thống.</p>}
           <Button type="submit" className="w-full" isLoading={busy} disabled={isLoading}>Đăng nhập</Button>
           {!admin && <p className="text-center text-sm text-slate-600">Chưa có tài khoản? <Link href="/register" className="text-blue-600 underline">Tạo tài khoản quản trị</Link></p>}
         </form>

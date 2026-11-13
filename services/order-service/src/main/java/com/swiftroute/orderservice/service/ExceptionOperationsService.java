@@ -59,8 +59,8 @@ import lombok.extern.slf4j.Slf4j;
 public class ExceptionOperationsService {
 
     private static final Set<String> OPERATOR_ROLES = Set.of(
-            "ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "SYSTEM_ADMIN", "WAREHOUSE_STAFF",
-            "OWNER", "TENANT_OWNER", "MANAGER", "STAFF");
+            "SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "WAREHOUSE_STAFF",
+            "TENANT_OWNER", "MANAGER", "STAFF");
 
     private static final List<String> ACTIVE_RETURN_STATUSES = List.of(
             "REQUESTED", "APPROVED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT");
@@ -135,8 +135,16 @@ public class ExceptionOperationsService {
             driverId = reporterId;
         }
 
-        // Idempotency & open incident guard: Prevent duplicate submissions while an order already has an unfinished incident
-        if (order != null && incidents.existsByOrder_IdAndStatusIn(order.getId(), UNFINISHED_INCIDENT_STATUSES)) {
+        String normalizedType = request.incidentType() != null
+                ? request.incidentType().trim().toUpperCase(Locale.ROOT)
+                : "OTHER";
+        boolean auditOnlyIncident = "OFFLINE_SYNC_CONFLICT".equals(normalizedType);
+
+        // Operational failures reuse an existing open incident. An offline-sync conflict is
+        // an audit record for a distinct field claim, so it must not be swallowed by an
+        // unrelated incident already open on the order.
+        if (!auditOnlyIncident && order != null
+                && incidents.existsByOrder_IdAndStatusIn(order.getId(), UNFINISHED_INCIDENT_STATUSES)) {
             var existingList = incidents.findAllByOrder_IdOrderByCreatedAtDesc(order.getId());
             if (!existingList.isEmpty()) {
                 DeliveryIncident existing = existingList.get(0);
@@ -146,15 +154,12 @@ public class ExceptionOperationsService {
             }
         }
 
-        String normalizedType = request.incidentType() != null
-                ? request.incidentType().trim().toUpperCase(Locale.ROOT)
-                : "OTHER";
         boolean pureDelayOnRoute = Set.of("TRAFFIC_CONGESTION", "WEATHER_DELAY").contains(normalizedType)
                 && Boolean.TRUE.equals(request.canContinueDelivery());
 
         // Determine delivery impact: any order-level delivery blocker (unreachable, wrong address, refused, damaged, etc.)
         // marks the current delivery task and attempt for this order as FAILED, even if the driver can continue delivering other orders.
-        if (order != null && !pureDelayOnRoute) {
+        if (order != null && !pureDelayOnRoute && !auditOnlyIncident) {
             // Record failed attempt and mark active delivery task as FAILED
             String photoProof = (request.evidenceUrls() != null && !request.evidenceUrls().isEmpty())
                     ? request.evidenceUrls().get(0)

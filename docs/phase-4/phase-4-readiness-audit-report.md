@@ -5,6 +5,12 @@
 > **Date**: 2026-11-01
 > **Status**: Completed (READ-ONLY Verification)
 > **Baseline**: Phase 3 Hardened Microservices Architecture
+>
+> **Scope update (2026-11-13):** Product Catalog, product master pricing,
+> coupons and promotions were removed from the SwiftRoute delivery-operations
+> scope. Orders keep package descriptions and financial snapshots without a SKU
+> dependency. Historical Flyway migration `V15__drop_obsolete_products_and_product_categories.sql`
+> is retained for schema-history integrity.
 
 ---
 
@@ -49,16 +55,6 @@ This report delivers the results of the **T4.0 Repository Audit** for SwiftRoute
      * Keep existing records intact.
      * Backfill a default CRM customer in `customers` linked via `auth_user_id = legacy_customer_id` for each tenant.
   3. In `CreateOrderRequest`, add optional `customerId` (select existing CRM customer) or inline customer details (`recipientName`, `recipientPhone`, `deliveryAddress`). If inline details are provided, `OrderService` automatically creates or resolves the tenant's CRM customer record.
-
----
-
-### 3.2 Product Catalog & Order Snapshot (T4.1 & T4.3)
-* **The Problem**: `order_items` was introduced in Phase 3 with columns `(id, order_id, product_id, product_name, product_sku, quantity, unit_price, line_total)`. However, `product_id` was purely logical and there was no master product table to validate prices, SKU uniqueness, or active status.
-* **The Solution**:
-  1. Add `products` and `product_categories` to `order_db` under `order-service` (no new microservice).
-  2. Unique constraint `(tenant_id, LOWER(sku))` ensures SKU uniqueness per tenant.
-  3. When an order is created, `OrderService` verifies that each `product_id` belongs to the authenticated tenant, is active, and server-side recalculates `line_total` and `total_amount` in VND (using Java `BigDecimal` / `long`, never floating point).
-  4. Historical `order_items` preserve their original product snapshots even if the master product price changes later.
 
 ---
 
@@ -116,18 +112,13 @@ This report delivers the results of the **T4.0 Repository Audit** for SwiftRoute
 
 ### A. Backend Services
 1. **`services/order-service`**:
-   * `src/main/resources/db/migration/V3__create_products_and_customers_schema.sql` (NEW)
-   * `src/main/java/com/swiftroute/orderservice/entity/Product.java` (NEW)
-   * `src/main/java/com/swiftroute/orderservice/entity/ProductCategory.java` (NEW)
    * `src/main/java/com/swiftroute/orderservice/entity/Customer.java` (NEW)
    * `src/main/java/com/swiftroute/orderservice/entity/CustomerAddress.java` (NEW)
-   * `src/main/java/com/swiftroute/orderservice/repository/ProductRepository.java` (NEW)
    * `src/main/java/com/swiftroute/orderservice/repository/CustomerRepository.java` (NEW)
-   * `src/main/java/com/swiftroute/orderservice/controller/ProductController.java` (NEW)
    * `src/main/java/com/swiftroute/orderservice/controller/CustomerController.java` (NEW)
    * `src/main/java/com/swiftroute/orderservice/controller/TenantController.java` (Add `GET /api/tenants/me`)
    * `src/main/java/com/swiftroute/orderservice/service/TenantService.java` (Support `getTenantMe`)
-   * `src/main/java/com/swiftroute/orderservice/service/OrderService.java` (Integrate CRM customer validation & product pricing snapshot)
+   * `src/main/java/com/swiftroute/orderservice/service/OrderService.java` (Integrate CRM customer validation)
 2. **`services/driver-service`**:
    * `pom.xml` (Add `spring-boot-starter-data-redis`)
    * `src/main/resources/application.yml` (Configure Redis host, port, timeout)
@@ -143,7 +134,6 @@ This report delivers the results of the **T4.0 Repository Audit** for SwiftRoute
 1. **API & Repositories**:
    * `src/infrastructure/repositories/routing.repository.ts` (Reroute from `localhost:8084` to API Gateway `http://localhost:8000/api/routing/...` using shared `api.ts`)
    * `src/infrastructure/repositories/tenant.repository.ts` (NEW: call `/api/tenants/me`)
-   * `src/infrastructure/repositories/product.repository.ts` (NEW)
    * `src/infrastructure/repositories/customer.repository.ts` (NEW)
 2. **State & Hooks**:
    * `src/application/hooks/use-dispatch.ts` (Replace hardcoded `DEFAULT_DEPOT` with dynamic tenant warehouse)
@@ -152,7 +142,6 @@ This report delivers the results of the **T4.0 Repository Audit** for SwiftRoute
    * `src/infrastructure/maps/map-provider.ts` (NEW: Map abstraction interface)
    * `src/infrastructure/maps/osm-provider.ts` (NEW: OSM implementation)
    * `src/components/dispatch/route-map.tsx` & `route-map-inner.tsx` (Connect dynamic depot & live driver pucks)
-   * `src/app/(dashboard)/products/page.tsx` (NEW: Product Catalog management)
    * `src/app/(dashboard)/customers/page.tsx` (NEW: Customer CRM management)
    * `src/app/(dashboard)/dispatch/page.tsx` (Integrate approval & plan publishing buttons)
 
@@ -162,14 +151,12 @@ This report delivers the results of the **T4.0 Repository Audit** for SwiftRoute
 
 To avoid breaking existing functionality and allow continuous verification at each step, Phase 4 should be executed in the following sequential order:
 
-1. **Step 1: T4.1 — Product Catalog** (Pure additive migration in `order_db`, no dependencies on other services).
-2. **Step 2: T4.2 — Customer Management** (Create `customers`, update order creation with backward-compatibility for legacy Auth users).
-3. **Step 3: T4.3 — Pricing and Promotions** (Server-side amount recalculation, coupon validation).
-4. **Step 4: T4.4 — Map Foundation & Tenant Depot** (Expose `GET /api/tenants/me`, remove hardcoded depot from Web Admin, implement Map provider abstraction).
-5. **Step 5: T4.5 — Driver Live Tracking** (Integrate Redis Geo & TTL heartbeat in `driver-service`, React Query 3s polling in Web Admin).
-6. **Step 6: T4.6 — Route Visualization & Gateway Integration** (Reroute `web-admin` routing calls through API Gateway, render planning stops and polylines on Leaflet).
-7. **Step 7: T4.7 — Route Approval & Publishing** (PostgreSQL `routing_db` migration for `plan_store.py`, connect operator approval buttons to `dispatch_plan`).
-8. **Step 8: T4.8 — Map Intelligence** (Sampled GPS location history and breadcrumb trail replay).
+1. **Step 1: T4.2 — Customer Management** (Create `customers`, update order creation with backward-compatibility for legacy Auth users).
+2. **Step 2: T4.4 — Map Foundation & Tenant Depot** (Expose `GET /api/tenants/me`, remove hardcoded depot from Web Admin, implement Map provider abstraction).
+3. **Step 3: T4.5 — Driver Live Tracking** (Integrate Redis Geo & TTL heartbeat in `driver-service`, React Query 3s polling in Web Admin).
+4. **Step 4: T4.6 — Route Visualization & Gateway Integration** (Reroute `web-admin` routing calls through API Gateway, render planning stops and polylines on Leaflet).
+5. **Step 5: T4.7 — Route Approval & Publishing** (PostgreSQL `routing_db` migration for `plan_store.py`, connect operator approval buttons to `dispatch_plan`).
+6. **Step 6: T4.8 — Map Intelligence** (Sampled GPS location history and breadcrumb trail replay).
 
 ---
 
@@ -182,4 +169,3 @@ To avoid breaking existing functionality and allow continuous verification at ea
 - [x] 6 architectural conflicts identified and concrete resolutions defined.
 
 **Status: READY FOR USER APPROVAL TO BEGIN TASK T4.1.**
-

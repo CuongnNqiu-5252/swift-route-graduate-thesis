@@ -32,7 +32,8 @@ from api.schemas import (
     WhatIfOptimizationResponse,
     WhatIfScenario,
 )
-from core.distance import build_distance_matrix, build_time_matrix, build_multi_objective_matrix
+from core.distance import build_multi_objective_matrix
+from core.road_matrix import build_road_matrices
 from core.tsp_ortools import ortools_tsp, ortools_vrp
 
 
@@ -65,12 +66,11 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     n_total = len(all_locations)  # depot + stops
 
     # Build distance, time, and multi-objective cost matrices
-    dist_matrix = build_distance_matrix(all_locations)
-    time_matrix = build_time_matrix(dist_matrix, avg_speed_kmh=28.0)
+    dist_matrix, time_matrix, distance_source = build_road_matrices(all_locations, avg_speed_kmh=28.0)
     time_w = request.time_weight if request.time_weight is not None else 0.5
     cost_w = request.cost_weight if request.cost_weight is not None else 0.5
     cost_matrix = build_multi_objective_matrix(dist_matrix, time_matrix, time_w, cost_w)
-    logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (W_time=%.2f, W_cost=%.2f)", n_total, n_total, time_w, cost_w)
+    logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (%s, W_time=%.2f, W_cost=%.2f)", n_total, n_total, distance_source, time_w, cost_w)
 
     algorithm_used = "ortools"
     start_ns = time.perf_counter_ns()
@@ -435,8 +435,7 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
     seq_coords: List[Tuple[float, float]] = [
         (request.driver_location.lat, request.driver_location.lng)
     ] + [(s.location.lat, s.location.lng) for s in remaining_states]
-    seq_dist_matrix = build_distance_matrix(seq_coords)
-    seq_time_matrix = build_time_matrix(seq_dist_matrix, avg_speed_kmh=28.0)
+    seq_dist_matrix, seq_time_matrix, _ = build_road_matrices(seq_coords, avg_speed_kmh=28.0)
     current_remaining_dist = sum(
         seq_dist_matrix[i][i + 1] for i in range(len(seq_coords) - 1)
     )

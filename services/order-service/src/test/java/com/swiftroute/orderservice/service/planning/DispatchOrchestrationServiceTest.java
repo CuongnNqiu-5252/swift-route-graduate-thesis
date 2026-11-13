@@ -1,8 +1,12 @@
 package com.swiftroute.orderservice.service.planning;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -309,6 +313,173 @@ class DispatchOrchestrationServiceTest {
         assertThat(warehouseAOrder2.getAssignedDriverId()).isEqualTo(driver1Id);
         assertThat(warehouseBOrder.getAssignedDriverId()).isEqualTo(driver2Id);
         assertThat(warehouseAOrder1.getPlanId()).isNotEqualTo(warehouseBOrder.getPlanId());
+    }
+
+    @Test
+    void executePlanningCycle_whenNoAvailableDrivers_shouldSkipPlanningAndKeepOrdersPaid() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+        Order order = buildOrder(tenant, OrderPriority.NORMAL, Instant.now());
+
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID))
+                .thenReturn(List.of(order));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(true, List.of()));
+
+        Optional<DispatchPlan> result = orchestrationService.executePlanningCycle(
+                tenantId, PlanTriggerType.BATCH_SIZE);
+
+        assertThat(result).isEmpty();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(order.getFulfillmentStatus()).isEqualTo("READY_FOR_PLANNING");
+        assertThat(order.getPlanId()).isNull();
+        verifyNoInteractions(routingEngineClient);
+        verify(dispatchPlanRepository, never()).save(any());
+    }
+
+    @Test
+    void executePlanningCycle_whenDriversExhaustedAcrossWarehouses_shouldLeaveUnassignedWarehouseOrdersPaid() {
+        UUID tenantId = UUID.randomUUID();
+        UUID driver1Id = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+
+        com.swiftroute.orderservice.entity.PickupLocation warehouseB = com.swiftroute.orderservice.entity.PickupLocation.builder()
+                .id(UUID.randomUUID())
+                .tenant(tenant)
+                .name("Kho B")
+                .address("14 3 Thang 2, Xuan Khanh")
+                .lat(10.0320)
+                .lng(105.7743)
+                .build();
+
+        Order warehouseAOrder = buildOrder(tenant, OrderPriority.NORMAL, Instant.now());
+        Order warehouseBOrder = buildOrder(tenant, OrderPriority.NORMAL, Instant.now().plusSeconds(10));
+        warehouseBOrder.setPickupLocation(warehouseB);
+        warehouseBOrder.setPickupLat(10.0320);
+        warehouseBOrder.setPickupLng(105.7743);
+        warehouseBOrder.setPickupAddress("14 3 Thang 2, Xuan Khanh");
+
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID))
+                .thenReturn(List.of(warehouseAOrder, warehouseBOrder));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(
+                        true, List.of(Map.of("user_id", driver1Id.toString()))));
+
+        OrderedStop stopA = new OrderedStop(
+                1, warehouseAOrder.getId().toString(), new LocationPoint(10.775, 106.701, "Addr A"), 2.0, 5.0);
+        when(routingEngineClient.optimizeBatch(any())).thenReturn(Optional.of(new BatchOptimizationResponse(
+                "job-a", "ortools", 2.0, 5.0, List.of(stopA), 12.0, Instant.now().toString())));
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> {
+            DispatchPlan p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(UUID.randomUUID());
+            }
+            return p;
+        });
+        when(deliveryExecutionService.assign(warehouseAOrder, driver1Id)).thenReturn(DeliveryTask.builder()
+                .id(UUID.randomUUID())
+                .order(warehouseAOrder)
+                .tenantId(tenantId)
+                .driverId(driver1Id)
+                .status(DeliveryTaskStatus.ASSIGNED)
+                .build());
+
+        Optional<DispatchPlan> result = orchestrationService.executePlanningCycle(
+                tenantId, PlanTriggerType.MANUAL);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getPlanStatus()).isEqualTo(PlanStatus.DISPATCHED);
+        assertThat(warehouseAOrder.getStatus()).isEqualTo(OrderStatus.PLANNED);
+        assertThat(warehouseAOrder.getAssignedDriverId()).isEqualTo(driver1Id);
+
+        assertThat(warehouseBOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(warehouseBOrder.getFulfillmentStatus()).isEqualTo("READY_FOR_PLANNING");
+        assertThat(warehouseBOrder.getPlanId()).isNull();
+        assertThat(warehouseBOrder.getAssignedDriverId()).isNull();
+        verify(routingEngineClient, times(1)).optimizeBatch(any());
+    }
+
+    @Test
+    void executePlanningCycle_whenRoutingReturnsMoreRoutesThanDrivers_shouldNotCreateDriverlessPlan() {
+        UUID tenantId = UUID.randomUUID();
+        UUID driver1Id = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, false);
+
+        Order order1 = buildOrder(tenant, OrderPriority.NORMAL, Instant.now());
+        Order order2 = buildOrder(tenant, OrderPriority.NORMAL, Instant.now().plusSeconds(5));
+
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID))
+                .thenReturn(List.of(order1, order2));
+        when(operationalReadinessService.fleetState(tenantId))
+                .thenReturn(new OperationalReadinessService.FleetState(
+                        true, List.of(Map.of("user_id", driver1Id.toString()))));
+
+        OrderedStop stop1 = new OrderedStop(
+                1, order1.getId().toString(), new LocationPoint(10.775, 106.701, "Addr 1"), 2.0, 5.0);
+        OrderedStop stop2 = new OrderedStop(
+                1, order2.getId().toString(), new LocationPoint(10.785, 106.711, "Addr 2"), 3.0, 7.0);
+        BatchOptimizationResponse routingResponse = new BatchOptimizationResponse(
+                "job-split",
+                "ortools",
+                5.0,
+                12.0,
+                List.of(stop1, stop2),
+                List.of(
+                        new BatchOptimizationResponse.VehicleRoute(0, 2.0, 5.0, 2.0, List.of(stop1)),
+                        new BatchOptimizationResponse.VehicleRoute(1, 3.0, 7.0, 2.0, List.of(stop2))),
+                12.0,
+                Instant.now().toString());
+        when(routingEngineClient.optimizeBatch(any())).thenReturn(Optional.of(routingResponse));
+
+        when(dispatchPlanRepository.save(any(DispatchPlan.class))).thenAnswer(inv -> {
+            DispatchPlan p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(UUID.randomUUID());
+            }
+            return p;
+        });
+        when(deliveryExecutionService.assign(order1, driver1Id)).thenReturn(DeliveryTask.builder()
+                .id(UUID.randomUUID())
+                .order(order1)
+                .tenantId(tenantId)
+                .driverId(driver1Id)
+                .status(DeliveryTaskStatus.ASSIGNED)
+                .build());
+
+        Optional<DispatchPlan> result = orchestrationService.executePlanningCycle(
+                tenantId, PlanTriggerType.BATCH_SIZE);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getPlanStatus()).isEqualTo(PlanStatus.DISPATCHED);
+        assertThat(order1.getStatus()).isEqualTo(OrderStatus.PLANNED);
+        assertThat(order1.getAssignedDriverId()).isEqualTo(driver1Id);
+
+        assertThat(order2.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(order2.getPlanId()).isNull();
+        assertThat(order2.getAssignedDriverId()).isNull();
+    }
+
+    @Test
+    void approvePlan_whenDriverMissing_shouldRejectWithOperationsNotReady() {
+        UUID planId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = buildTenant(tenantId, true);
+        DispatchPlan unassignedDraft = DispatchPlan.builder()
+                .id(planId)
+                .tenant(tenant)
+                .planStatus(PlanStatus.DRAFT)
+                .driverId(null)
+                .plannedAt(Instant.now())
+                .build();
+        when(dispatchPlanRepository.findById(planId)).thenReturn(Optional.of(unassignedDraft));
+
+        assertThatThrownBy(() -> orchestrationService.approvePlan(planId, UUID.randomUUID(), null))
+                .isInstanceOf(com.swiftroute.orderservice.exception.AppException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.swiftroute.orderservice.exception.ErrorCode.OPERATIONS_NOT_READY);
     }
 
     @Test

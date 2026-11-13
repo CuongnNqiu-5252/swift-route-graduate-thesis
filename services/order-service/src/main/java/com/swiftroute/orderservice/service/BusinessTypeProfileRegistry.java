@@ -12,8 +12,10 @@ import com.swiftroute.orderservice.entity.TenantDispatchConfig;
 import com.swiftroute.orderservice.entity.enums.BusinessType;
 
 /**
- * Immutable registry defining recommended default configurations for each business type.
- * Defensive copies are returned to prevent mutation of the global preset definitions.
+ * Immutable registry defining recommended default configurations for each
+ * business type.
+ * Defensive copies are returned to prevent mutation of the global preset
+ * definitions.
  */
 @Component
 public class BusinessTypeProfileRegistry {
@@ -26,10 +28,12 @@ public class BusinessTypeProfileRegistry {
             Integer maxWaitTimeSeconds,
             String urgentOrderMode,
             Boolean allowPoolDrivers,
-            String description
-    ) {
+            String description,
+            String scheduledDispatchTime,
+            Boolean scheduledDispatchEnabled) {
         /**
-         * Creates a fresh, defensive copy of the TenantDispatchConfig configured with preset values.
+         * Creates a fresh, defensive copy of the TenantDispatchConfig configured with
+         * preset values.
          */
         public TenantDispatchConfig toDispatchConfig() {
             return TenantDispatchConfig.builder()
@@ -41,11 +45,14 @@ public class BusinessTypeProfileRegistry {
                     .requireApproval(false)
                     .algorithm("auto")
                     .allowPoolDrivers(allowPoolDrivers)
+                    .scheduledDispatchEnabled(scheduledDispatchEnabled)
+                    .scheduledDispatchTime(scheduledDispatchTime)
                     .build();
         }
 
         /**
-         * Creates a fresh, defensive copy of the OptimizationWeights configured with preset values.
+         * Creates a fresh, defensive copy of the OptimizationWeights configured with
+         * preset values.
          */
         public OptimizationWeights toOptimizationWeights() {
             return OptimizationWeights.builder()
@@ -60,7 +67,8 @@ public class BusinessTypeProfileRegistry {
     static {
         Map<BusinessType, BusinessTypeProfile> map = new EnumMap<>(BusinessType.class);
 
-        // RESTAURANT: 0.8 time, 0.2 cost, 3 orders, 180s wait, IMMEDIATE_SINGLE, Pool=true
+        // RESTAURANT: 0.8 time, 0.2 cost, 3 orders, 180s wait, IMMEDIATE_SINGLE,
+        // Pool=true
         map.put(BusinessType.RESTAURANT, new BusinessTypeProfile(
                 BusinessType.RESTAURANT,
                 0.8,
@@ -69,8 +77,9 @@ public class BusinessTypeProfileRegistry {
                 180,
                 "IMMEDIATE_SINGLE",
                 true,
-                "Quán ăn / Nhà hàng: Ưu tiên tối đa tốc độ giao đồ ăn nóng, gom ít đơn"
-        ));
+                "Quán ăn / Nhà hàng: Ưu tiên tối đa tốc độ giao đồ ăn nóng, gom ít đơn",
+                "10:00",
+                true));
 
         // CAFE: 0.7 time, 0.3 cost, 4 orders, 240s wait, IMMEDIATE_SINGLE, Pool=true
         map.put(BusinessType.CAFE, new BusinessTypeProfile(
@@ -81,10 +90,12 @@ public class BusinessTypeProfileRegistry {
                 240,
                 "IMMEDIATE_SINGLE",
                 true,
-                "Quán cafe / Trà sữa: Giao nhanh cự ly gần để đảm bảo độ tươi của đồ uống"
-        ));
+                "Quán cafe / Trà sữa: Giao nhanh cự ly gần để đảm bảo độ tươi của đồ uống",
+                "10:00",
+                true));
 
-        // PHARMACY: 0.9 time, 0.1 cost, 2 orders, 120s wait, IMMEDIATE_SINGLE, Pool=true
+        // PHARMACY: 0.9 time, 0.1 cost, 2 orders, 120s wait, IMMEDIATE_SINGLE,
+        // Pool=true
         map.put(BusinessType.PHARMACY, new BusinessTypeProfile(
                 BusinessType.PHARMACY,
                 0.9,
@@ -93,8 +104,9 @@ public class BusinessTypeProfileRegistry {
                 120,
                 "IMMEDIATE_SINGLE",
                 true,
-                "Hiệu thuốc / Y tế: Dược phẩm cấp thiết, ưu tiên thời gian tuyệt đối"
-        ));
+                "Hiệu thuốc / Y tế: Dược phẩm cấp thiết, ưu tiên thời gian tuyệt đối",
+                "07:00",
+                true));
 
         // RETAIL: 0.4 time, 0.6 cost, 8 orders, 600s wait, BATCH_IMMEDIATE, Pool=false
         map.put(BusinessType.RETAIL, new BusinessTypeProfile(
@@ -105,8 +117,9 @@ public class BusinessTypeProfileRegistry {
                 600,
                 "BATCH_IMMEDIATE",
                 false,
-                "Bán lẻ / Tạp hóa: Hàng khô, gom nhiều đơn để tối ưu chi phí vận chuyển"
-        ));
+                "Bán lẻ / Tạp hóa: Hàng khô, gom nhiều đơn để tối ưu chi phí vận chuyển",
+                "11:00",
+                true));
 
         // OTHER: 0.5 time, 0.5 cost, 5 orders, 300s wait, IMMEDIATE_SINGLE, Pool=false
         map.put(BusinessType.OTHER, new BusinessTypeProfile(
@@ -117,8 +130,9 @@ public class BusinessTypeProfileRegistry {
                 300,
                 "IMMEDIATE_SINGLE",
                 false,
-                "Mặc định / Ngành nghề khác: Cân bằng hài hòa giữa thời gian và chi phí"
-        ));
+                "Mặc định / Ngành nghề khác: Cân bằng hài hòa giữa thời gian và chi phí",
+                "10:00",
+                true));
 
         PRESETS = Collections.unmodifiableMap(map);
     }
@@ -145,7 +159,8 @@ public class BusinessTypeProfileRegistry {
     /**
      * Applies the complete recommended profile onto a tenant entity,
      * updating its businessType, dispatchConfig, and optimizationWeights.
-     * Preserves unrelated settings like requireApproval or custom algorithm if needed.
+     * Preserves unrelated settings like requireApproval or custom algorithm if
+     * needed.
      */
     public void applyProfile(Tenant tenant, BusinessType type) {
         BusinessTypeProfile profile = getProfile(type);
@@ -154,7 +169,8 @@ public class BusinessTypeProfileRegistry {
         // Update optimization weights
         tenant.setOptimizationWeights(profile.toOptimizationWeights());
 
-        // Update dispatch config, preserving custom preferences like requireApproval if previously set
+        // Update dispatch config, preserving custom preferences like requireApproval if
+        // previously set
         TenantDispatchConfig current = tenant.getDispatchConfig();
         boolean previousApproval = current != null && Boolean.TRUE.equals(current.getRequireApproval());
         String previousAlgorithm = current != null && current.getAlgorithm() != null ? current.getAlgorithm() : "auto";
@@ -166,4 +182,3 @@ public class BusinessTypeProfileRegistry {
         tenant.setDispatchConfig(nextConfig);
     }
 }
-

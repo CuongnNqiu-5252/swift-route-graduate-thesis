@@ -1,4 +1,4 @@
-export type TenantMembershipRole = 'OWNER' | 'ADMIN' | 'OPERATOR' | 'DRIVER' | 'VIEWER';
+export type TenantMembershipRole = 'OWNER' | 'TENANT_ADMIN' | 'OPERATOR' | 'DRIVER' | 'VIEWER';
 export type TenantMembershipStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'INACTIVE' | 'REVOKED';
 export type TenantInvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED';
 
@@ -40,7 +40,7 @@ export interface InviteMemberResponse {
 
 export const MEMBER_ROLE_LABEL: Record<TenantMembershipRole, string> = {
   OWNER: 'Chủ sở hữu',
-  ADMIN: 'Quản trị viên',
+  TENANT_ADMIN: 'Quản trị viên',
   OPERATOR: 'Nhân viên vận hành',
   DRIVER: 'Tài xế',
   VIEWER: 'Người xem',

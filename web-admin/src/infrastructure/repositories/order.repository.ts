@@ -2,14 +2,6 @@ import { Order, OrderStatus } from '@/domain/entities/order.entity';
 import { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import api from '@/lib/api';
 
-export interface OrdersResponse {
-  content: Order[];
-  total_elements: number;
-  total_pages: number;
-  page: number;
-  size: number;
-}
-
 export interface OrderFilters {
   status?: OrderStatus;
   page?: number;

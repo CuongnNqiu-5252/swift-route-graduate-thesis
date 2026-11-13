@@ -4,8 +4,6 @@ import {
   OptimizationResult,
   OptimizationStop,
   VehicleRouteResult,
-  WhatIfRequest,
-  WhatIfResult,
 } from '@/domain/entities/routing.entity';
 
 // Routing engine is called directly (not through gateway) for performance
@@ -97,13 +95,5 @@ export const routingRepository = {
           : [],
       route_polyline: data.route_polyline,
     };
-  },
-
-  async whatIf(request: WhatIfRequest): Promise<WhatIfResult> {
-    const response = await axios.post<WhatIfResult>(
-      `${ROUTING_BASE}/api/v1/optimize/what-if`,
-      request, { headers: routingHeaders() }
-    );
-    return response.data;
   },
 };

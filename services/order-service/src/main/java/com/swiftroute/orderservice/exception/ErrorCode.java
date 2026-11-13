@@ -21,6 +21,8 @@ public enum ErrorCode {
     UNAUTHENTICATED(401, "Bạn chưa đăng nhập hoặc token không hợp lệ", HttpStatus.UNAUTHORIZED),
     ACCESS_DENIED(403, "Bạn không có quyền thực hiện thao tác này", HttpStatus.FORBIDDEN),
     VALIDATION_ERROR(400, "Dữ liệu đầu vào không hợp lệ", HttpStatus.BAD_REQUEST),
+    INVALID_EVIDENCE_FILE(400, "Tệp bằng chứng phải là ảnh JPEG, PNG hoặc WebP và không vượt quá 10 MB", HttpStatus.BAD_REQUEST),
+    EVIDENCE_STORAGE_UNAVAILABLE(503, "Kho lưu trữ bằng chứng chưa sẵn sàng, vui lòng thử lại sau", HttpStatus.SERVICE_UNAVAILABLE),
 
     // ===== Lỗi nghiệp vụ Order =====
     ORDER_NOT_FOUND(404, "Không tìm thấy đơn hàng", HttpStatus.NOT_FOUND),
@@ -62,7 +64,10 @@ public enum ErrorCode {
     // ===== Lỗi nghiệp vụ Pickup Locations =====
     PICKUP_LOCATION_NOT_FOUND(404, "Điểm lấy hàng không tồn tại hoặc không thuộc doanh nghiệp của bạn", HttpStatus.NOT_FOUND),
     PICKUP_LOCATION_INACTIVE(400, "Điểm lấy hàng đang ngừng hoạt động", HttpStatus.BAD_REQUEST),
-    CANNOT_DELETE_DEFAULT_PICKUP_LOCATION(400, "Không thể xoá điểm lấy hàng mặc định duy nhất đang hoạt động", HttpStatus.BAD_REQUEST);
+    CANNOT_DELETE_DEFAULT_PICKUP_LOCATION(400, "Không thể xoá điểm lấy hàng mặc định duy nhất đang hoạt động", HttpStatus.BAD_REQUEST),
+
+    // ===== Lỗi nghiệp vụ Delivery Zones =====
+    DELIVERY_OUT_OF_ZONE(422, "Địa chỉ giao hàng nằm ngoài phạm vi phục vụ của doanh nghiệp", HttpStatus.UNPROCESSABLE_ENTITY);
 
     private final int code;
     private final String message;

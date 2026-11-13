@@ -53,8 +53,9 @@ class TenantContextValidatorTest {
     void validateTenantAccessWithValidJwtAndMatchingTenantSuccess() {
         String authHeader = "Bearer valid.token.here";
         Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("USER");
         when(claims.get("tenant_id", String.class)).thenReturn(tenantId.toString());
-        when(claims.get("_ROLE", String.class)).thenReturn("STAFF");
+        when(claims.get("tenant_role", String.class)).thenReturn("OPERATOR");
         when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(activeTenant));
 
@@ -72,8 +73,9 @@ class TenantContextValidatorTest {
         UUID anotherTenantId = UUID.randomUUID();
 
         Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("USER");
         when(claims.get("tenant_id", String.class)).thenReturn(tenantId.toString());
-        when(claims.get("_ROLE", String.class)).thenReturn("STAFF");
+        when(claims.get("tenant_role", String.class)).thenReturn("OPERATOR");
         when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
 
         // User belongs to tenantId, but tries to access anotherTenantId in header
@@ -89,9 +91,9 @@ class TenantContextValidatorTest {
         String authHeader = "Bearer valid.token.here";
 
         Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("USER");
         when(claims.get("tenant_id", String.class)).thenReturn(null);
-        when(claims.get("_ROLE", String.class)).thenReturn("CUSTOMER");
-        when(claims.getSubject()).thenReturn("customer-uuid");
+        when(claims.get("tenant_role", String.class)).thenReturn(null);
         when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
 
         assertThatThrownBy(() -> tenantContextValidator.validateTenantAccess(tenantId.toString(), authHeader))
@@ -101,19 +103,67 @@ class TenantContextValidatorTest {
     }
 
     @Test
-    @DisplayName("Should allow ADMIN user to specify target tenant in header")
+    @DisplayName("Should allow SYSTEM_ADMIN user to specify target tenant in header")
     void validateTenantAccessAdminWithTargetTenantSuccess() {
         String authHeader = "Bearer admin.token.here";
 
         Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("SYSTEM_ADMIN");
         when(claims.get("tenant_id", String.class)).thenReturn(null);
-        when(claims.get("_ROLE", String.class)).thenReturn("ADMIN");
+        when(claims.get("tenant_role", String.class)).thenReturn(null);
         when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(activeTenant));
 
         Tenant result = tenantContextValidator.validateTenantAccess(tenantId.toString(), authHeader);
 
         assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(tenantId);
+    }
+
+    @Test
+    @DisplayName("Should allow workspace access for tenant-scoped user")
+    void validateWorkspaceAccessScopedUserSuccess() {
+        String authHeader = "Bearer valid.token.here";
+        Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("USER");
+        when(claims.get("tenant_id", String.class)).thenReturn(tenantId.toString());
+        when(claims.get("tenant_role", String.class)).thenReturn("OPERATOR");
+        when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(activeTenant));
+
+        Tenant result = tenantContextValidator.validateWorkspaceAccess(null, authHeader);
+
+        assertThat(result.getId()).isEqualTo(tenantId);
+    }
+
+    @Test
+    @DisplayName("Should reject workspace owner check when tenant_role is not OWNER")
+    void validateWorkspaceOwnerRejectsNonOwner() {
+        String authHeader = "Bearer valid.token.here";
+        Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("USER");
+        when(claims.get("tenant_role", String.class)).thenReturn("TENANT_ADMIN");
+        when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
+
+        assertThatThrownBy(() -> tenantContextValidator.validateWorkspaceOwner(tenantId.toString(), authHeader))
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("Should allow workspace owner check for OWNER")
+    void validateWorkspaceOwnerAllowsOwner() {
+        String authHeader = "Bearer owner.token.here";
+        Claims claims = mock(Claims.class);
+        when(claims.get("system_role", String.class)).thenReturn("USER");
+        when(claims.get("tenant_role", String.class)).thenReturn("OWNER");
+        when(claims.get("tenant_id", String.class)).thenReturn(tenantId.toString());
+        when(jwtTokenValidator.parseAndValidate(authHeader)).thenReturn(claims);
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(activeTenant));
+
+        Tenant result = tenantContextValidator.validateWorkspaceOwner(tenantId.toString(), authHeader);
+
         assertThat(result.getId()).isEqualTo(tenantId);
     }
 

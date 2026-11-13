@@ -42,7 +42,7 @@ import lombok.RequiredArgsConstructor;
  */
 @RestController
 @RequiredArgsConstructor
-@RequestMapping({"/api/tenants", "/api/v1/tenants"})
+@RequestMapping({ "/api/tenants", "/api/v1/tenants" })
 @Tag(name = "Tenant Workflow", description = "Tenant self-service onboarding, provisioning, and KYC verification queue")
 public class TenantWorkflowController {
 
@@ -52,7 +52,8 @@ public class TenantWorkflowController {
     private final TenantProvisioningService provisioning;
     private final TenantProvisioningStore provisioningStore;
 
-    public record Lifecycle(String status, String reason) {}
+    public record Lifecycle(String status, String reason) {
+    }
 
     // =========================================================================
     // 1. TENANT REGISTRATION & PROVISIONING
@@ -76,8 +77,7 @@ public class TenantWorkflowController {
                         "tenant", TenantResponse.fromEntity(tenant),
                         "tenant_id", tenant.getId(),
                         "next_action", state.nextAction(),
-                        "workspace_status", state.status()
-                )));
+                        "workspace_status", state.status())));
     }
 
     @Operation(summary = "Get workspace provisioning state for its creator")
@@ -107,7 +107,7 @@ public class TenantWorkflowController {
     public ApiResponse<TenantResponse> tenant(
             @PathVariable UUID tenantId,
             @RequestHeader("Authorization") String auth) {
-        identities.context(auth, tenantId);
+        identities.statelessContext(auth, tenantId);
         return ApiResponse.success(TenantResponse.fromEntity(workflow.find(tenantId)));
     }
 
@@ -116,7 +116,7 @@ public class TenantWorkflowController {
     public ApiResponse<Map<String, Object>> progress(
             @PathVariable UUID tenantId,
             @RequestHeader("Authorization") String auth) {
-        identities.context(auth, tenantId);
+        identities.statelessContext(auth, tenantId);
         provisioningStore.requireReady(tenantId);
         return ApiResponse.success(workflow.onboarding(tenantId));
     }
@@ -137,7 +137,7 @@ public class TenantWorkflowController {
     public ApiResponse<Map<String, Object>> readiness(
             @PathVariable UUID tenantId,
             @RequestHeader("Authorization") String auth) {
-        identities.context(auth, tenantId);
+        identities.statelessContext(auth, tenantId);
         return ApiResponse.success(readiness.check(workflow.find(tenantId)));
     }
 
@@ -150,7 +150,7 @@ public class TenantWorkflowController {
     public ApiResponse<List<Map<String, Object>>> history(
             @PathVariable UUID tenantId,
             @RequestHeader("Authorization") String auth) {
-        identities.context(auth, tenantId);
+        identities.statelessContext(auth, tenantId);
         return ApiResponse.success(workflow.history(tenantId));
     }
 
@@ -215,7 +215,8 @@ public class TenantWorkflowController {
             throw new AppException(ErrorCode.INVALID_TENANT_STATUS_TRANSITION);
         }
         return ApiResponse.success(TenantResponse.fromEntity(
-                workflow.suspend(tenantId, request.reason(), extractActorId(context), "APPROVED".equals(request.status()))));
+                workflow.suspend(tenantId, request.reason(), extractActorId(context),
+                        "APPROVED".equals(request.status()))));
     }
 
     // =========================================================================
@@ -227,14 +228,18 @@ public class TenantWorkflowController {
     }
 
     private Map<String, Object> requireOwner(String auth, UUID tenantId) {
-        var context = identities.context(auth, tenantId);
-        identities.requireOwner(context);
+        var context = identities.statelessContext(auth, tenantId);
+        boolean jwtOwner = "OWNER".equals(context.get("membership_role"))
+                && tenantId.toString().equals(String.valueOf(context.get("tenant_id")));
+        if (!jwtOwner && !extractActorId(context).equals(workflow.find(tenantId).getOwnerUserId())) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         provisioningStore.requireReady(tenantId);
         return context;
     }
 
     private Map<String, Object> requireAdmin(String auth) {
-        var context = identities.context(auth, null);
+        var context = identities.statelessContext(auth, null);
         if (!TenantIdentityClient.systemAdmin(context)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
@@ -242,7 +247,7 @@ public class TenantWorkflowController {
     }
 
     private void verifyCreator(String auth, UUID tenantId) {
-        var context = identities.context(auth, null);
+        var context = identities.statelessContext(auth, null);
         if (!extractActorId(context).equals(workflow.find(tenantId).getOwnerUserId())) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }

@@ -330,7 +330,7 @@ public class PackageCustodyService {
     }
 
     private boolean isOperator(String role) {
-        return Set.of("ADMIN", "TENANT_ADMIN", "OPERATOR", "OPS_STAFF", "SYSTEM_ADMIN", "WAREHOUSE_STAFF")
+        return Set.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "WAREHOUSE_STAFF")
                 .contains(role == null ? "" : role.toUpperCase(Locale.ROOT));
     }
 

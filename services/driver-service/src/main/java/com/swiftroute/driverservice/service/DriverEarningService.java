@@ -50,6 +50,7 @@ public class DriverEarningService {
     private final DriverSettlementRepository settlements;
     private final DriverRepository drivers;
     private final OutboxEventRepository outboxEvents;
+    private final GoongRoadDistanceService roadDistanceService;
 
     @Transactional
     public DriverEarning recordCompletedDelivery(DeliveryCompletedEvent event) {
@@ -61,8 +62,16 @@ public class DriverEarningService {
                 .filter(item -> item.getTenantId().equals(event.tenantId()))
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
         EarningPolicy policy = policyFor(event.tenantId());
-        BigDecimal distance = distanceKm(event.pickupLat(), event.pickupLng(), event.deliveryLat(),
-                event.deliveryLng());
+        BigDecimal straightLine = straightLineKm(event.pickupLat(), event.pickupLng(), event.deliveryLat(),
+                event.deliveryLng()).setScale(2, RoundingMode.HALF_UP);
+
+        // Query Goong Direction API with vehicle=bike for real-world motorcycle road distance.
+        // If Goong is unconfigured or unavailable, gracefully fall back to geodesic straight-line distance.
+        var roadKmOpt = roadDistanceService.getBikeRoadDistanceKm(
+                event.pickupLat(), event.pickupLng(), event.deliveryLat(), event.deliveryLng());
+        BigDecimal distance = roadKmOpt.orElse(straightLine);
+        String distanceSource = roadKmOpt.isPresent() ? "GOONG_BIKE_ROAD_DISTANCE" : "GEODESIC_FALLBACK";
+
         BigDecimal distanceAmount = policy.getPerKmAmount().multiply(distance);
         BigDecimal weight = BigDecimal.valueOf(event.weightKg() == null ? 0 : event.weightKg());
         BigDecimal bonus = weight.compareTo(policy.getHeavyWeightThresholdKg()) > 0
@@ -83,7 +92,7 @@ public class DriverEarningService {
                 .distanceAmount(distanceAmount.setScale(0, RoundingMode.HALF_UP))
                 .bonusAmount(bonus)
                 .netAmount(total)
-                .calculationSnapshot(snapshot(policy, distance, weight))
+                .calculationSnapshot(snapshot(policy, straightLine, distance, distanceSource, weight))
                 .completedAt(event.completedAt() == null ? Instant.now() : event.completedAt())
                 .build();
         return earnings.save(earning);
@@ -261,7 +270,11 @@ public class DriverEarningService {
         return new Period(start, end);
     }
 
-    private BigDecimal distanceKm(Double lat1, Double lng1, Double lat2, Double lng2) {
+    /**
+     * Geodesic (Haversine) distance between two points, unrounded.
+     * The caller applies the road distance factor before rounding to avoid double rounding.
+     */
+    private BigDecimal straightLineKm(Double lat1, Double lng1, Double lat2, Double lng2) {
         if (lat1 == null || lng1 == null || lat2 == null || lng2 == null)
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         double earthRadiusKm = 6371.0088;
@@ -270,22 +283,23 @@ public class DriverEarningService {
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
                         * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-        return BigDecimal.valueOf(earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
-                .setScale(2, RoundingMode.HALF_UP);
+        return BigDecimal.valueOf(earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
     private BigDecimal roundToThousand(BigDecimal amount) {
         return amount.divide(new BigDecimal("1000"), 0, RoundingMode.HALF_UP).multiply(new BigDecimal("1000"));
     }
 
-    private String snapshot(EarningPolicy policy, BigDecimal distance, BigDecimal weight) {
+    private String snapshot(EarningPolicy policy, BigDecimal straightLine, BigDecimal distance,
+            String distanceSource, BigDecimal weight) {
         return "{" +
-                "\"version\":1," +
-                "\"distance_source\":\"GEODESIC_PICKUP_TO_DELIVERY\"," +
+                "\"version\":3," +
+                "\"distance_source\":\"" + distanceSource + "\"," +
+                "\"straight_line_km\":" + straightLine.toPlainString() + "," +
+                "\"payable_distance_km\":" + distance.toPlainString() + "," +
                 "\"base_amount\":" + policy.getBaseAmount().toPlainString() + "," +
                 "\"per_km_amount\":" + policy.getPerKmAmount().toPlainString() + "," +
                 "\"minimum_amount\":" + policy.getMinimumAmount().toPlainString() + "," +
-                "\"payable_distance_km\":" + distance.toPlainString() + "," +
                 "\"weight_kg\":" + weight.toPlainString() + "," +
                 "\"heavy_weight_threshold_kg\":" + policy.getHeavyWeightThresholdKg().toPlainString() + "," +
                 "\"heavy_bonus_amount\":" + policy.getHeavyBonusAmount().toPlainString() + "," +

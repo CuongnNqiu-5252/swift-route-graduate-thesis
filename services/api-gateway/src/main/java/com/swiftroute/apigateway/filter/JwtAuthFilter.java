@@ -29,8 +29,8 @@ import reactor.core.publisher.Mono;
  * 1. Kiểm tra request có thuộc public path không → bỏ qua JWT check.
  * 2. Trích xuất Bearer token từ Authorization header.
  * 3. Gọi JwtVerifier để verify và parse claims.
- * 4. Inject X-User-Id, X-User-Role, X-Tenant-Id vào request
- * để các downstream service không cần parse JWT lại.
+ * 4. Inject X-User-Id, X-System-Role, X-Tenant-Role, X-Tenant-Id vào request
+ * để tracing và các legacy reader không cần parse lại (downstream service vẫn verify JWT).
  * 5. Nếu token thiếu / invalid → trả về 401 JSON ngay tại Gateway.
  *
  * Tách riêng filter này khỏi CustomGlobalFilter để đúng Single Responsibility:
@@ -47,12 +47,12 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/email/verify",
+            "/api/auth/password/forgot",
+            "/api/auth/password/reset",
             "/api/auth/refresh",
             "/api/auth/invitations/accept",
             "/api/auth/invitations/preview",
-            "/actuator/health",
-            "/api/drivers/*/public",
-            "/api/orders/track/*");
+            "/actuator/health");
 
     private final JwtVerifier jwtVerifier;
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
@@ -83,12 +83,13 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         return jwtVerifier.verify(token)
                 .flatMap(claims -> {
                     String clientTenant = exchange.getRequest().getHeaders().getFirst("X-Tenant-Id");
+                    boolean isSystemAdmin = "SYSTEM_ADMIN".equalsIgnoreCase(claims.systemRole());
                     String effectiveTenantId = null;
 
                     if (claims.tenantId() != null && !claims.tenantId().isBlank()) {
                         // User belongs to a specific tenant
-                        if (!"ADMIN".equalsIgnoreCase(claims.role())) {
-                            // Non-admin cannot switch or spoof another tenant
+                        if (!isSystemAdmin) {
+                            // Only SYSTEM_ADMIN can switch or override tenant context via header
                             if (clientTenant != null && !clientTenant.isBlank() && !clientTenant.equalsIgnoreCase(claims.tenantId())) {
                                 log.warn("Cross-tenant attempt by user {}: claims.tenantId={}, requested={}",
                                         claims.userId(), claims.tenantId(), clientTenant);
@@ -96,7 +97,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                             }
                             effectiveTenantId = claims.tenantId();
                         } else {
-                            // ADMIN can operate in specific tenant context if provided, else their own
+                            // SYSTEM_ADMIN can operate in a specified tenant context, else their own
                             if (clientTenant != null && !clientTenant.isBlank()) {
                                 if (!isValidUuid(clientTenant)) {
                                     return writeBadRequestResponse(exchange, "Invalid X-Tenant-Id header format");
@@ -107,7 +108,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                             }
                         }
                     } else if (clientTenant != null && !clientTenant.isBlank()) {
-                        // User has no tenant claim (e.g. CUSTOMER); target tenant must be a valid UUID
+                        // User has no tenant claim (e.g. USER or SYSTEM_ADMIN without scoped token); validate UUID
                         if (!isValidUuid(clientTenant)) {
                             return writeBadRequestResponse(exchange, "Invalid X-Tenant-Id header format");
                         }
@@ -115,23 +116,30 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                     }
 
                     final String finalTenantId = effectiveTenantId;
-                    // Inject user context vào header cho downstream services
+                    // Inject verified user context into headers for downstream services
                     ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
                             .headers(headers -> {
                                 // Never trust identity headers supplied by a client.
                                 headers.remove("X-User-Id");
-                                headers.remove("X-User-Role");
+                                headers.remove("X-System-Role");
                                 headers.remove("X-Tenant-Id");
+                                headers.remove("X-Tenant-Role");
                                 headers.set("X-User-Id", claims.userId());
-                                headers.set("X-User-Role", claims.role());
 
+                                if (claims.systemRole() != null && !claims.systemRole().isBlank()) {
+                                    headers.set("X-System-Role", claims.systemRole());
+                                }
+                                if (claims.tenantRole() != null && !claims.tenantRole().isBlank()) {
+                                    headers.set("X-Tenant-Role", claims.tenantRole());
+                                }
                                 if (finalTenantId != null) {
                                     headers.set("X-Tenant-Id", finalTenantId);
                                 }
                             })
                             .build();
 
-                    log.debug("JWT verified for user: {}, role: {}, tenant: {}", claims.userId(), claims.role(), finalTenantId);
+                    log.debug("JWT verified for user: {}, systemRole: {}, tenantRole: {}, tenant: {}",
+                            claims.userId(), claims.systemRole(), claims.tenantRole(), finalTenantId);
                     return chain.filter(exchange.mutate().request(mutatedRequest).build());
                 })
                 .onErrorResume(e -> {

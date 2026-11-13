@@ -396,7 +396,7 @@ export default function MembersPage() {
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
                 >
                   <option value="OPERATOR">Nhân viên vận hành (OPERATOR)</option>
-                  <option value="ADMIN">Quản trị viên chi nhánh (ADMIN)</option>
+                  <option value="TENANT_ADMIN">Quản trị viên chi nhánh (TENANT_ADMIN)</option>
                   <option value="DRIVER">Tài xế nội bộ (DRIVER)</option>
                   <option value="VIEWER">Người xem báo cáo (VIEWER)</option>
                 </select>

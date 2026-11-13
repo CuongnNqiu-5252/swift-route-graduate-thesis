@@ -30,16 +30,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         .read(authProvider.notifier)
         .login(_email.text, _password.text);
     if (!mounted || !success) return;
-    if (ref.read(currentUserProvider)?.role == 'DRIVER') {
-      Navigator.of(context).pushReplacementNamed('/driver/home');
-    } else {
-      await ref.read(authProvider.notifier).logout();
-      if (mounted) {
-        setState(
-          () => _roleError =
-              'Tài khoản chưa được liên kết với hồ sơ tài xế. Hãy kiểm tra lời mời từ doanh nghiệp.',
-        );
-      }
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
@@ -47,7 +39,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(authProvider);
     ref.listen(authProvider, (previous, next) {
-      if (next.errorMessage != null) {
+      if (next.errorMessage != null &&
+          next.errorMessage != previous?.errorMessage) {
+        setState(() => _roleError = next.errorMessage);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(next.errorMessage!)));

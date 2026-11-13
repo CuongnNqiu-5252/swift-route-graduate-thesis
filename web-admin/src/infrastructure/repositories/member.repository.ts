@@ -107,7 +107,12 @@ export const memberRepository = {
   },
 
   async acceptInvitation(payload: AcceptInvitationPayload): Promise<TenantMember> {
-    const res = await api.post('/auth/invitations/accept', payload);
+    const res = await api.post('/auth/invitations/accept', {
+      token: payload.token,
+      password: payload.password,
+      full_name: payload.fullName,
+      fullName: payload.fullName,
+    });
     return mapMember(res.data as ApiRecord);
   },
 };

@@ -9,24 +9,23 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-import com.swiftroute.driverservice.security.GatewayHeaderAuthFilter;
+import com.swiftroute.driverservice.security.JwtAuthenticationFilter;
 
 /**
  * Security configuration for driver-service.
  *
- * Authentication is delegated entirely to the API Gateway — it validates the
- * JWT and injects X-User-Id / X-User-Role into every forwarded request.
- * This service only reads those headers via GatewayHeaderAuthFilter.
+ * Authentication is enforced locally by JwtAuthenticationFilter via stateless
+ * JWT verification and tenant-scope validation.
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity // enables @PreAuthorize("hasRole('DRIVER')")
 public class SecurityConfig {
 
-    private final GatewayHeaderAuthFilter gatewayHeaderAuthFilter;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(GatewayHeaderAuthFilter gatewayHeaderAuthFilter) {
-        this.gatewayHeaderAuthFilter = gatewayHeaderAuthFilter;
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
     @Bean
@@ -39,14 +38,12 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/actuator/health",
-                                "/internal/fleet/**",
-                                "/api/drivers/*/public",
-                                "/api/drivers/tenant/*/available")
+                                "/internal/fleet/**")
                         .permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/drivers")
                         .permitAll()
                         .anyRequest().authenticated())
-                .addFilterBefore(gatewayHeaderAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

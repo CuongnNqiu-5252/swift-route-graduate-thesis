@@ -1,10 +1,13 @@
 package com.swiftroute.orderservice.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,11 +21,13 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TenantDispatchConfig {
 
     /**
      * Whether automated dispatch evaluation is active for this tenant.
-     * When false, orders remain in PAID state until manually optimized via Web Admin.
+     * When false, orders remain in PAID state until manually optimized via Web
+     * Admin.
      */
     @JsonProperty("auto_dispatch_enabled")
     @Builder.Default
@@ -40,7 +45,8 @@ public class TenantDispatchConfig {
 
     /**
      * Maximum wait time (in seconds) for the oldest pending order before
-     * triggering batch optimization, even if batch_size_threshold is not yet reached.
+     * triggering batch optimization, even if batch_size_threshold is not yet
+     * reached.
      */
     @JsonProperty("max_wait_time_seconds")
     @NotNull
@@ -52,7 +58,8 @@ public class TenantDispatchConfig {
     /**
      * Behavior when an urgent order (priority=URGENT) arrives:
      * - IMMEDIATE_SINGLE: immediately assigns to the closest available driver.
-     * - BATCH_IMMEDIATE: immediately triggers full batch optimization of all pending orders.
+     * - BATCH_IMMEDIATE: immediately triggers full batch optimization of all
+     * pending orders.
      */
     @JsonProperty("urgent_order_mode")
     @NotBlank
@@ -61,7 +68,8 @@ public class TenantDispatchConfig {
 
     /**
      * Whether generated plans require manual dispatcher approval before assignment.
-     * If true, the plan is created in DRAFT state and ops staff must approve it in Web Admin.
+     * If true, the plan is created in DRAFT state and ops staff must approve it in
+     * Web Admin.
      * If false, assignments are automatically published and applied to drivers.
      */
     @JsonProperty("require_approval")
@@ -79,7 +87,8 @@ public class TenantDispatchConfig {
     private Integer maxOrdersPerDriver = 5;
 
     /**
-     * Preferred optimization algorithm (auto | held_karp | nearest_neighbor | genetic).
+     * Preferred optimization algorithm (auto | held_karp | nearest_neighbor |
+     * genetic).
      */
     @JsonProperty("algorithm")
     @NotBlank
@@ -87,10 +96,26 @@ public class TenantDispatchConfig {
     private String algorithm = "auto";
 
     /**
-     * Whether internal/platform driver pool is enabled when tenant's dedicated fleet is insufficient.
+     * Whether internal/platform driver pool is enabled when tenant's dedicated
+     * fleet is insufficient.
      */
     @JsonProperty("allow_pool_drivers")
     @Builder.Default
     private Boolean allowPoolDrivers = false;
-}
 
+    /**
+     * Whether daily scheduled wave dispatch is enabled for this tenant.
+     */
+    @JsonProperty("scheduled_dispatch_enabled")
+    @Builder.Default
+    private Boolean scheduledDispatchEnabled = true;
+
+    /**
+     * Daily scheduled dispatch trigger time in HH:mm (24-hour Asia/Ho_Chi_Minh).
+     */
+    @JsonProperty("scheduled_dispatch_time")
+    @Pattern(regexp = "^([01]\\d|2[0-3]):[0-5]\\d$", message = "Format must be HH:mm (00:00 - 23:59)")
+    @Builder.Default
+    private String scheduledDispatchTime = "06:00";
+
+}

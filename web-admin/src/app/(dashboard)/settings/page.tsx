@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import {
   BusinessType,
   TenantSettings,
@@ -8,6 +9,7 @@ import {
   BUSINESS_TYPE_DESCRIPTION,
 } from '@/domain/entities/tenant-settings.entity';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
+import DeliveryZoneSection from '@/components/settings/delivery-zone-section';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -23,6 +25,7 @@ import {
   Clock,
   Gauge,
   CheckCircle2,
+  MapPin,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -35,6 +38,11 @@ const BUSINESS_TYPE_ICONS: Record<BusinessType, LucideIcon> = {
   OTHER: Store,
 };
 
+const SCHEDULED_HOURS = Array.from({ length: 24 }, (_, i) => {
+  const h = i.toString().padStart(2, '0');
+  return `${h}:00`;
+});
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [selectedType, setSelectedType] = useState<BusinessType>('OTHER');
@@ -44,7 +52,10 @@ export default function SettingsPage() {
   const [urgentMode, setUrgentMode] = useState<'IMMEDIATE_SINGLE' | 'BATCH_IMMEDIATE'>('IMMEDIATE_SINGLE');
   const [allowPool, setAllowPool] = useState(false);
   const [requireApproval, setRequireApproval] = useState(false);
+  const [scheduledEnabled, setScheduledEnabled] = useState(true);
+  const [scheduledTime, setScheduledTime] = useState('06:00');
 
+  const [activeTab, setActiveTab] = useState<'general' | 'delivery-zone'>('general');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isApplyingPreset, setIsApplyingPreset] = useState(false);
@@ -58,6 +69,8 @@ export default function SettingsPage() {
     setUrgentMode(data.dispatch_config.urgent_order_mode);
     setAllowPool(data.dispatch_config.allow_pool_drivers);
     setRequireApproval(data.dispatch_config.require_approval);
+    setScheduledEnabled(data.dispatch_config.scheduled_dispatch_enabled ?? true);
+    setScheduledTime(data.dispatch_config.scheduled_dispatch_time || '06:00');
   }, []);
 
   const reloadSettings = useCallback(async () => {
@@ -121,6 +134,8 @@ export default function SettingsPage() {
           urgent_order_mode: urgentMode,
           allow_pool_drivers: allowPool,
           require_approval: requireApproval,
+          scheduled_dispatch_enabled: scheduledEnabled,
+          scheduled_dispatch_time: scheduledTime,
         },
       });
       toast.success('Đã lưu cấu hình doanh nghiệp thành công!');
@@ -147,7 +162,7 @@ export default function SettingsPage() {
   const timeWeightPercent = Math.round(timeWeight * 100);
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 max-w-6xl">
       {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-5">
         <div>
@@ -155,28 +170,57 @@ export default function SettingsPage() {
             Cài đặt Doanh nghiệp & Điều phối
           </h1>
           <p className="text-sm text-gray-500">
-            Quản trị loại hình kinh doanh, tinh chỉnh hàm mục tiêu tối ưu và thiết lập ràng buộc gom đơn
+            Quản trị loại hình kinh doanh, vùng phục vụ giao hàng, hàm mục tiêu và ràng buộc gom đơn
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={reloadSettings}
-            disabled={isSaving || isApplyingPreset}
-          >
-            <RotateCcw size={14} className="mr-1.5" /> Khôi phục
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            isLoading={isSaving}
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-          >
-            <Save size={15} className="mr-1.5" /> Lưu cài đặt
-          </Button>
-        </div>
+        {activeTab === 'general' && (
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={reloadSettings}
+              disabled={isSaving || isApplyingPreset}
+            >
+              <RotateCcw size={14} className="mr-1.5" /> Khôi phục
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              isLoading={isSaving}
+              className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+            >
+              <Save size={15} className="mr-1.5" /> Lưu cài đặt
+            </Button>
+          </div>
+        )}
       </div>
+
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as 'general' | 'delivery-zone')}
+        className="space-y-6"
+      >
+        <Tabs.List
+          aria-label="Danh mục cài đặt"
+          className="inline-flex rounded-lg border border-slate-200 bg-white p-1"
+        >
+          <Tabs.Trigger
+            value="general"
+            className="inline-flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+          >
+            <Sliders size={15} />
+            Cài đặt chung & Điều phối
+          </Tabs.Trigger>
+          <Tabs.Trigger
+            value="delivery-zone"
+            className="inline-flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+          >
+            <MapPin size={15} />
+            Vùng giao hàng
+          </Tabs.Trigger>
+        </Tabs.List>
+
+        <Tabs.Content value="general" className="space-y-6 focus:outline-none">
 
       {/* 1. Industry Presets */}
       <Card className="border border-gray-200 shadow-sm">
@@ -373,10 +417,57 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </label>
+
+              <div className="pt-3 border-t border-gray-100 space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={scheduledEnabled}
+                    onChange={(e) => setScheduledEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">
+                      Tự động gom đơn theo ca cố định hàng ngày (Scheduled Wave)
+                    </span>
+                    <p className="text-[11px] text-gray-500">
+                      Hệ thống sẽ tự động quét và phân tuyến toàn bộ đơn hàng đang chờ vào đúng khung giờ được chọn
+                    </p>
+                  </div>
+                </label>
+
+                {scheduledEnabled && (
+                  <div className="ml-7 flex flex-wrap items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <label className="text-xs font-semibold text-gray-700">
+                      Khung giờ xuất bến hàng ngày:
+                    </label>
+                    <select
+                      value={scheduledTime}
+                      onChange={(e) => setScheduledTime(e.target.value)}
+                      className="w-32 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-900 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    >
+                      {SCHEDULED_HOURS.map((hour) => (
+                        <option key={hour} value={hour}>
+                          {hour}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-gray-500">
+                      (Định dạng 24h, theo múi giờ Việt Nam GMT+7)
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
+        </Tabs.Content>
+
+        <Tabs.Content value="delivery-zone" className="focus:outline-none">
+          {activeTab === 'delivery-zone' && <DeliveryZoneSection />}
+        </Tabs.Content>
+      </Tabs.Root>
     </div>
   );
 }

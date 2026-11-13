@@ -1,6 +1,8 @@
 'use client';
 
+import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
+import api from '@/lib/api';
 
 export type RoadRouteState = {
   coordinates: [number, number][];
@@ -10,12 +12,17 @@ export type RoadRouteState = {
   error: string;
 };
 
-export function useRoadRoute(points: Array<{ lat: number; lng: number }>) {
+export function useRoadRoute(points: Array<{ lat: number; lng: number }>): RoadRouteState {
   const pointKey = useMemo(
     () => points.map((point) => `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`).join('|'),
     [points],
   );
-  const [state, setState] = useState<RoadRouteState>({
+  const validPointCount = useMemo(
+    () => pointKey.split('|').filter(Boolean).length,
+    [pointKey],
+  );
+  const [state, setState] = useState<RoadRouteState & { resolvedPointKey: string }>({
+    resolvedPointKey: '',
     coordinates: [],
     distanceMeters: 0,
     durationSeconds: 0,
@@ -29,28 +36,31 @@ export function useRoadRoute(points: Array<{ lat: number; lng: number }>) {
       return { lat, lng };
     });
     if (validPoints.length < 2) {
-      setState({ coordinates: [], distanceMeters: 0, durationSeconds: 0, isLoading: false, error: '' });
       return;
     }
 
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setState((current) => ({ ...current, isLoading: true, error: '' }));
+      setState((current) => ({
+        ...(current.resolvedPointKey === pointKey
+          ? current
+          : { coordinates: [], distanceMeters: 0, durationSeconds: 0, resolvedPointKey: pointKey }),
+        isLoading: true,
+        error: '',
+      }));
       try {
-        const response = await fetch('/api/maps/directions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ points: validPoints, vehicle: 'bike' }),
-          signal: controller.signal,
-        });
-        const payload = await response.json() as {
+        const { data: payload } = await api.post<{
           coordinates?: [number, number][];
           distance_meters?: number;
           duration_seconds?: number;
           error?: string;
-        };
-        if (!response.ok) throw new Error(payload.error || 'Không tải được tuyến đường Goong.');
+        }>(
+          '/api/maps/directions',
+          { points: validPoints, vehicle: 'bike' },
+          { baseURL: '', signal: controller.signal },
+        );
         setState({
+          resolvedPointKey: pointKey,
           coordinates: Array.isArray(payload.coordinates) ? payload.coordinates : [],
           distanceMeters: Number(payload.distance_meters) || 0,
           durationSeconds: Number(payload.duration_seconds) || 0,
@@ -58,13 +68,15 @@ export function useRoadRoute(points: Array<{ lat: number; lng: number }>) {
           error: '',
         });
       } catch (error) {
-        if (controller.signal.aborted) return;
-        setState((current) => ({
-          ...current,
+        if (controller.signal.aborted || axios.isCancel(error)) return;
+        setState({
+          resolvedPointKey: pointKey,
           coordinates: [],
+          distanceMeters: 0,
+          durationSeconds: 0,
           isLoading: false,
           error: error instanceof Error ? error.message : 'Không tải được tuyến đường Goong.',
-        }));
+        });
       }
     }, 500);
 
@@ -74,5 +86,17 @@ export function useRoadRoute(points: Array<{ lat: number; lng: number }>) {
     };
   }, [pointKey]);
 
-  return state;
+  if (validPointCount < 2) {
+    return { coordinates: [], distanceMeters: 0, durationSeconds: 0, isLoading: false, error: '' };
+  }
+  if (state.resolvedPointKey !== pointKey) {
+    return { coordinates: [], distanceMeters: 0, durationSeconds: 0, isLoading: true, error: '' };
+  }
+  return {
+    coordinates: state.coordinates,
+    distanceMeters: state.distanceMeters,
+    durationSeconds: state.durationSeconds,
+    isLoading: state.isLoading,
+    error: state.error,
+  };
 }

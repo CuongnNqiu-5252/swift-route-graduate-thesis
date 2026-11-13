@@ -190,6 +190,11 @@ public class DispatchOrchestrationService {
         // --- Select all available candidate drivers from active fleet ---
         List<UUID> availableDrivers = selectAvailableDrivers(tenantId);
         List<UUID> remainingDrivers = new ArrayList<>(availableDrivers);
+        if (remainingDrivers.isEmpty()) {
+            log.warn("Tenant {} planning cycle skipped — no available drivers; {} eligible orders remain in PAID.",
+                    tenantId, allEligible.size());
+            return Optional.empty();
+        }
 
         boolean requiresApproval = Boolean.TRUE.equals(
                 tenant.getDispatchConfig() != null && tenant.getDispatchConfig().getRequireApproval());
@@ -206,8 +211,13 @@ public class DispatchOrchestrationService {
             if (warehouseGroup.isEmpty()) {
                 continue;
             }
+            if (remainingDrivers.isEmpty()) {
+                log.warn("Tenant {} stopped planning remaining warehouse group ({} orders) — no remaining free drivers; orders remain in PAID.",
+                        tenantId, warehouseGroup.size());
+                break;
+            }
 
-            int driverCapacityCount = Math.max(1, remainingDrivers.size());
+            int driverCapacityCount = remainingDrivers.size();
             int maxBatchOrders = maxOrdersPerDriver * driverCapacityCount;
 
             List<Order> eligible = warehouseGroup.size() > maxBatchOrders
@@ -249,7 +259,12 @@ public class DispatchOrchestrationService {
 
             for (int i = 0; i < vehicleRoutes.size(); i++) {
                 BatchOptimizationResponse.VehicleRoute vRoute = vehicleRoutes.get(i);
-                UUID assignedDriverId = !remainingDrivers.isEmpty() ? remainingDrivers.remove(0) : null;
+                if (remainingDrivers.isEmpty()) {
+                    log.warn("Tenant {} skipped extra route {} ({} stops) — no remaining free drivers; orders remain in PAID.",
+                            tenantId, i, vRoute.orderedStops() != null ? vRoute.orderedStops().size() : 0);
+                    break;
+                }
+                UUID assignedDriverId = remainingDrivers.remove(0);
 
                 DispatchPlan plan = DispatchPlan.builder()
                         .tenant(tenant)
@@ -298,7 +313,7 @@ public class DispatchOrchestrationService {
                 log.info("Tenant {} dispatch plan {} saved in DRAFT for driver {}. Orders={}",
                         tenantId, persistedPlan.getId(), assignedDriverId, routeOrders.size());
 
-                if (!requiresApproval && assignedDriverId != null) {
+                if (!requiresApproval) {
                     persistedPlan.approve(null);
                     persistedPlan = dispatchPlanRepository.save(persistedPlan);
                     log.info("Tenant {} plan {} auto-approved.", tenantId, persistedPlan.getId());
@@ -322,6 +337,10 @@ public class DispatchOrchestrationService {
      */
     @Transactional
     public DispatchPlan dispatchPlan(DispatchPlan plan) {
+        UUID driverId = plan.getDriverId();
+        if (driverId == null) {
+            throw new AppException(ErrorCode.OPERATIONS_NOT_READY);
+        }
         Instant ackDeadline = Instant.now().plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L);
         try {
             plan.dispatch(ackDeadline);
@@ -329,18 +348,15 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        UUID driverId = plan.getDriverId();
-        if (driverId != null) {
-            for (DispatchPlanOrder po : plan.getPlanOrders()) {
-                Order order = po.getOrder();
-                order.setAssignedDriverId(driverId);
-                order.setUpdatedAt(Instant.now());
-                orderRepository.save(order);
+        for (DispatchPlanOrder po : plan.getPlanOrders()) {
+            Order order = po.getOrder();
+            order.setAssignedDriverId(driverId);
+            order.setUpdatedAt(Instant.now());
+            orderRepository.save(order);
 
-                DeliveryTask task = deliveryExecutionService.assign(order, driverId);
-                task.setDispatchPlanId(plan.getId());
-                deliveryTaskRepository.save(task);
-            }
+            DeliveryTask task = deliveryExecutionService.assign(order, driverId);
+            task.setDispatchPlanId(plan.getId());
+            deliveryTaskRepository.save(task);
         }
 
         DispatchPlan saved = dispatchPlanRepository.save(plan);
@@ -363,6 +379,9 @@ public class DispatchOrchestrationService {
         DispatchPlan plan = loadPlan(planId);
         if (driverId != null) {
             plan.setDriverId(driverId);
+        }
+        if (plan.getDriverId() == null) {
+            throw new AppException(ErrorCode.OPERATIONS_NOT_READY);
         }
         try {
             plan.approve(approvedByUser);
@@ -557,51 +576,7 @@ public class DispatchOrchestrationService {
     }
 
     /**
-     * Handles sudden driver unavailability (offline / vehicle breakdown) (P2.3).
-     * Orders not yet picked up are returned to READY_FOR_PLANNING for immediate
-     * reassignment; orders already in custody emit an operational interruption
-     * alert.
-     */
-    @Transactional
-    public void handleDriverUnavailability(UUID tenantId, UUID driverId, String reason) {
-        List<DispatchPlan> activePlans = dispatchPlanRepository.findAllByDriverIdAndPlanStatusIn(
-                driverId, List.of(PlanStatus.APPROVED, PlanStatus.DISPATCHED));
-
-        boolean returnedOrdersForReplanning = false;
-        for (DispatchPlan plan : activePlans) {
-            if (!plan.getTenant().getId().equals(tenantId)) {
-                continue;
-            }
-            for (DispatchPlanOrder po : plan.getPlanOrders()) {
-                Order order = po.getOrder();
-                Optional<DeliveryTask> taskOpt = deliveryTaskRepository
-                        .findByOrder_IdAndTaskType(order.getId(), "DELIVERY");
-                boolean alreadyPickedUp = taskOpt.isPresent()
-                        && taskOpt.get().getStatus().ordinal() >= DeliveryTaskStatus.PICKED_UP.ordinal();
-
-                if (!alreadyPickedUp) {
-                    order.setStatus(OrderStatus.PAID);
-                    order.setFulfillmentStatus("READY_FOR_PLANNING");
-                    order.setAssignedDriverId(null);
-                    order.setPlanId(null);
-                    order.setUpdatedAt(Instant.now());
-                    orderRepository.save(order);
-                    returnedOrdersForReplanning = true;
-                }
-            }
-            plan.cancel("Driver unavailable: " + (reason != null ? reason : "Offline"));
-            DispatchPlan saved = dispatchPlanRepository.save(plan);
-            publishOutboxEvent(saved, "driver.unavailable_recovery");
-        }
-
-        if (returnedOrdersForReplanning) {
-            executePlanningCycle(tenantId, PlanTriggerType.URGENT);
-        }
-    }
-
-    /**
-     * Dynamically inserts a new order into an active DISPATCHED plan using
-     * OR-Tools POST /optimize/insert while preserving completed stops (P3.4).
+     * Dynamically inserts a new order into an active DISPATCHED plan using OR-Tools POST /optimize/insert while preserving completed stops (P3.4).
      */
     @Transactional
     public DispatchPlan insertOrderIntoActivePlan(

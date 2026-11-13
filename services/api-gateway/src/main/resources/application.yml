@@ -31,12 +31,6 @@ spring:
               predicates:
                 - Path=/api/orders/**
 
-            # --- Dispatch plans and live plan tracking (owned by Order Service) ---
-            - id: dispatch-service
-              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
-              predicates:
-                - Path=/api/dispatch/**
-
             - id: delivery-tasks-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}
               predicates:
@@ -96,7 +90,7 @@ spring:
             - id: driver-service
               uri: ${DRIVER_SERVICE_URL:http://localhost:8083}
               predicates:
-                - Path=/api/drivers/**,/api/vehicles/**,/api/earnings/**,/api/settlements/**
+                - Path=/api/drivers/**,/api/earnings/**,/api/settlements/**
 
             # --- Routing Engine Service (FastAPI) ---
             # /api/routing/** → routing-engine:8084

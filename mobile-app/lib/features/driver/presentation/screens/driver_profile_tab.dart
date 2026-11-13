@@ -335,10 +335,8 @@ class DriverProfileTab extends ConsumerWidget {
             onPressed: () async {
               Navigator.of(ctx).pop();
               await ref.read(authProvider.notifier).logout();
-              if (context.mounted) {
-                Navigator.of(
-                  context,
-                ).pushNamedAndRemoveUntil('/login', (route) => false);
+              if (context.mounted && Navigator.of(context).canPop()) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
               }
             },
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),

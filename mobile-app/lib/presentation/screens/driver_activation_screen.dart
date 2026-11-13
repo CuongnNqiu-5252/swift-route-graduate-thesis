@@ -45,6 +45,7 @@ class _DriverActivationScreenState
             '/auth/invitations/accept',
             data: {
               'token': _tokenController.text.trim(),
+              'full_name': _nameController.text.trim(),
               'fullName': _nameController.text.trim(),
               'password': _passwordController.text,
             },

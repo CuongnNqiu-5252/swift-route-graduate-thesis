@@ -5,13 +5,12 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,8 +38,8 @@ public class TenantMemberController {
     @PostMapping("/invitations/{invitationId}/revoke")
     public ResponseEntity<ApiResponse<Void>> revokeInvitation(@PathVariable UUID tenantId,
             @PathVariable UUID invitationId,
-            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
-        tenantEmployeeService.revokeInvitation(tenantId, invitationId, resolveUserId(headerUserId));
+            Authentication authentication) {
+        tenantEmployeeService.revokeInvitation(tenantId, invitationId, resolveUserId(authentication));
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -49,9 +48,9 @@ public class TenantMemberController {
     public ResponseEntity<ApiResponse<InviteMemberResponse>> inviteMember(
             @PathVariable UUID tenantId,
             @Valid @RequestBody InviteMemberRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
+            Authentication authentication) {
 
-        UUID inviterUserId = resolveUserId(headerUserId);
+        UUID inviterUserId = resolveUserId(authentication);
         InviteMemberResponse response = tenantEmployeeService.inviteMember(tenantId, inviterUserId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
@@ -60,9 +59,9 @@ public class TenantMemberController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<TenantMemberResponse>>> getTenantMembers(
             @PathVariable UUID tenantId,
-            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
+            Authentication authentication) {
 
-        UUID requesterId = resolveUserId(headerUserId);
+        UUID requesterId = resolveUserId(authentication);
         List<TenantMemberResponse> response = tenantEmployeeService.getTenantMembers(tenantId, requesterId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -71,9 +70,9 @@ public class TenantMemberController {
     @GetMapping("/invitations")
     public ResponseEntity<ApiResponse<List<TenantInvitationResponse>>> getTenantInvitations(
             @PathVariable UUID tenantId,
-            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
+            Authentication authentication) {
 
-        UUID requesterId = resolveUserId(headerUserId);
+        UUID requesterId = resolveUserId(authentication);
         List<TenantInvitationResponse> response = tenantEmployeeService.getTenantInvitations(tenantId, requesterId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -84,19 +83,15 @@ public class TenantMemberController {
             @PathVariable UUID tenantId,
             @PathVariable UUID membershipId,
             @Valid @RequestBody UpdateMemberStatusRequest request,
-            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
+            Authentication authentication) {
 
-        UUID requesterId = resolveUserId(headerUserId);
+        UUID requesterId = resolveUserId(authentication);
         TenantMemberResponse response = tenantEmployeeService.updateMemberStatus(tenantId, membershipId, request, requesterId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    private UUID resolveUserId(String headerUserId) {
-        if (headerUserId != null && !headerUserId.isBlank()) {
-            return UUID.fromString(headerUserId);
-        }
-        String principal = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        return UUID.fromString(principal);
+    private UUID resolveUserId(Authentication authentication) {
+        return UUID.fromString(authentication.getName());
     }
 }
 

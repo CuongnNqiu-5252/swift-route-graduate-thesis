@@ -79,6 +79,13 @@ public class RecoveryRuleEngine {
             return "MANUAL_REVIEW";
         }
 
+        // A sync conflict records competing field/server facts for an operator.
+        // It must never create a delivery attempt, redelivery, or return request.
+        if ("OFFLINE_SYNC_CONFLICT".equals(normalizedType)) {
+            publishIncidentAlert(incident, "MANUAL_REVIEW", 0);
+            return "MANUAL_REVIEW";
+        }
+
         // Non-failing operational incident where order delivery itself was not marked FAILED
         if (order.getStatus() != OrderStatus.FAILED && Boolean.TRUE.equals(incident.getCanContinueDelivery())) {
             publishIncidentAlert(incident, "CONTINUE_DELIVERY", 0);

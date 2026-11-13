@@ -2,6 +2,7 @@ package com.swiftroute.orderservice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,13 +20,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.swiftroute.orderservice.dto.request.BatchDeliveryTaskActionRequest;
 import com.swiftroute.orderservice.dto.response.DriverDeliveryTaskResponse;
 import com.swiftroute.orderservice.entity.DeliveryTask;
+import com.swiftroute.orderservice.entity.DispatchPlan;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
+import com.swiftroute.orderservice.entity.enums.PlanStatus;
 import com.swiftroute.orderservice.repository.AuditLogRepository;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryTaskRepository;
+import com.swiftroute.orderservice.repository.DispatchPlanRepository;
 import com.swiftroute.orderservice.repository.OrderRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
@@ -47,6 +51,8 @@ class DeliveryExecutionFastTrackTest {
     private PackageCustodyService custody;
     @Mock
     private OutboxEventRepository outboxEvents;
+    @Mock
+    private DispatchPlanRepository dispatchPlans;
 
     private DeliveryExecutionService service;
 
@@ -56,7 +62,7 @@ class DeliveryExecutionFastTrackTest {
     @BeforeEach
     void setUp() {
         service = new DeliveryExecutionService(
-                tasks, attempts, orders, auditLogs, returnRequests, custody, outboxEvents);
+                tasks, attempts, orders, auditLogs, returnRequests, custody, outboxEvents, dispatchPlans);
         tenantId = UUID.randomUUID();
         driverId = UUID.randomUUID();
     }
@@ -99,6 +105,37 @@ class DeliveryExecutionFastTrackTest {
         assertThat(t2.getOrder().getStatus()).isEqualTo(OrderStatus.IN_TRANSIT);
         verify(custody).acquireAtPickup(t1.getOrder(), driverId);
         verify(custody).acquireAtPickup(t2.getOrder(), driverId);
+    }
+
+    @Test
+    void update_completesDispatchPlan_whenAllTasksAreCompleted() {
+        UUID planId = UUID.randomUUID();
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.OUT_FOR_DELIVERY);
+        task.setDispatchPlanId(planId);
+
+        Tenant tenant = task.getOrder().getTenant();
+        DispatchPlan plan = DispatchPlan.builder()
+                .id(planId)
+                .tenant(tenant)
+                .driverId(driverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .build();
+
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+        when(dispatchPlans.findById(planId)).thenReturn(Optional.of(plan));
+        when(tasks.findByDispatchPlanId(planId)).thenReturn(List.of(task));
+        when(attempts.maxAttemptNumber(task.getOrder().getId())).thenReturn(0);
+
+        com.swiftroute.orderservice.dto.request.UpdateDeliveryTaskRequest req =
+                new com.swiftroute.orderservice.dto.request.UpdateDeliveryTaskRequest(
+                        DeliveryTaskStatus.COMPLETED, null, "Giao thành công", null);
+
+        service.update(task.getId(), driverId, "DRIVER", req);
+
+        assertThat(task.getStatus()).isEqualTo(DeliveryTaskStatus.COMPLETED);
+        assertThat(plan.getPlanStatus()).isEqualTo(PlanStatus.COMPLETED);
+        verify(dispatchPlans).save(plan);
+        verify(outboxEvents, atLeastOnce()).save(any());
     }
 
     private DeliveryTask sampleTask(DeliveryTaskStatus status) {

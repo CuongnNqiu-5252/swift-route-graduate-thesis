@@ -3,8 +3,6 @@
 import 'package:swiftroute_app/core/utils/formatters.dart';
 
 enum OrderStatus {
-  pendingPayment,
-  paymentFailed,
   paid,
   planned,
   inTransit,
@@ -15,10 +13,6 @@ enum OrderStatus {
 
   static OrderStatus fromString(String? value) {
     switch (value?.toUpperCase()) {
-      case 'PENDING_PAYMENT':
-        return OrderStatus.pendingPayment;
-      case 'PAYMENT_FAILED':
-        return OrderStatus.paymentFailed;
       case 'PAID':
         return OrderStatus.paid;
       case 'PLANNED':
@@ -34,16 +28,12 @@ enum OrderStatus {
       case 'CANCELLED':
         return OrderStatus.cancelled;
       default:
-        return OrderStatus.pendingPayment;
+        return OrderStatus.paid;
     }
   }
 
   String toServerString() {
     switch (this) {
-      case OrderStatus.pendingPayment:
-        return 'PENDING_PAYMENT';
-      case OrderStatus.paymentFailed:
-        return 'PAYMENT_FAILED';
       case OrderStatus.paid:
         return 'PAID';
       case OrderStatus.planned:
@@ -63,10 +53,6 @@ enum OrderStatus {
 
   String get displayName {
     switch (this) {
-      case OrderStatus.pendingPayment:
-        return 'Chờ thanh toán';
-      case OrderStatus.paymentFailed:
-        return 'Thanh toán thất bại';
       case OrderStatus.paid:
         return 'Đang tìm tài xế';
       case OrderStatus.planned:
@@ -300,6 +286,41 @@ class OrderModel {
           DateTime.now(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'order_id': id,
+    'tenant_id': tenantId,
+    'tenant_name': tenantName,
+    'external_order_code': externalOrderCode,
+    'customer_id': customerId,
+    'sender_name': senderName,
+    'sender_phone': senderPhone,
+    'recipient_name': recipientName,
+    'recipient_phone': recipientPhone,
+    'pickup_location_id': pickupLocationId,
+    'pickup_location_name': pickupLocationName,
+    'pickup_lat': pickupLat,
+    'pickup_lng': pickupLng,
+    'delivery_lat': deliveryLat,
+    'delivery_lng': deliveryLng,
+    'pickup_address': pickupAddress,
+    'delivery_address': deliveryAddress,
+    'time_window_start': timeWindowStart.toUtc().toIso8601String(),
+    'time_window_end': timeWindowEnd.toUtc().toIso8601String(),
+    'weight_kg': weightKg,
+    'package_count': packageCount,
+    'package_description': packageDescription,
+    'notes': notes,
+    'priority': priority,
+    'cod_amount': codAmount,
+    'delivery_fee': deliveryFee,
+    'status': status.toServerString(),
+    'delivery_task_status': deliveryTaskStatus?.serverValue,
+    'delivery_task_id': deliveryTaskId,
+    'delivery_task_type': deliveryTaskType,
+    'assigned_driver_id': assignedDriverId,
+    'created_at': createdAt.toUtc().toIso8601String(),
+  };
 
   OrderModel copyWith({
     String? id,
