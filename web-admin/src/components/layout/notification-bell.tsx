@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -21,15 +23,15 @@ import { InboxNotificationDto } from '@/infrastructure/repositories/notification
 
 type FilterTab = 'ALL' | 'INCIDENT' | 'OPERATIONS';
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, locale: string, justNow: string): string {
   try {
     const diffSec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-    if (diffSec < 60) return 'Vừa xong';
+    if (diffSec < 60) return justNow;
     const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin} phút trước`;
+    if (diffMin < 60) return new Intl.RelativeTimeFormat(locale).format(-diffMin, 'minute');
     const diffHour = Math.floor(diffMin / 60);
-    if (diffHour < 24) return `${diffHour} giờ trước`;
-    return new Date(dateStr).toLocaleDateString('vi-VN', {
+    if (diffHour < 24) return new Intl.RelativeTimeFormat(locale).format(-diffHour, 'hour');
+    return new Date(dateStr).toLocaleDateString(locale, {
       hour: '2-digit',
       minute: '2-digit',
       day: '2-digit',
@@ -73,7 +75,7 @@ function getItemPresentation(item: InboxNotificationDto) {
   }
   if (item.category === 'WORKSPACE') {
     return {
-      label: 'Workspace',
+      label: 'Doanh nghiệp',
       className: 'bg-slate-100 text-slate-800 border-slate-200',
       icon: Building2,
       ctaLabel: 'Xem chi tiết',
@@ -112,6 +114,7 @@ function getItemPresentation(item: InboxNotificationDto) {
 }
 
 export function NotificationBell() {
+  const { t, intlLocale } = useLocale();
   const notifications = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
@@ -162,7 +165,7 @@ export function NotificationBell() {
       <button
         type="button"
         onClick={toggleOpen}
-        aria-label={`Hòm thư thông báo (${inbox.length} mục)`}
+        aria-label={`${t("Hòm thư thông báo")} (${inbox.length})`}
         aria-expanded={isOpen}
         className={cn(
           'relative flex h-9 w-9 items-center justify-center rounded-lg border transition-colors',
@@ -190,7 +193,7 @@ export function NotificationBell() {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-gray-900">Hòm thư vận hành</span>
+              <span className="text-sm font-semibold text-gray-900">{t("Hòm thư vận hành")}</span>
               <span
                 className={cn(
                   'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
@@ -198,15 +201,15 @@ export function NotificationBell() {
                 )}
                 title={
                   isConnected
-                    ? 'Đang nhận thông báo trực tiếp thời gian thực (SSE)'
-                    : 'Đang kết nối lại luồng sự kiện'
+                    ? t("Đang nhận thông báo trực tiếp thời gian thực (SSE)")
+                    : t("Đang kết nối lại luồng sự kiện")
                 }
               >
                 <Radio
                   size={10}
                   className={cn(isConnected ? 'animate-pulse text-emerald-600' : 'text-gray-400')}
                 />
-                {isConnected ? 'Trực tiếp' : 'Đang nối lại...'}
+                {isConnected ? t("Trực tiếp") : t("Đang nối lại...")}
               </span>
             </div>
 
@@ -215,8 +218,8 @@ export function NotificationBell() {
                 type="button"
                 onClick={() => void notifications?.refresh()}
                 className="rounded p-1 text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
-                title="Làm mới thông báo"
-                aria-label="Làm mới thông báo"
+                title={t("Làm mới thông báo")}
+                aria-label={t("Làm mới thông báo")}
               >
                 <RefreshCw size={13} />
               </button>
@@ -224,7 +227,7 @@ export function NotificationBell() {
                 type="button"
                 onClick={() => setIsOpen(false)}
                 className="rounded p-1 text-gray-400 hover:bg-gray-200/60 hover:text-gray-700"
-                aria-label="Đóng bảng thông báo"
+                aria-label={t("Đóng bảng thông báo")}
               >
                 <X size={15} />
               </button>
@@ -243,7 +246,7 @@ export function NotificationBell() {
                   : 'text-slate-600 hover:text-slate-900',
               )}
             >
-              Tất cả ({inbox.length})
+              {t("Tất cả (")}{inbox.length})
             </button>
             <button
               type="button"
@@ -255,7 +258,7 @@ export function NotificationBell() {
                   : 'text-slate-600 hover:text-slate-900',
               )}
             >
-              Sự cố ({inbox.filter((i) => i.category === 'INCIDENT').length})
+              {t("Sự cố (")}{inbox.filter((i) => i.category === 'INCIDENT').length})
             </button>
             <button
               type="button"
@@ -267,7 +270,7 @@ export function NotificationBell() {
                   : 'text-slate-600 hover:text-slate-900',
               )}
             >
-              Giao nhận & COD
+              {t("Giao nhận & COD")}
             </button>
           </div>
 
@@ -276,9 +279,9 @@ export function NotificationBell() {
             {filteredItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-6 text-center">
                 <CheckCircle2 size={30} className="mb-2 text-emerald-500" />
-                <p className="text-sm font-medium text-gray-900">Chưa có thông báo nào</p>
+                <p className="text-sm font-medium text-gray-900">{t("Chưa có thông báo nào")}</p>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  Khi tài xế hoàn tất giao hàng, bàn giao COD hoặc báo sự cố, thông báo sẽ hiển thị ngay tại đây.
+                  {t("Khi tài xế hoàn tất giao hàng, bàn giao COD hoặc báo sự cố, thông báo sẽ hiển thị ngay tại đây.")}
                 </p>
               </div>
             ) : (
@@ -300,10 +303,10 @@ export function NotificationBell() {
                         )}
                       >
                         <BadgeIcon size={11} />
-                        {badge.label}
+                        {t(badge.label)}
                       </span>
                       <span className="shrink-0 text-[11px] text-gray-400">
-                        {formatRelativeTime(item.created_at)}
+                        {formatRelativeTime(item.created_at, intlLocale, t("Vừa xong"))}
                       </span>
                     </div>
 
@@ -317,7 +320,7 @@ export function NotificationBell() {
                         onClick={() => setIsOpen(false)}
                         className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
                       >
-                        {badge.ctaLabel} &rarr;
+                        {t(badge.ctaLabel)} &rarr;
                       </Link>
                     </div>
                   </div>
@@ -333,14 +336,14 @@ export function NotificationBell() {
               onClick={() => setIsOpen(false)}
               className="font-medium text-gray-600 hover:text-blue-600 hover:underline"
             >
-              Đơn hàng
+              {t("Đơn hàng")}
             </Link>
             <Link
               href="/operations"
               onClick={() => setIsOpen(false)}
               className="font-medium text-gray-600 hover:text-blue-600 hover:underline"
             >
-              Quản lý Sự cố & COD &rarr;
+              {t("Quản lý Sự cố & COD")} &rarr;
             </Link>
           </div>
         </div>

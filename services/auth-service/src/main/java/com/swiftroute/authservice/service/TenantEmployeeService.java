@@ -1,5 +1,7 @@
 package com.swiftroute.authservice.service;
 
+import com.swiftroute.authservice.dto.response.PageRequests;
+import com.swiftroute.authservice.dto.response.PageResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -30,6 +32,7 @@ import com.swiftroute.authservice.entity.enums.TenantMembershipRole;
 import com.swiftroute.authservice.entity.enums.TenantMembershipStatus;
 import com.swiftroute.authservice.exception.AppException;
 import com.swiftroute.authservice.exception.ErrorCode;
+import com.swiftroute.authservice.repository.RefreshTokenRepository;
 import com.swiftroute.authservice.repository.TenantInvitationRepository;
 import com.swiftroute.authservice.repository.TenantMembershipRepository;
 import com.swiftroute.authservice.repository.UserRepository;
@@ -45,6 +48,7 @@ public class TenantEmployeeService {
     private final TenantMembershipRepository tenantMembershipRepository;
     private final TenantInvitationRepository tenantInvitationRepository;
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final DriverOnboardingClient driverOnboarding;
     private final VerificationCipher invitationCipher;
@@ -78,7 +82,11 @@ public class TenantEmployeeService {
     @Transactional
     public InviteMemberResponse inviteMember(UUID tenantId, UUID inviterUserId, InviteMemberRequest request) {
         // Enforce inviter has OWNER or ADMIN role
-        verifyAdminAccess(tenantId, inviterUserId);
+        TenantMembership inviterMembership = verifyAdminAccess(tenantId, inviterUserId);
+        if (inviterMembership.getMembershipRole() == TenantMembershipRole.TENANT_ADMIN
+                && request.role() == TenantMembershipRole.OWNER) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         if (jdbc != null)
             jdbc.execute("SELECT pg_advisory_xact_lock(" + (long) tenantId.hashCode() + ")");
 
@@ -151,10 +159,24 @@ public class TenantEmployeeService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<TenantMemberResponse> memberPage(UUID tenantId, UUID requesterId, int page, int size) {
+        verifyMemberAccess(tenantId, requesterId);
+        return PageResponse.fromPage(tenantMembershipRepository.findByTenantId(tenantId,
+                PageRequests.newestFirst(page, size, "createdAt")).map(TenantMemberResponse::fromEntity));
+    }
+
+    @Transactional(readOnly = true)
     public List<TenantMemberResponse> getTenantMembers(UUID tenantId, UUID requesterId) {
         verifyMemberAccess(tenantId, requesterId);
         List<TenantMembership> members = tenantMembershipRepository.findByTenantIdOrderByCreatedAtDesc(tenantId);
         return members.stream().map(TenantMemberResponse::fromEntity).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<TenantInvitationResponse> invitationPage(UUID tenantId, UUID requesterId, int page, int size) {
+        verifyAdminAccess(tenantId, requesterId);
+        return PageResponse.fromPage(tenantInvitationRepository.findByTenantId(tenantId,
+                PageRequests.newestFirst(page, size, "createdAt")).map(TenantInvitationResponse::fromEntity));
     }
 
     @Transactional(readOnly = true)
@@ -167,7 +189,7 @@ public class TenantEmployeeService {
     @Transactional
     public TenantMemberResponse updateMemberStatus(UUID tenantId, UUID membershipId, UpdateMemberStatusRequest request,
             UUID requesterId) {
-        verifyAdminAccess(tenantId, requesterId);
+        TenantMembership requesterMembership = verifyAdminAccess(tenantId, requesterId);
 
         if (jdbc != null)
             jdbc.execute("SELECT pg_advisory_xact_lock(" + (long) tenantId.hashCode() + ")");
@@ -175,6 +197,16 @@ public class TenantEmployeeService {
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_MEMBERSHIP_NOT_FOUND));
 
         TenantMembershipStatus targetStatus = request.status();
+
+        if (requesterMembership.getMembershipRole() == TenantMembershipRole.TENANT_ADMIN) {
+            if (membership.getMembershipRole() == TenantMembershipRole.OWNER) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+            if (membership.getUser().getId().equals(requesterId)
+                    && targetStatus != TenantMembershipStatus.ACTIVE) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+        }
 
         // Safety Guard: Cannot suspend or deactivate the last remaining active OWNER
         if (membership.getMembershipRole() == TenantMembershipRole.OWNER
@@ -193,6 +225,20 @@ public class TenantEmployeeService {
 
         membership.setStatus(targetStatus);
         TenantMembership saved = tenantMembershipRepository.save(membership);
+
+        if (targetStatus != TenantMembershipStatus.ACTIVE) {
+            User user = membership.getUser();
+            refreshTokenRepository.revokeAllByUserId(user.getId());
+            user.setStatus(targetStatus.name());
+            userRepository.save(user);
+        } else {
+            User user = membership.getUser();
+            if (!"ACTIVE".equals(user.getStatus())) {
+                user.setStatus("ACTIVE");
+                userRepository.save(user);
+            }
+        }
+
         log.info("Updated membership id={} in tenantId={} to status={}", saved.getId(), tenantId, targetStatus);
         return TenantMemberResponse.fromEntity(saved);
     }
@@ -318,7 +364,7 @@ public class TenantEmployeeService {
         tenantInvitationRepository.save(invitation);
     }
 
-    private void verifyAdminAccess(UUID tenantId, UUID userId) {
+    private TenantMembership verifyAdminAccess(UUID tenantId, UUID userId) {
         TenantMembership membership = tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, userId)
                 .orElseThrow(() -> new AppException(ErrorCode.ACCESS_DENIED));
 
@@ -330,6 +376,7 @@ public class TenantEmployeeService {
                 && membership.getMembershipRole() != TenantMembershipRole.TENANT_ADMIN) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
+        return membership;
     }
 
     private void verifyMemberAccess(UUID tenantId, UUID userId) {

@@ -19,8 +19,8 @@ public class PackageCustodyEvent {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "package_id", nullable = false)
-    private PackageUnit packageUnit;
+    @JoinColumn(name = "order_id", nullable = false)
+    private Order order;
 
     @Column(name = "tenant_id", nullable = false)
     private UUID tenantId;

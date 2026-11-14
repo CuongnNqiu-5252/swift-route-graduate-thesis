@@ -1,5 +1,7 @@
 package com.swiftroute.orderservice.repository;
 
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -14,6 +16,8 @@ import com.swiftroute.orderservice.entity.enums.PlanStatus;
 public interface DispatchPlanRepository extends JpaRepository<DispatchPlan, UUID> {
 
     /** All plans for a tenant, newest first. */
+    Page<DispatchPlan> findByTenantId(UUID tenantId, Pageable pageable);
+
     List<DispatchPlan> findAllByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 
     /** Active (non-terminal) plans for a tenant. */
@@ -21,6 +25,18 @@ public interface DispatchPlanRepository extends JpaRepository<DispatchPlan, UUID
 
     /** Plans assigned to a specific driver that are not yet terminal. */
     List<DispatchPlan> findAllByDriverIdAndPlanStatusIn(UUID driverId, List<PlanStatus> statuses);
+
+    /** Plans assigned to a specific driver within a specific tenant that are in the given statuses. */
+    @Query("""
+            SELECT p FROM DispatchPlan p
+            WHERE p.tenant.id = :tenantId
+              AND p.driverId = :driverId
+              AND p.planStatus IN :statuses
+            """)
+    List<DispatchPlan> findAllByTenantIdAndDriverIdAndPlanStatusIn(
+            @Param("tenantId") UUID tenantId,
+            @Param("driverId") UUID driverId,
+            @Param("statuses") List<PlanStatus> statuses);
 
     /** All plans in a specific lifecycle status across tenants. */
     List<DispatchPlan> findAllByPlanStatus(PlanStatus planStatus);

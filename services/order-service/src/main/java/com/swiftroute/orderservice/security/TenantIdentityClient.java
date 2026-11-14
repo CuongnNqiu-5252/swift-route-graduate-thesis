@@ -44,8 +44,9 @@ public class TenantIdentityClient {
         String tenantRole = claims.get("tenant_role", String.class);
         boolean isSystemAdmin = "SYSTEM_ADMIN".equalsIgnoreCase(systemRole);
 
-        if (expectedTenantId != null && tokenTenantId != null && !tokenTenantId.isBlank()
-                && !expectedTenantId.toString().equals(tokenTenantId) && !isSystemAdmin) {
+        if (expectedTenantId != null && !isSystemAdmin
+                && (tokenTenantId == null || tokenTenantId.isBlank()
+                        || !expectedTenantId.toString().equals(tokenTenantId))) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 

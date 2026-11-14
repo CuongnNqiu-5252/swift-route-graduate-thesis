@@ -20,6 +20,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -39,6 +40,9 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "order_id", updatable = false, nullable = false)
     private UUID id;
+
+    @Version
+    private Long version;
 
     // Khoá ngoại vật lý tới bảng tenants (Bắt buộc)
     @ManyToOne(fetch = FetchType.LAZY)
@@ -108,10 +112,6 @@ public class Order {
     /** Human-readable description of the physical package */
     @Column(name = "package_description", length = 500)
     private String packageDescription;
-
-    @Column(name = "package_count", nullable = false)
-    @Builder.Default
-    private Integer packageCount = 1;
 
     /** Special instructions for the delivery driver */
     @Column(name = "notes", length = 500)

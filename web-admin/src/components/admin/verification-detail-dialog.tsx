@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
@@ -138,6 +140,7 @@ function VerificationDetailContent({
 }: Omit<VerificationDetailDialogProps, 'detail' | 'onClose'> & {
   detail: VerificationDetail;
 }) {
+  const { t, intlLocale } = useLocale();
   const [decision, setDecision] = useState<ReviewDecisionValue | null>(null);
   const [decisionReason, setDecisionReason] = useState('');
   const [lifecycleOpen, setLifecycleOpen] = useState(false);
@@ -149,14 +152,14 @@ function VerificationDetailContent({
 
   const statusMeta =
     VERIFICATION_STATUS_META[detail.request.status] ?? {
-      label: detail.request.status,
+      label: t("Chưa xác định"),
       dotClass: 'bg-slate-400',
       badgeClass: 'bg-slate-100 text-slate-700',
     };
 
   const tenantStatusMeta =
     TENANT_LIFECYCLE_LABEL[detail.tenant.status] ?? {
-      label: detail.tenant.status,
+      label: t("Chưa xác định"),
       badgeClass: 'bg-slate-100 text-slate-700',
     };
 
@@ -171,12 +174,12 @@ function VerificationDetailContent({
 
   const decisionCtaLabel =
     decision === 'APPROVED'
-      ? 'Phê duyệt doanh nghiệp'
+      ? t("Phê duyệt doanh nghiệp")
       : decision === 'CHANGES_REQUIRED'
-        ? 'Gửi yêu cầu bổ sung'
+        ? t("Gửi yêu cầu bổ sung")
         : decision === 'REJECTED'
-          ? 'Từ chối hồ sơ'
-          : 'Nhận xử lý hồ sơ';
+          ? t("Từ chối hồ sơ")
+          : t("Nhận xử lý hồ sơ");
 
   async function handleConfirmDecision() {
     if (!decision) return;
@@ -209,19 +212,19 @@ function VerificationDetailContent({
                         className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${statusMeta.badgeClass}`}
                       >
                         <span className={`h-1.5 w-1.5 rounded-full ${statusMeta.dotClass}`} />
-                        {statusMeta.label}
+                        {t(statusMeta.label)}
                       </span>
                     )}
                   </div>
                   <Dialog.Description className="num mt-1 text-xs text-slate-500">
-                    Gửi lúc {formatAdminDateTime(detail.request.submitted_at)} · Hồ sơ #
+                    {t("Gửi lúc")}{" "}{formatAdminDateTime(detail.request.submitted_at, intlLocale)}{" "}{t("· Hồ sơ #")}
                     {detail.request.request_id.slice(0, 8).toUpperCase()} · v{detail.request.version}
                   </Dialog.Description>
                 </div>
 
                 <Dialog.Close
                   disabled={submitting}
-                  aria-label="Đóng chi tiết hồ sơ"
+                  aria-label={t("Đóng chi tiết hồ sơ")}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
@@ -238,7 +241,7 @@ function VerificationDetailContent({
                       >
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                         <div>
-                          <p className="font-semibold">Chưa thể thực hiện thao tác</p>
+                          <p className="font-semibold">{t("Chưa thể thực hiện thao tác")}</p>
                           <p className="mt-0.5 text-xs leading-5">{error}</p>
                         </div>
                       </div>
@@ -246,9 +249,9 @@ function VerificationDetailContent({
 
                     {!snapshot ? (
                       <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-5 text-sm text-amber-900">
-                        <p className="font-semibold">Không đọc được snapshot hồ sơ</p>
+                        <p className="font-semibold">{t("Không đọc được hồ sơ đã gửi")}</p>
                         <p className="mt-1 text-xs leading-5">
-                          Dữ liệu đính kèm lúc gửi yêu cầu không hợp lệ. Vui lòng kiểm tra dữ liệu trước khi quyết định.
+                          {t("Dữ liệu đính kèm lúc gửi yêu cầu không hợp lệ. Vui lòng kiểm tra dữ liệu trước khi quyết định.")}
                         </p>
                       </div>
                     ) : (
@@ -257,40 +260,40 @@ function VerificationDetailContent({
                           <div className="flex items-center gap-2">
                             <Building2 className="h-4 w-4 text-[#17766c]" aria-hidden="true" />
                             <h3 id="admin-business-info" className="text-sm font-semibold text-slate-950">
-                              Thông tin doanh nghiệp
+                              {t("Thông tin doanh nghiệp")}
                             </h3>
                           </div>
                           <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                             <div>
-                              <dt className="text-xs text-slate-500">Tên đăng ký</dt>
+                              <dt className="text-xs text-slate-500">{t("Tên đăng ký")}</dt>
                               <dd className="mt-1 text-sm font-medium text-slate-950">
                                 {safeText(snapshot.business_name)}
                               </dd>
                             </div>
                             <div>
-                              <dt className="text-xs text-slate-500">Loại hình kinh doanh</dt>
+                              <dt className="text-xs text-slate-500">{t("Loại hình kinh doanh")}</dt>
                               <dd className="mt-1 text-sm font-medium text-slate-950">
-                                {BUSINESS_TYPE_LABEL[safeText(snapshot.business_type, '')] ||
-                                  safeText(snapshot.business_type)}
+                                {t(BUSINESS_TYPE_LABEL[safeText(snapshot.business_type, '')] ||
+                                  t("Chưa xác định"))}
                               </dd>
                             </div>
                             <div>
-                              <dt className="text-xs text-slate-500">Số điện thoại liên hệ</dt>
+                              <dt className="text-xs text-slate-500">{t("Số điện thoại liên hệ")}</dt>
                               <dd className="num mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-950">
                                 <Phone className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
                                 {safeText(snapshot.contact_phone)}
                               </dd>
                             </div>
                             <div>
-                              <dt className="text-xs text-slate-500">Quốc gia hoạt động</dt>
+                              <dt className="text-xs text-slate-500">{t("Quốc gia hoạt động")}</dt>
                               <dd className="mt-1 text-sm font-medium text-slate-950">
                                 {snapshot.country_code === 'VN'
-                                  ? 'Việt Nam'
+                                  ? t("Việt Nam")
                                   : safeText(snapshot.country_code)}
                               </dd>
                             </div>
                             <div className="sm:col-span-2">
-                              <dt className="text-xs text-slate-500">Địa chỉ đăng ký</dt>
+                              <dt className="text-xs text-slate-500">{t("Địa chỉ đăng ký")}</dt>
                               <dd className="mt-1 flex items-start gap-1.5 text-sm font-medium leading-6 text-slate-950">
                                 <MapPin className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
                                 {safeText(snapshot.address)}
@@ -303,20 +306,20 @@ function VerificationDetailContent({
                           <div className="flex items-center gap-2">
                             <Truck className="h-4 w-4 text-[#17766c]" aria-hidden="true" />
                             <h3 id="admin-operations-info" className="text-sm font-semibold text-slate-950">
-                              Cấu hình vận hành
+                              {t("Cấu hình vận hành")}
                             </h3>
                           </div>
                           <div className="mt-4 grid gap-5 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                              <p className="text-xs text-slate-500">Phương thức giao hàng</p>
+                              <p className="text-xs text-slate-500">{t("Phương thức giao hàng")}</p>
                               <p className="mt-1.5 text-sm font-semibold text-slate-950">
-                                {DELIVERY_MODE_LABEL[safeText(snapshot.delivery_mode, '')] ||
-                                  safeText(snapshot.delivery_mode)}
+                                {t(DELIVERY_MODE_LABEL[safeText(snapshot.delivery_mode, '')] ||
+                                  t("Chưa xác định"))}
                               </p>
                               <p className="mt-2 text-xs text-slate-500">
-                                Ưu tiên:{' '}
+                                {t("Ưu tiên:")}{' '}
                                 {deliverySettings.service_priority === 'BALANCED'
-                                  ? 'Cân bằng thời gian và chi phí'
+                                  ? t("Cân bằng thời gian và chi phí")
                                   : safeText(deliverySettings.service_priority)}
                               </p>
                             </div>
@@ -324,27 +327,27 @@ function VerificationDetailContent({
                             <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 px-4 py-1">
                               <SettingChecklistRow
                                 enabled={deliverySettings.preparation_enabled === true}
-                                label="Chuẩn bị hàng trước khi lấy"
+                                label={t("Chuẩn bị hàng trước khi lấy")}
                                 detail={
                                   deliverySettings.preparation_enabled === true
                                     ? `Dự kiến ${Number(deliverySettings.preparation_minutes) || 0} phút`
-                                    : 'Không khai báo thời gian chuẩn bị riêng'
+                                    : t("Không khai báo thời gian chuẩn bị riêng")
                                 }
                               />
                               <SettingChecklistRow
                                 enabled={deliverySettings.delivery_verification_required === true}
-                                label="Xác nhận giao nhận"
-                                detail="Yêu cầu tài xế cung cấp bằng chứng khi hoàn tất đơn"
+                                label={t("Xác nhận giao nhận")}
+                                detail={t("Yêu cầu tài xế cung cấp bằng chứng khi hoàn tất đơn")}
                               />
                               <SettingChecklistRow
                                 enabled={deliverySettings.sensitive_handling === true}
-                                label="Hàng hóa nhạy cảm"
-                                detail="Áp dụng quy trình xử lý đặc biệt khi vận chuyển"
+                                label={t("Hàng hóa nhạy cảm")}
+                                detail={t("Áp dụng quy trình xử lý đặc biệt khi vận chuyển")}
                               />
                               <SettingChecklistRow
                                 enabled={deliverySettings.routing_approval_required === true}
-                                label="Duyệt tuyến đường thủ công"
-                                detail="Điều phối viên xác nhận lộ trình trước khi phát chuyến"
+                                label={t("Duyệt tuyến đường thủ công")}
+                                detail={t("Điều phối viên xác nhận lộ trình trước khi phát chuyến")}
                               />
                             </div>
                           </div>
@@ -355,17 +358,17 @@ function VerificationDetailContent({
                             <div className="flex items-center gap-2">
                               <Store className="h-4 w-4 text-[#17766c]" aria-hidden="true" />
                               <h3 id="admin-pickups-info" className="text-sm font-semibold text-slate-950">
-                                Điểm lấy hàng đã khai báo
+                                {t("Điểm lấy hàng đã khai báo")}
                               </h3>
                             </div>
-                            <span className="num text-xs text-slate-500">{pickupPoints.length} địa điểm</span>
+                            <span className="num text-xs text-slate-500">{pickupPoints.length}{" "}{t("địa điểm")}</span>
                           </div>
 
                           {pickupPoints.length === 0 ? (
                             <div className="mt-3 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-900">
                               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                               <span>
-                                Doanh nghiệp chưa có điểm lấy hàng hoạt động trong bản chụp hồ sơ này.
+                                {t("Doanh nghiệp chưa có điểm lấy hàng hoạt động trong bản chụp hồ sơ này.")}
                               </span>
                             </div>
                           ) : (
@@ -382,7 +385,7 @@ function VerificationDetailContent({
                                       </p>
                                       {point.is_default === true && (
                                         <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                                          Mặc định
+                                          {t("Mặc định")}
                                         </span>
                                       )}
                                     </div>
@@ -391,7 +394,7 @@ function VerificationDetailContent({
                                     </p>
                                     {Boolean(point.contact_name || point.contact_phone) && (
                                       <p className="num mt-1 text-xs text-slate-500">
-                                        Liên hệ: {[point.contact_name, point.contact_phone].filter(Boolean).join(' · ')}
+                                        {t("Liên hệ:")}{" "}{[point.contact_name, point.contact_phone].filter(Boolean).join(' · ')}
                                       </p>
                                     )}
                                   </div>
@@ -402,7 +405,7 @@ function VerificationDetailContent({
                         </section>
 
                         <p className="num border-t border-slate-200 pt-4 text-xs text-slate-400">
-                          Dữ liệu bảo toàn theo bản chụp gửi duyệt · Phiên bản cấu trúc{' '}
+                          {t("Dữ liệu bảo toàn theo bản chụp gửi duyệt · Phiên bản cấu trúc")}{' '}
                           {snapshot.schema_version ?? '—'}
                         </p>
                       </>
@@ -413,13 +416,13 @@ function VerificationDetailContent({
                     <section aria-labelledby="tenant-lifecycle-heading" className="space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <h3 id="tenant-lifecycle-heading" className="text-xs font-semibold text-slate-700">
-                          Trạng thái doanh nghiệp
+                          {t("Trạng thái doanh nghiệp")}
                         </h3>
                         {tenantStatusMeta && (
                           <span
                             className={`rounded-md px-2 py-0.5 text-xs font-medium ${tenantStatusMeta.badgeClass}`}
                           >
-                            {tenantStatusMeta.label}
+                            {t(tenantStatusMeta.label)}
                           </span>
                         )}
                       </div>
@@ -429,8 +432,8 @@ function VerificationDetailContent({
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs text-slate-600">
                               {detail.tenant.status === 'APPROVED'
-                                ? 'Có thể tạm ngưng nếu doanh nghiệp vi phạm.'
-                                : 'Có thể mở khóa để doanh nghiệp hoạt động lại.'}
+                                ? t("Có thể tạm ngưng nếu doanh nghiệp vi phạm.")
+                                : t("Có thể mở khóa để doanh nghiệp hoạt động lại.")}
                             </span>
                             <Button
                               variant="outline"
@@ -441,12 +444,12 @@ function VerificationDetailContent({
                               {detail.tenant.status === 'APPROVED' ? (
                                 <>
                                   <PauseCircle className="h-3.5 w-3.5 text-rose-600" />
-                                  Tạm ngưng
+                                  {t("Tạm ngưng")}
                                 </>
                               ) : (
                                 <>
                                   <PlayCircle className="h-3.5 w-3.5 text-emerald-600" />
-                                  Khôi phục
+                                  {t("Khôi phục")}
                                 </>
                               )}
                             </Button>
@@ -461,8 +464,8 @@ function VerificationDetailContent({
                                 rows={3}
                                 placeholder={
                                   targetLifecycleStatus === 'SUSPENDED'
-                                    ? 'Nhập lý do tạm ngưng doanh nghiệp…'
-                                    : 'Nhập lý do khôi phục hoạt động…'
+                                    ? t("Nhập lý do tạm ngưng doanh nghiệp…")
+                                    : t("Nhập lý do khôi phục hoạt động…")
                                 }
                                 className="w-full resize-none rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-slate-900 outline-none focus:border-slate-500"
                               />
@@ -473,7 +476,7 @@ function VerificationDetailContent({
                                   onClick={() => setLifecycleOpen(false)}
                                   disabled={submitting}
                                 >
-                                  Hủy
+                                  {t("Hủy")}
                                 </Button>
                                 <Button
                                   variant={targetLifecycleStatus === 'SUSPENDED' ? 'destructive' : 'default'}
@@ -482,7 +485,7 @@ function VerificationDetailContent({
                                   isLoading={submitting}
                                   onClick={() => void handleConfirmLifecycle()}
                                 >
-                                  Xác nhận
+                                  {t("Xác nhận")}
                                 </Button>
                               </div>
                             </div>
@@ -499,7 +502,7 @@ function VerificationDetailContent({
                         <div className="flex items-center gap-2">
                           <UserRoundCheck className="h-4 w-4 text-slate-600" aria-hidden="true" />
                           <h3 id="admin-decision-heading" className="text-sm font-semibold text-slate-950">
-                            Quyết định xét duyệt
+                            {t("Quyết định xét duyệt")}
                           </h3>
                         </div>
 
@@ -520,13 +523,13 @@ function VerificationDetailContent({
                               >
                                 <DecisionIcon value={item.value} active={selected} />
                                 <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-medium">{item.label}</span>
+                                  <span className="block text-sm font-medium">{t(item.label)}</span>
                                   <span
                                     className={`mt-0.5 block text-xs leading-4 ${
                                       selected ? 'text-slate-300' : 'text-slate-500'
                                     }`}
                                   >
-                                    {item.description}
+                                    {t(item.description)}
                                   </span>
                                 </span>
                                 {selected ? (
@@ -542,7 +545,7 @@ function VerificationDetailContent({
                         {decision && (
                           <div className="space-y-2 pt-1">
                             <label className="block text-xs font-medium text-slate-700">
-                              {requiresReason ? 'Lý do / Nội dung yêu cầu bổ sung *' : 'Ghi chú xét duyệt'}
+                              {requiresReason ? t("Lý do / Nội dung yêu cầu bổ sung *") : t("Ghi chú xét duyệt")}
                               <textarea
                                 value={decisionReason}
                                 onChange={(e) => setDecisionReason(e.target.value)}
@@ -550,8 +553,8 @@ function VerificationDetailContent({
                                 rows={3}
                                 placeholder={
                                   requiresReason
-                                    ? 'Nêu rõ lý do hoặc nội dung cần doanh nghiệp cập nhật…'
-                                    : 'Ghi chú nội bộ hoặc lời nhắn phản hồi…'
+                                    ? t("Nêu rõ lý do hoặc nội dung cần doanh nghiệp cập nhật…")
+                                    : t("Ghi chú nội bộ hoặc lời nhắn phản hồi…")
                                 }
                                 className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-900 outline-none focus:border-slate-500"
                               />
@@ -576,9 +579,9 @@ function VerificationDetailContent({
                         <div className="flex gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5">
                           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#17766c]" />
                           <div>
-                            <p className="text-xs font-semibold text-slate-900">Hồ sơ đã có kết quả</p>
+                            <p className="text-xs font-semibold text-slate-900">{t("Hồ sơ đã có kết quả")}</p>
                             <p className="mt-0.5 text-xs leading-5 text-slate-500">
-                              Trạng thái xét duyệt đã chốt để bảo toàn lịch sử kiểm duyệt.
+                              {t("Trạng thái xét duyệt đã chốt để bảo toàn lịch sử kiểm duyệt.")}
                             </p>
                           </div>
                         </div>
@@ -592,12 +595,12 @@ function VerificationDetailContent({
                       <div className="flex items-center gap-2">
                         <FileCheck2 className="h-4 w-4 text-slate-600" aria-hidden="true" />
                         <h3 id="admin-timeline-heading" className="text-sm font-semibold text-slate-950">
-                          Lịch sử xử lý
+                          {t("Lịch sử xử lý")}
                         </h3>
                       </div>
 
                       {detail.timeline.length === 0 ? (
-                        <p className="text-xs text-slate-500">Chưa có bản ghi xét duyệt nào.</p>
+                        <p className="text-xs text-slate-500">{t("Chưa có bản ghi xét duyệt nào.")}</p>
                       ) : (
                         <div className="space-y-4">
                           {detail.timeline.map((event, index) => {
@@ -631,7 +634,7 @@ function VerificationDetailContent({
                                       event.action.replaceAll('_', ' ')}
                                   </p>
                                   <p className="num mt-0.5 text-[11px] text-slate-500">
-                                    {formatAdminDateTime(event.created_at)}
+                                    {formatAdminDateTime(event.created_at, intlLocale)}
                                   </p>
                                   {eventReason && (
                                     <p className="mt-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs leading-5 text-slate-600">

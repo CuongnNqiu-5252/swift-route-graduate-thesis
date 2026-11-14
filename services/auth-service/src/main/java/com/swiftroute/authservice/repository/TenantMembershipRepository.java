@@ -1,5 +1,7 @@
 package com.swiftroute.authservice.repository;
 
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +15,8 @@ import com.swiftroute.authservice.entity.enums.TenantMembershipStatus;
 
 @Repository
 public interface TenantMembershipRepository extends JpaRepository<TenantMembership, UUID> {
+
+    Page<TenantMembership> findByTenantId(UUID tenantId, Pageable pageable);
 
     List<TenantMembership> findByUser_IdAndStatus(UUID userId, TenantMembershipStatus status);
 

@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.controller;
 
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -92,6 +93,18 @@ public class ExceptionOperationsController {
                 service.getIncidents(requireTenantId(tenant), status, severity, driverId, orderId)));
     }
 
+    @GetMapping("/incidents/page")
+    public ApiResponse<PageResponse<DeliveryIncidentResponse>> getIncidentPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) UUID driverId,
+            @RequestParam(required = false) String severity,
+            @RequestParam(required = false) UUID orderId,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        return ApiResponse.success(service.getIncidentPage(requireTenantId(tenantId), status, driverId, severity, orderId, page, size));
+    }
+
     @Operation(summary = "Get delivery incident details")
     @GetMapping("/incidents/{id}")
     public ResponseEntity<ApiResponse<DeliveryIncidentResponse>> getIncident(
@@ -134,6 +147,16 @@ public class ExceptionOperationsController {
             @RequestParam(required = false) UUID driverId,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant) {
         return ResponseEntity.ok(ApiResponse.success(service.getReturnRequests(requireTenantId(tenant), status, driverId)));
+    }
+
+    @GetMapping("/returns/page")
+    public ApiResponse<PageResponse<ReturnRequestResponse>> getReturnPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) UUID driverId,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        return ApiResponse.success(service.getReturnPage(requireTenantId(tenantId), status, driverId, page, size));
     }
 
     @Operation(summary = "Get return request details")

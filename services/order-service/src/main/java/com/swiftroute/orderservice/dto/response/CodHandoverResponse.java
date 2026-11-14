@@ -13,6 +13,7 @@ public record CodHandoverResponse(
         BigDecimal declaredTotal,
         BigDecimal countedTotal,
         BigDecimal discrepancyAmount,
+        String varianceResolution,
         String notes,
         Instant submittedAt,
         UUID verifiedBy,

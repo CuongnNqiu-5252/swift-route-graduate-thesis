@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useEffect, useRef, useState } from 'react';
 import {
   AttributionControl,
@@ -66,6 +68,7 @@ function createPopupContent(location: PickupLocation) {
 }
 
 export default function PickupLocationsMapInner({ locations }: PickupLocationsMapProps) {
+  const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
@@ -137,7 +140,7 @@ export default function PickupLocationsMapInner({ locations }: PickupLocationsMa
   if (!mapKey) return <div className="flex h-80 items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>;
 
   return <div className="relative">
-    <div ref={containerRef} className="h-80 w-full" aria-label="Bản đồ các điểm lấy hàng của doanh nghiệp" />
+    <div ref={containerRef} className="h-80 w-full" aria-label={t("Bản đồ các điểm lấy hàng của doanh nghiệp")} />
     {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 rounded-lg bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}
   </div>;
 }

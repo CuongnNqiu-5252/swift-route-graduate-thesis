@@ -49,7 +49,9 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không nhận được chuyến: ${AppFormatters.errorMessage(e)}'),
+          content: Text(
+            'Không nhận được chuyến: ${AppFormatters.errorMessage(e)}',
+          ),
         ),
       );
     } finally {
@@ -76,7 +78,9 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}'),
+          content: Text(
+            'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
+          ),
         ),
       );
     }
@@ -399,7 +403,7 @@ class _DepotPickupCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final first = group.first;
-    final packages = group.fold<int>(0, (sum, o) => sum + o.packageCount);
+    final packages = group.length;
     final weight = group.fold<double>(0, (sum, o) => sum + o.weightKg);
 
     return Card(

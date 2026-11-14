@@ -59,23 +59,39 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
         request.setAttribute("authorizedUserId", userId);
         request.setAttribute("effectiveRole", initialRole);
 
-        boolean tenantApi = path.startsWith("/api/tenants") || path.startsWith("/api/v1/tenants");
-        if (tenantApi) {
+        boolean isRegistration = "POST".equalsIgnoreCase(request.getMethod())
+                && (path.equals("/api/tenants") || path.equals("/api/tenants/")
+                        || path.equals("/api/v1/tenants") || path.equals("/api/v1/tenants/"));
+
+        boolean isProvisioning = (path.startsWith("/api/tenants/") || path.startsWith("/api/v1/tenants/"))
+                && (path.endsWith("/provisioning") || path.endsWith("/provisioning/")
+                        || path.endsWith("/provisioning/retry") || path.endsWith("/provisioning/retry/"))
+                && ("GET".equalsIgnoreCase(request.getMethod()) || "POST".equalsIgnoreCase(request.getMethod()));
+
+        if (isRegistration || isProvisioning) {
             return true;
         }
+
+        UUID pathTenantId = extractPathTenantId(path);
 
         String requestedTenant = request.getHeader("X-Tenant-Id");
         if (requestedTenant == null || requestedTenant.isBlank()) {
             requestedTenant = request.getParameter("tenant_id");
         }
-        UUID parsedRequestedTenant = null;
+        UUID parsedHeaderTenant = null;
         if (requestedTenant != null && !requestedTenant.isBlank()) {
             try {
-                parsedRequestedTenant = UUID.fromString(requestedTenant.trim());
+                parsedHeaderTenant = UUID.fromString(requestedTenant.trim());
             } catch (IllegalArgumentException ex) {
                 throw new AppException(ErrorCode.VALIDATION_ERROR);
             }
         }
+
+        if (pathTenantId != null && parsedHeaderTenant != null && !pathTenantId.equals(parsedHeaderTenant)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
+        UUID parsedRequestedTenant = pathTenantId != null ? pathTenantId : parsedHeaderTenant;
 
         if (isSystemAdmin) {
             UUID adminTenant = parsedRequestedTenant;
@@ -116,6 +132,26 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
         request.setAttribute("authorizedTenantId", jwtTenantId);
         request.setAttribute("effectiveRole", tokenTenantRole.toUpperCase(Locale.ROOT));
         return true;
+    }
+
+    private UUID extractPathTenantId(String path) {
+        String prefix = null;
+        if (path.startsWith("/api/tenants/")) {
+            prefix = "/api/tenants/";
+        } else if (path.startsWith("/api/v1/tenants/")) {
+            prefix = "/api/v1/tenants/";
+        }
+        if (prefix == null) {
+            return null;
+        }
+        String remainder = path.substring(prefix.length());
+        int slashIndex = remainder.indexOf('/');
+        String segment = slashIndex >= 0 ? remainder.substring(0, slashIndex) : remainder;
+        try {
+            return UUID.fromString(segment.trim());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     public static void assertRequestTenant(UUID tenantId) {

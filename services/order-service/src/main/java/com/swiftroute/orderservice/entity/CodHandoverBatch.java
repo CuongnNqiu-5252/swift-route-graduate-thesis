@@ -46,6 +46,8 @@ public class CodHandoverBatch {
     private BigDecimal countedTotal;
     @Column(name = "discrepancy_amount", precision = 12, scale = 0)
     private BigDecimal discrepancyAmount;
+    @Column(name = "variance_resolution", length = 30)
+    private String varianceResolution;
     private String notes;
     @Builder.Default
     private Instant submittedAt = Instant.now();

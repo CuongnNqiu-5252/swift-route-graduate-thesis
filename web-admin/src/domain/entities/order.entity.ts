@@ -28,6 +28,7 @@ export interface Order {
   package_category: PackageCategory;
   weight_kg: number;
   status: OrderStatus;
+  fulfillment_status?: string;
   notes?: string;
   time_window_start?: string;
   time_window_end?: string;

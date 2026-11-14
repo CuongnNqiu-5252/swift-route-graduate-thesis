@@ -8,6 +8,29 @@ export interface OrderFilters {
   size?: number;
 }
 
+export interface OrderListPage {
+  orders: {
+    content: Order[];
+    total_elements: number;
+    total_pages: number;
+  };
+  status_counts: Record<string, number>;
+}
+
+export type OrderSortField = 'created_at' | 'updated_at' | 'time_window_start';
+export type OrderSortDirection = 'asc' | 'desc';
+
+export interface OrderPageFilters {
+  page: number;
+  size: number;
+  status?: OrderStatus;
+  pickupLocationId?: string;
+  query?: string;
+  driverIds?: string[];
+  sortBy?: OrderSortField;
+  sortDir?: OrderSortDirection;
+}
+
 export interface OperationsQueue {
   ready_for_dispatch: Order[];
   active: Order[];
@@ -17,7 +40,7 @@ export interface OperationsQueue {
 export interface CreateOrderPayload {
   recipientName:string; recipientPhone:string; pickupLocationId:string; pickupLat:number; pickupLng:number; pickupAddress:string;
   deliveryLat:number; deliveryLng:number; deliveryAddress:string; timeWindowStart:string; timeWindowEnd:string; weightKg:number;
-  packageCount:number; packageCategory:string; priority:string; codAmount:number;
+  packageCategory:string; priority:string; codAmount:number;
 }
 
 interface CreateOrderRequest {
@@ -33,7 +56,6 @@ interface CreateOrderRequest {
   time_window_start: string;
   time_window_end: string;
   weight_kg: number;
-  package_count: number;
   package_category: string;
   priority: string;
   cod_amount: number;
@@ -53,7 +75,6 @@ export function toCreateOrderRequest(payload: CreateOrderPayload): CreateOrderRe
     time_window_start: payload.timeWindowStart,
     time_window_end: payload.timeWindowEnd,
     weight_kg: payload.weightKg,
-    package_count: payload.packageCount,
     package_category: payload.packageCategory,
     priority: payload.priority,
     cod_amount: payload.codAmount,
@@ -89,6 +110,7 @@ function mapOrder(raw: any): Order {
     package_category: raw.packageCategory || raw.package_category || 'PARCEL',
     weight_kg: raw.weightKg ?? raw.weight_kg ?? 0,
     status: fromApiOrderStatus(raw.status),
+    fulfillment_status: raw.fulfillmentStatus ?? raw.fulfillment_status,
     notes: raw.notes || raw.note || undefined,
     time_window_start: raw.timeWindowStart || raw.time_window_start,
     time_window_end: raw.timeWindowEnd || raw.time_window_end,
@@ -126,6 +148,18 @@ export const orderRepository = {
     };
   },
 
+  async getOrderPage(filters: OrderPageFilters, signal?: AbortSignal): Promise<OrderListPage> {
+    const params = new URLSearchParams({ page: String(filters.page), size: String(filters.size) });
+    if (filters.status) params.set('status', toApiOrderStatus(filters.status));
+    if (filters.pickupLocationId) params.set('pickupLocationId', filters.pickupLocationId);
+    if (filters.query) params.set('query', filters.query);
+    if (filters.driverIds?.length) params.set('driverIds', filters.driverIds.join(','));
+    if (filters.sortBy) params.set('sortBy', filters.sortBy);
+    if (filters.sortDir) params.set('sortDir', filters.sortDir);
+    const { data } = await api.get<OrderListPage>(`/orders/page?${params}`, { signal });
+    return { ...data, orders: { ...data.orders, content: data.orders.content.map(mapOrder) } };
+  },
+
   async getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     const params = new URLSearchParams();
     if (filters.status) params.set('status', toApiOrderStatus(filters.status));
@@ -147,13 +181,6 @@ export const orderRepository = {
     } catch (error) {
       throw error instanceof Error ? error : new Error('Không thể tải dữ liệu vận hành');
     }
-  },
-
-  async updateStatus(orderId: string, status: OrderStatus): Promise<Order> {
-    const response = await api.patch<Order>(`/orders/${orderId}/status`, JSON.stringify(toApiOrderStatus(status)), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-    return mapOrder((response.data as { data?: unknown })?.data ?? response.data);
   },
 
   async cancelOrder(orderId: string, reason?: string): Promise<Order> {

@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import type { GeoJSONSource } from 'maplibre-gl';
@@ -97,6 +99,7 @@ export default function RouteMapInner({
   onRouteMetricsChange,
   onRouteCoordinatesChange,
 }: RouteMapInnerProps) {
+  const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
@@ -224,14 +227,14 @@ export default function RouteMapInner({
     const bounds = new LngLatBounds().extend([depot.lng, depot.lat]);
     const depotMarker = new Marker({ element: markerElement('K', 'depot') })
       .setLngLat([depot.lng, depot.lat])
-      .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popupContent(depot.name, depot.address, 'Kho xuất phát')))
+      .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popupContent(depot.name, depot.address, t("Kho xuất phát"))))
       .addTo(map);
     markersRef.current = [depotMarker, ...stops.map((stop, index) => {
       bounds.extend([stop.location.lng, stop.location.lat]);
       return new Marker({ element: markerElement(String(index + 1), 'stop') })
         .setLngLat([stop.location.lng, stop.location.lat])
         .setPopup(new Popup({ offset: 20, closeButton: false }).setDOMContent(popupContent(
-          `Điểm giao ${index + 1}`, stop.order?.delivery_address || 'Chưa có địa chỉ hiển thị',
+          `Điểm giao ${index + 1}`, stop.order?.delivery_address || t("Chưa có địa chỉ hiển thị"),
           stop.order?.order_code ? `Đơn ${stop.order.order_code}` : 'Điểm trong kế hoạch',
         ))).addTo(map);
     })];
@@ -243,7 +246,7 @@ export default function RouteMapInner({
       : map.fitBounds(bounds, { padding: 76, maxZoom: 15, duration: 550 });
     if (styleReadyRef.current || map.loaded()) frame(); else map.once('load', frame);
     return () => { map.off('load', frame); };
-  }, [depot, points.length, routeOrigin, stops]);
+  }, [depot, points.length, routeOrigin, stops, t]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -286,7 +289,7 @@ export default function RouteMapInner({
     }
     const [lat, lng] = driver;
     const popup = popupContent(
-      driverName || 'Vị trí tài xế',
+      driverName || t("Vị trí tài xế"),
       `${driverVehicle ? `${driverVehicle} · ` : ''}Toạ độ ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
       trackingSignal === 'live' ? 'GPS trực tiếp từ ứng dụng tài xế' : 'Vị trí gần nhất nhận từ tài xế',
     );
@@ -334,7 +337,7 @@ export default function RouteMapInner({
       };
       driverAnimationFrameRef.current = window.requestAnimationFrame(animate);
     }
-  }, [driver, driverName, driverVehicle, trackingSignal]);
+  }, [driver, driverName, driverVehicle, trackingSignal, t]);
 
   // A separate marker keeps the warning visible above the driver as GPS moves.
   useEffect(() => {
@@ -349,7 +352,7 @@ export default function RouteMapInner({
     link.href = `/operations?incident=${encodeURIComponent(driverIncident.id)}`;
     link.textContent = `${driverIncident.count > 1 ? `${driverIncident.count} sự cố` : 'Có sự cố'} · Xử lý ngay`;
     link.title = driverIncident.label;
-    link.setAttribute('aria-label', `${driverName || 'Tài xế'}: ${driverIncident.label}. Mở xử lý sự cố`);
+    link.setAttribute('aria-label', `${driverName || t("Tài xế")}: ${driverIncident.label}. Mở xử lý sự cố`);
     if (!incidentMarkerRef.current) {
       link.className = 'rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 hover:bg-rose-800';
       link.addEventListener('click', (event) => event.stopPropagation());
@@ -358,7 +361,7 @@ export default function RouteMapInner({
         .setLngLat(displayedPosition)
         .addTo(map);
     }
-  }, [driver, driverIncident, driverName]);
+  }, [driver, driverIncident, driverName, t]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -396,18 +399,18 @@ export default function RouteMapInner({
     };
   }, [points, route.coordinates]);
 
-  if (!depot) return <div className="flex h-full min-h-[480px] items-center justify-center bg-slate-50 px-6 text-center"><div className="max-w-sm"><MapPinned className="mx-auto text-blue-700" size={28} /><p className="mt-4 font-semibold text-slate-900">Chưa có kho xuất phát</p><p className="mt-1 text-sm leading-6 text-slate-600">Chọn đơn hoặc thiết lập kho mặc định để bắt đầu lập tuyến.</p></div></div>;
-  if (!mapKey) return <div role="alert" className="flex h-full min-h-[480px] items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>;
+  if (!depot) return <div className="flex h-full min-h-[480px] items-center justify-center bg-slate-50 px-6 text-center"><div className="max-w-sm"><MapPinned className="mx-auto text-blue-700" size={28} /><p className="mt-4 font-semibold text-slate-900">{t("Chưa có kho xuất phát")}</p><p className="mt-1 text-sm leading-6 text-slate-600">{t("Chọn đơn hoặc thiết lập kho mặc định để bắt đầu lập tuyến.")}</p></div></div>;
+  if (!mapKey) return <div role="alert" className="flex h-full min-h-[480px] items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">{t("Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.")}</div>;
 
   return <div className="relative isolate h-full min-h-[480px] w-full overflow-hidden bg-slate-100">
     <div
       ref={containerRef}
       className="h-full min-h-[480px] w-full"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-      aria-label="Bản đồ điều phối theo đường phố"
+      aria-label={t("Bản đồ điều phối theo đường phố")}
     />
     <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-start"><div className="max-w-[min(92%,32rem)] rounded-xl bg-slate-950/90 px-3.5 py-3 text-white shadow-[0_10px_30px_rgb(15_23_42/0.24)]">
-      <div className="flex items-center gap-2 text-sm font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={16} /> : route.error ? <AlertTriangle className="text-amber-300" size={16} /> : <Route className="text-blue-300" size={16} />}{driverName ? `${driverName} · ${stops.length} điểm giao` : route.isLoading ? 'Đang tính tuyến đường phố' : route.error ? 'Chưa tải được tuyến Goong' : route.coordinates.length ? 'Tuyến xe máy theo Goong' : 'Thứ tự giao dự kiến'}</div>
+      <div className="flex items-center gap-2 text-sm font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={16} /> : route.error ? <AlertTriangle className="text-amber-300" size={16} /> : <Route className="text-blue-300" size={16} />}{driverName ? `${driverName} · ${stops.length} điểm giao` : route.isLoading ? t("Đang tính tuyến đường phố") : route.error ? t("Chưa tải được tuyến Goong") : route.coordinates.length ? t("Tuyến xe máy theo Goong") : t("Thứ tự giao dự kiến")}</div>
       <p className="mt-1 text-xs leading-5 text-slate-300">{route.error || (route.coordinates.length ? `${formatRoadDistance(route.distanceMeters)} · khoảng ${Math.max(1, Math.round(route.durationSeconds / 60))} phút${driver ? ' · marker TX là GPS tài xế' : ''}` : `${stops.length} điểm giao; thêm điểm để tính đường đi.`)}</p>
     </div></div>
     {(mapError || route.error) && <div role="status" className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-white px-3 py-2 text-xs text-slate-700 shadow-[0_8px_24px_rgb(15_23_42/0.18)]">{mapError || 'Đang hiển thị đường nối thứ tự; dữ liệu đơn hàng vẫn được giữ nguyên.'}</div>}

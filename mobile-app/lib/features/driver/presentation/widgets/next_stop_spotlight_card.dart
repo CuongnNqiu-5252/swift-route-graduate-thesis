@@ -64,7 +64,9 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}'),
+          content: Text(
+            'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
+          ),
         ),
       );
     }
@@ -107,10 +109,7 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
         .toList();
     if (unaccepted.isNotEmpty &&
         active.every((o) => o.needsPickup || o.isReturnTask)) {
-      final totalPackages = unaccepted.fold<int>(
-        0,
-        (sum, item) => sum + item.packageCount,
-      );
+      final totalPackages = unaccepted.length;
       return Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
@@ -194,10 +193,7 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
                 o.needsPickup && o.pickupGroupKey == firstPickup.pickupGroupKey,
           )
           .toList();
-      final totalPackages = depotGroup.fold<int>(
-        0,
-        (sum, item) => sum + item.packageCount,
-      );
+      final totalPackages = depotGroup.length;
 
       return Container(
         padding: const EdgeInsets.all(18),
@@ -314,8 +310,9 @@ class _ActiveDeliverySpotlight extends StatelessWidget {
                       label: isReturn
                           ? 'Hoàn hàng về kho'
                           : 'Đang giao · ${order.displayCode}',
-                      foreground:
-                          isReturn ? AppColors.error : AppColors.primary,
+                      foreground: isReturn
+                          ? AppColors.error
+                          : AppColors.primary,
                       background: isReturn
                           ? AppColors.errorSoft
                           : AppColors.primarySoft,
@@ -391,7 +388,7 @@ class _ActiveDeliverySpotlight extends StatelessWidget {
                 ),
               ),
               Text(
-                '${order.packageCount} kiện · ${order.weightKg.toStringAsFixed(1)} kg',
+                '1 kiện · ${order.weightKg.toStringAsFixed(1)} kg',
                 style: const TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,

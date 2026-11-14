@@ -71,7 +71,7 @@ public class TenantMembershipService {
 
         if ("tenant.approved".equals(event.eventType()) || "tenant.approved.v1".equals(event.eventType())) {
             if (membership.getStatus()==TenantMembershipStatus.PENDING) membership.setStatus(TenantMembershipStatus.ACTIVE);
-        } else if ("tenant.suspended".equals(event.eventType())) {
+        } else if ("tenant.suspended".equals(event.eventType()) || "tenant.suspended.v1".equals(event.eventType())) {
             membership.setStatus(TenantMembershipStatus.SUSPENDED);
         } else if ("tenant.created".equals(event.eventType()) || "tenant.created.v1".equals(event.eventType())) {
             if (membership.getStatus() == null || membership.getStatus()==TenantMembershipStatus.PENDING) {

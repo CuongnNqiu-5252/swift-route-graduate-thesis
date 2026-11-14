@@ -1,5 +1,7 @@
 package com.swiftroute.driverservice.service;
 
+import com.swiftroute.driverservice.dto.response.PageRequests;
+import com.swiftroute.driverservice.dto.response.PageResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -97,8 +99,20 @@ public class DriverService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<DriverResponse> getDriverPage(UUID tenantId, String role, int page, int size) {
+        if (tenantId == null && !"SYSTEM_ADMIN".equals(role)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(tenantId);
+        var pageable = PageRequests.newestFirst(page, size, "createdAt");
+        var rows = tenantId == null ? driverRepository.findAll(pageable)
+                : driverRepository.findByTenantId(tenantId, pageable);
+        return PageResponse.fromPage(rows.map(this::toResponse));
+    }
+
+    @Transactional(readOnly = true)
     public List<DriverResponse> getAllDrivers(UUID tenantId, String requesterRole) {
-        if (tenantId == null && requesterRole != null && !"SYSTEM_ADMIN".equals(requesterRole)) {
+        if (tenantId == null && !"SYSTEM_ADMIN".equals(requesterRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
         com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(tenantId);

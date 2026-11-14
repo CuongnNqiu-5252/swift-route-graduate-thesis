@@ -1,5 +1,7 @@
 package com.swiftroute.driverservice.service;
 
+import com.swiftroute.driverservice.dto.response.PageRequests;
+import com.swiftroute.driverservice.dto.response.PageResponse;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -99,6 +101,15 @@ public class DriverEarningService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<DriverEarningResponse> myEarningPage(UUID userId, Instant from, Instant to, int page, int size) {
+        Driver driver = driverByUser(userId);
+        Period period = period(from, to);
+        return PageResponse.fromPage(earnings.findByDriverIdAndCompletedAtBetween(driver.getId(),
+                period.from(), period.to(), PageRequests.newestFirst(page, size, "completedAt"))
+                .map(item -> DriverEarningResponse.from(item, driver.getFullName())));
+    }
+
+    @Transactional(readOnly = true)
     public List<DriverEarningResponse> myEarnings(UUID userId, Instant from, Instant to) {
         Driver driver = driverByUser(userId);
         Period period = period(from, to);
@@ -118,6 +129,14 @@ public class DriverEarningService {
         BigDecimal paid = sum(rows, EarningStatus.PAID);
         return new EarningSummaryResponse(period.from(), period.to(), pending, approved, paid,
                 pending.add(approved).add(paid), rows.size(), policyFor(driver.getTenantId()).getCurrency());
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<DriverEarningResponse> tenantEarningPage(UUID tenantId, Instant from, Instant to, int page, int size) {
+        Period period = period(from, to);
+        return PageResponse.fromPage(earnings.findByTenantIdAndCompletedAtBetween(tenantId,
+                period.from(), period.to(), PageRequests.newestFirst(page, size, "completedAt"))
+                .map(item -> DriverEarningResponse.from(item, driverName(item.getDriverId()))));
     }
 
     @Transactional(readOnly = true)
@@ -211,6 +230,13 @@ public class DriverEarningService {
                             settlement.getPaymentReference() != null ? settlement.getPaymentReference() : ""))
                     .build());
         });
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<DriverSettlementResponse> settlementPage(UUID tenantId, int page, int size) {
+        return PageResponse.fromPage(settlements.findByTenantId(tenantId,
+                PageRequests.newestFirst(page, size, "createdAt"))
+                .map(item -> DriverSettlementResponse.from(item, driverName(item.getDriverId()))));
     }
 
     @Transactional(readOnly = true)

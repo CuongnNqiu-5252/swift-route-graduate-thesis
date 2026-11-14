@@ -15,5 +15,21 @@ public record InviteMemberResponse(
         TenantInvitationStatus status,
         String inviteToken,
         Instant expiresAt,
-        Instant createdAt) {
+        Instant createdAt,
+        java.util.List<String> grantedPermissions,
+        java.util.List<String> revokedPermissions) {
+
+    public InviteMemberResponse(
+            UUID id,
+            UUID tenantId,
+            UUID driverId,
+            String email,
+            TenantMembershipRole role,
+            TenantInvitationStatus status,
+            String inviteToken,
+            Instant expiresAt,
+            Instant createdAt) {
+        this(id, tenantId, driverId, email, role, status, inviteToken, expiresAt, createdAt,
+                java.util.List.of(), java.util.List.of());
+    }
 }

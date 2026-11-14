@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import {
@@ -22,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import DeliveryZoneMapEditor, { type MapInteractionMode } from './delivery-zone-map-editor';
 
 export default function DeliveryZoneSection() {
+  const { t } = useLocale();
   const {
     savedZone,
     defaultPickup,
@@ -86,7 +89,7 @@ export default function DeliveryZoneSection() {
   if (isLoading) {
     return (
       <div className="flex h-72 items-center justify-center rounded-lg border border-slate-200 bg-white">
-        <p className="text-sm text-slate-500">Đang tải cấu hình vùng giao hàng…</p>
+        <p className="text-sm text-slate-500">{t("Đang tải cấu hình vùng giao hàng…")}</p>
       </div>
     );
   }
@@ -98,12 +101,12 @@ export default function DeliveryZoneSection() {
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-5 w-5 text-rose-600" />
             <div>
-              <h2 className="text-sm font-semibold text-rose-900">Không thể tải vùng giao hàng</h2>
+              <h2 className="text-sm font-semibold text-rose-900">{t("Không thể tải vùng giao hàng")}</h2>
               <p className="mt-1 text-sm text-rose-700">{loadError}</p>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => void reload()}>
-            Thử lại
+            {t("Thử lại")}
           </Button>
         </div>
       </div>
@@ -119,10 +122,10 @@ export default function DeliveryZoneSection() {
           </div>
           <div className="space-y-1.5">
             <h2 className="text-base font-semibold text-slate-900">
-              Chưa có tọa độ tâm để hiển thị bản đồ
+              {t("Chưa có tọa độ tâm để hiển thị bản đồ")}
             </h2>
             <p className="text-sm text-slate-600">
-              Doanh nghiệp chưa có vùng giao hàng đã lưu và chưa có điểm lấy hàng hoạt động. Hãy thêm kho lấy hàng mặc định hoặc tìm một địa điểm thực tế để bắt đầu khoanh vùng phục vụ.
+              {t("Doanh nghiệp chưa có vùng giao hàng đã lưu và chưa có điểm lấy hàng hoạt động. Hãy thêm kho lấy hàng mặc định hoặc tìm một địa điểm thực tế để bắt đầu khoanh vùng phục vụ.")}
             </p>
           </div>
 
@@ -130,11 +133,11 @@ export default function DeliveryZoneSection() {
             <input
               value={emptySearchInput}
               onChange={(event) => void handleEmptySearchChange(event.target.value)}
-              placeholder="Tìm địa chỉ cửa hàng hoặc khu vực phục vụ…"
+              placeholder={t("Tìm địa chỉ cửa hàng hoặc khu vực phục vụ…")}
               className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-500"
             />
             {searchingInitial && (
-              <p className="mt-1.5 text-xs text-slate-500">Đang tìm địa điểm…</p>
+              <p className="mt-1.5 text-xs text-slate-500">{t("Đang tìm địa điểm…")}</p>
             )}
             {emptyPredictions.length > 0 && (
               <ul className="mt-1.5 max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1">
@@ -159,7 +162,7 @@ export default function DeliveryZoneSection() {
               href="/locations"
               className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
             >
-              Thiết lập điểm lấy hàng mặc định
+              {t("Thiết lập điểm lấy hàng mặc định")}
             </Link>
           </div>
         </div>
@@ -174,7 +177,7 @@ export default function DeliveryZoneSection() {
           <div className="flex flex-wrap items-center gap-2">
             <Radar className="h-4 w-4 text-[#17766c]" />
             <h2 className="text-base font-semibold text-slate-900">
-              Phạm vi giao hàng trực quan
+              {t("Phạm vi giao hàng trực quan")}
             </h2>
             <span
               className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
@@ -187,13 +190,13 @@ export default function DeliveryZoneSection() {
             >
               {savedZone?.configured
                 ? draft.isActive
-                  ? 'Đang áp dụng'
-                  : 'Đang tạm tắt'
-                : 'Nháp chưa lưu'}
+                  ? t("Đang áp dụng")
+                  : t("Đang tạm tắt")
+                : t("Nháp chưa lưu")}
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            Cấu hình hình tròn trên bản đồ để tự động kiểm tra điểm giao khi tạo vận đơn.
+            {t("Cấu hình hình tròn trên bản đồ để tự động kiểm tra điểm giao khi tạo vận đơn.")}
           </p>
         </div>
 
@@ -206,7 +209,7 @@ export default function DeliveryZoneSection() {
               disabled={!isDirty || isSaving}
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              Hoàn tác
+              {t("Hoàn tác")}
             </Button>
           )}
           <Button
@@ -217,7 +220,7 @@ export default function DeliveryZoneSection() {
             className="bg-[#17766c] text-white hover:bg-[#136058] disabled:bg-slate-300"
           >
             <Save className="h-3.5 w-3.5" />
-            Lưu vùng giao hàng
+            {t("Lưu vùng giao hàng")}
           </Button>
         </div>
       </div>
@@ -245,8 +248,8 @@ export default function DeliveryZoneSection() {
           <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-slate-900">Bán kính phục vụ</p>
-                <p className="text-xs text-slate-500">Điều chỉnh trực tiếp hoặc chọn nhanh</p>
+                <p className="text-sm font-semibold text-slate-900">{t("Bán kính phục vụ")}</p>
+                <p className="text-xs text-slate-500">{t("Điều chỉnh trực tiếp hoặc chọn nhanh")}</p>
               </div>
               <span className="num text-lg font-semibold text-[#17766c]">
                 {draft.radiusKm.toFixed(1)} km
@@ -281,7 +284,7 @@ export default function DeliveryZoneSection() {
                 step="0.5"
                 value={draft.radiusKm}
                 onChange={(event) => updateRadius(parseFloat(event.target.value))}
-                aria-label="Thanh kéo bán kính vùng giao hàng"
+                aria-label={t("Thanh kéo bán kính vùng giao hàng")}
                 className="h-2 w-full cursor-pointer accent-[#17766c]"
                 style={{ minHeight: 'auto' }}
               />
@@ -294,19 +297,19 @@ export default function DeliveryZoneSection() {
 
             <div className="border-t border-slate-100 pt-3.5 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-700">Tâm vùng hiện tại</p>
+                <p className="text-xs font-medium text-slate-700">{t("Tâm vùng hiện tại")}</p>
                 {defaultPickup && (
                   <button
                     type="button"
                     onClick={resetCenterToDefaultPickup}
                     className="text-xs font-medium text-[#17766c] hover:underline"
                   >
-                    Đặt theo kho mặc định
+                    {t("Đặt theo kho mặc định")}
                   </button>
                 )}
               </div>
               <p className="text-xs leading-relaxed text-slate-600">
-                {centerAddress || 'Đã chọn tâm vùng trên bản đồ (chưa có địa chỉ văn bản).'}
+                {centerAddress || t("Đã chọn tâm vùng trên bản đồ (chưa có địa chỉ văn bản).")}
               </p>
             </div>
           </div>
@@ -321,16 +324,16 @@ export default function DeliveryZoneSection() {
               />
               <div>
                 <span className="text-sm font-semibold text-slate-900">
-                  Kích hoạt kiểm tra vùng giao hàng
+                  {t("Kích hoạt kiểm tra vùng giao hàng")}
                 </span>
                 <p className="text-xs text-slate-500">
-                  Khi tắt, đơn hàng ở mọi địa điểm đều được tiếp nhận bình thường.
+                  {t("Khi tắt, đơn hàng ở mọi địa điểm đều được tiếp nhận bình thường.")}
                 </p>
               </div>
             </label>
 
             <div className="border-t border-slate-100 pt-3.5 space-y-2.5">
-              <p className="text-xs font-medium text-slate-700">Chế độ xử lý đơn ngoài vùng</p>
+              <p className="text-xs font-medium text-slate-700">{t("Chế độ xử lý đơn ngoài vùng")}</p>
               <div className="space-y-2">
                 {ENFORCEMENT_MODE_OPTIONS.map((option) => {
                   const selected = draft.enforcementMode === option.value;
@@ -346,14 +349,14 @@ export default function DeliveryZoneSection() {
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-slate-900">{option.label}</span>
+                        <span className="text-sm font-medium text-slate-900">{t(option.label)}</span>
                         {option.value === 'STRICT_BLOCK' ? (
                           <ShieldAlert className="h-4 w-4 text-slate-600" />
                         ) : (
                           <ShieldCheck className="h-4 w-4 text-slate-600" />
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">{option.description}</p>
+                      <p className="mt-1 text-xs text-slate-500">{t(option.description)}</p>
                     </button>
                   );
                 })}
@@ -377,7 +380,7 @@ export default function DeliveryZoneSection() {
                 ) : (
                   <AlertCircle className="h-4 w-4 shrink-0" />
                 )}
-                <span>Kết quả kiểm tra điểm giao</span>
+                <span>{t("Kết quả kiểm tra điểm giao")}</span>
               </div>
               <p className="mt-1.5 leading-relaxed">{checkResult.message}</p>
             </div>

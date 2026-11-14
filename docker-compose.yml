@@ -171,6 +171,7 @@ services:
       - REDIS_PORT=6379
       - GOONG_API_KEY=${GOONG_API_KEY:-}
       - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
     depends_on:

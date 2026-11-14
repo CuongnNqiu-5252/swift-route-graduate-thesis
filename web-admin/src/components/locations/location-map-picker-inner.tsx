@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import axios from 'axios';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
@@ -45,6 +47,7 @@ function createMarkerElement() {
 }
 
 export default function LocationMapPickerInner({ lat, lng, address, onChange, onResolvingChange }: LocationMapPickerProps) {
+  const { t } = useLocale();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const selectedMarker = useRef<MapLibreMarker | null>(null);
@@ -88,7 +91,7 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
         baseURL: '',
         params: { lat: nextLat, lng: nextLng },
       });
-      if (!body.address) throw new Error(body.error || 'Không xác định được địa chỉ.');
+      if (!body.address) throw new Error(body.error || t("Không xác định được địa chỉ."));
       setQuery(body.address);
       onChangeRef.current(nextLat, nextLng, body.address);
     } catch {
@@ -97,7 +100,7 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
       setResolving(false);
       onResolvingChangeRef.current?.(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!mapContainer.current || map.current || !mapKey) return;
@@ -152,7 +155,7 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
         setPredictions(body.predictions ?? []);
       } catch (cause) {
         if (!controller.signal.aborted && !axios.isCancel(cause)) {
-          setError(cause instanceof Error ? cause.message : 'Không thể tìm địa chỉ.');
+          setError(cause instanceof Error ? cause.message : t("Không thể tìm địa chỉ."));
         }
       } finally {
         if (!controller.signal.aborted) setSearching(false);
@@ -162,7 +165,7 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [lat, lng, query, searchEnabled]);
+  }, [lat, lng, query, searchEnabled, t]);
 
   async function choosePrediction(prediction: Prediction) {
     setSearching(true);
@@ -177,26 +180,26 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
           params: { placeId: prediction.place_id, sessiontoken: sessionToken.current },
         },
       );
-      if (body.lat == null || body.lng == null) throw new Error(body.error || 'Không lấy được vị trí đã chọn.');
+      if (body.lat == null || body.lng == null) throw new Error(body.error || t("Không lấy được vị trí đã chọn."));
       const resolvedAddress = body.address || prediction.description;
       setQuery(resolvedAddress);
       onChangeRef.current(body.lat, body.lng, resolvedAddress);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lấy được vị trí đã chọn.');
+      setError(cause instanceof Error ? cause.message : t("Không lấy được vị trí đã chọn."));
     } finally {
       setSearching(false);
     }
   }
 
   function useCurrentLocation() {
-    if (!navigator.geolocation) return setError('Trình duyệt không hỗ trợ định vị.');
+    if (!navigator.geolocation) return setError(t("Trình duyệt không hỗ trợ định vị."));
     setResolving(true);
     setError(null);
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => void resolveCoordinates(coords.latitude, coords.longitude),
       () => {
         setResolving(false);
-        setError('Không lấy được vị trí hiện tại. Hãy kiểm tra quyền định vị.');
+        setError(t("Không lấy được vị trí hiện tại. Hãy kiểm tra quyền định vị."));
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
@@ -206,17 +209,17 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
     <div className="absolute inset-x-3 top-3 z-10 flex gap-2">
       <div className="relative min-w-0 flex-1">
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
-        <input value={query} onChange={(event) => { const value = event.target.value; setQuery(value); setPredictions([]); setSearchEnabled(value.trim().length >= 3); }} onFocus={() => { if (query.trim().length >= 3) setSearchEnabled(true); }} placeholder="Tìm số nhà, tên đường hoặc địa điểm" aria-label="Tìm địa chỉ trên bản đồ" className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 shadow-md outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
-        {(searching || resolving) && <Loader2 aria-label="Đang xác định địa chỉ" className="absolute right-3 top-3 h-4 w-4 animate-spin text-blue-600" />}
+        <input value={query} onChange={(event) => { const value = event.target.value; setQuery(value); setPredictions([]); setSearchEnabled(value.trim().length >= 3); }} onFocus={() => { if (query.trim().length >= 3) setSearchEnabled(true); }} placeholder={t("Tìm số nhà, tên đường hoặc địa điểm")} aria-label={t("Tìm địa chỉ trên bản đồ")} className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 shadow-md outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+        {(searching || resolving) && <Loader2 aria-label={t("Đang xác định địa chỉ")} className="absolute right-3 top-3 h-4 w-4 animate-spin text-blue-600" />}
         {predictions.length > 0 && <ul className="absolute mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
           {predictions.map((prediction) => <li key={prediction.place_id}><button type="button" onClick={() => void choosePrediction(prediction)} className="flex w-full gap-3 px-3 py-2.5 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600"/><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-900">{prediction.structured_formatting?.main_text || prediction.description}</span>{prediction.structured_formatting?.secondary_text && <span className="block truncate text-xs text-slate-600">{prediction.structured_formatting.secondary_text}</span>}</span></button></li>)}
         </ul>}
       </div>
-      <button type="button" onClick={useCurrentLocation} title="Dùng vị trí hiện tại" aria-label="Dùng vị trí hiện tại" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><LocateFixed className="h-4 w-4"/></button>
+      <button type="button" onClick={useCurrentLocation} title={t("Dùng vị trí hiện tại")} aria-label={t("Dùng vị trí hiện tại")} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><LocateFixed className="h-4 w-4"/></button>
     </div>
-    {mapKey ? <div ref={mapContainer} className="h-80 w-full" aria-label="Bản đồ chọn điểm lấy hàng" /> : <div className="flex h-80 items-center justify-center px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>}
+    {mapKey ? <div ref={mapContainer} className="h-80 w-full" aria-label={t("Bản đồ chọn điểm lấy hàng")} /> : <div className="flex h-80 items-center justify-center px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>}
     <div className="flex min-h-10 items-center justify-between gap-3 border-t border-slate-200 bg-white px-3 py-2 text-xs">
-      <span className={error || mapError ? 'text-rose-700' : 'text-slate-600'}>{error || mapError || (resolving ? 'Đang lấy địa chỉ từ vị trí đã chọn…' : 'Nhấp hoặc kéo ghim; địa chỉ và tọa độ sẽ tự cập nhật.')}</span>
+      <span className={error || mapError ? 'text-rose-700' : 'text-slate-600'}>{error || mapError || (resolving ? t("Đang lấy địa chỉ từ vị trí đã chọn…") : t("Nhấp hoặc kéo ghim; địa chỉ và tọa độ sẽ tự cập nhật."))}</span>
       <span className="shrink-0 tabular-nums text-slate-500">{lat.toFixed(6)}, {lng.toFixed(6)}</span>
     </div>
   </div>;

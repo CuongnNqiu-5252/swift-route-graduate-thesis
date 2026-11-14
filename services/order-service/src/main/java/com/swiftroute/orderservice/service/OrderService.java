@@ -1,11 +1,19 @@
 package com.swiftroute.orderservice.service;
 
 import java.math.BigDecimal;
+import java.text.Normalizer;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,7 +22,9 @@ import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
+import com.swiftroute.orderservice.dto.response.OrderListPageResponse;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OrderEventPayload;
 import com.swiftroute.orderservice.entity.OutboxEvent;
@@ -32,6 +42,8 @@ import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.PickupLocationRepository;
 import com.swiftroute.orderservice.repository.TenantRepository;
 
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,6 +57,7 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final PackageCustodyService custody;
     private final TenantRepository tenantRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final RabbitTemplate rabbitTemplate;
@@ -58,19 +71,33 @@ public class OrderService {
      *
      * Phù hợp với mô hình SaaS Vận hành Giao hàng:
      * - Không bắt buộc người nhận phải có tài khoản auth.
-     * - Hàng hóa được ghi nhận trực tiếp bằng mô tả và snapshot tài chính của vận đơn.
+     * - Hàng hóa được ghi nhận trực tiếp bằng mô tả và snapshot tài chính của vận
+     * đơn.
      * - Tự động sinh mã tra cứu công khai tracking_token.
      * - Trạng thái khởi tạo: PAID (sẵn sàng điều phối) để có thể lập kế hoạch tuyến
      * đường ngay.
      *
      * @param request            DTO tạo vận đơn
      * @param creatorUserId      UUID người tạo (từ JWT subject đã xác thực)
-     * @param tenantIdFromHeader UUID doanh nghiệp (từ context JWT/tenant đã xác thực)
+     * @param tenantIdFromHeader UUID doanh nghiệp (từ context JWT/tenant đã xác
+     *                           thực)
      */
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request,
             UUID creatorUserId,
             UUID tenantIdFromHeader) {
+        return createOrder(request, creatorUserId, tenantIdFromHeader, null);
+    }
+
+    @Transactional
+    public OrderResponse createOrder(CreateOrderRequest request,
+            UUID creatorUserId,
+            UUID tenantIdFromHeader,
+            String creatorRole) {
+
+        if ("DRIVER".equalsIgnoreCase(creatorRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
 
         if (tenantIdFromHeader == null) {
             throw new AppException(ErrorCode.TENANT_NOT_FOUND);
@@ -196,7 +223,6 @@ public class OrderService {
                 .timeWindowStart(request.timeWindowStart())
                 .timeWindowEnd(request.timeWindowEnd())
                 .weightKg(request.weightKg())
-                .packageCount(request.packageCount())
                 .priority(request.priority() != null ? request.priority() : OrderPriority.NORMAL)
                 .packageCategory(request.packageCategory() != null ? request.packageCategory() : PackageCategory.PARCEL)
                 .packageDescription(request.packageDescription())
@@ -234,16 +260,19 @@ public class OrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
 
-        // SYSTEM_ADMIN, OWNER, TENANT_ADMIN, and OPERATOR can view all orders within scope
-        if (!List.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR").contains(requesterRole)) {
-            boolean isTenantMember = tenantIdFromContext != null
-                    && order.getTenant().getId().equals(tenantIdFromContext);
+        if ("DRIVER".equalsIgnoreCase(requesterRole)) {
             boolean isAssignedDriver = order.getAssignedDriverId() != null
                     && order.getAssignedDriverId().equals(requesterId);
+            if (!isAssignedDriver) {
+                throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+            }
+        } else if (!List.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR").contains(requesterRole)) {
+            boolean isTenantMember = tenantIdFromContext != null
+                    && order.getTenant().getId().equals(tenantIdFromContext);
             boolean isTenantOwner = order.getTenant().getOwnerUserId() != null
                     && order.getTenant().getOwnerUserId().equals(requesterId);
 
-            if (!isTenantMember && !isAssignedDriver && !isTenantOwner) {
+            if (!isTenantMember && !isTenantOwner) {
                 throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
             }
         }
@@ -299,9 +328,99 @@ public class OrderService {
         }
     }
 
+    private static final Map<String, String> ORDER_PAGE_SORT_FIELDS = Map.of(
+            "created_at", "createdAt",
+            "updated_at", "updatedAt",
+            "time_window_start", "timeWindowStart");
+
+    @Transactional(readOnly = true)
+    public OrderListPageResponse getOrderPage(UUID tenantId, OrderStatus status, UUID pickupLocationId,
+            String query, List<UUID> driverIds, int page, int size) {
+        return getOrderPage(tenantId, status, pickupLocationId, query, driverIds, page, size, "created_at", "desc");
+    }
+
     /**
-     * Lấy danh sách đơn hàng có bộ lọc trạng thái và Tenant.
+     * Lấy danh sách đơn hàng phân trang có bộ lọc và sắp xếp theo ngày tháng năm.
      */
+    @Transactional(readOnly = true)
+    public OrderListPageResponse getOrderPage(UUID tenantId, OrderStatus status, UUID pickupLocationId,
+            String query, List<UUID> driverIds, int page, int size, String sortBy, String sortDir) {
+        if (tenantId == null) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE
+                || (query != null && query.length() > 200)) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        String normalizedSortBy = (sortBy == null || sortBy.isBlank())
+                ? "created_at"
+                : sortBy.strip().toLowerCase(Locale.ROOT);
+        String sortProperty = ORDER_PAGE_SORT_FIELDS.get(normalizedSortBy);
+        if (sortProperty == null) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        String normalizedSortDir = (sortDir == null || sortDir.isBlank())
+                ? "desc"
+                : sortDir.strip().toLowerCase(Locale.ROOT);
+        Sort.Direction direction;
+        if ("asc".equals(normalizedSortDir)) {
+            direction = Sort.Direction.ASC;
+        } else if ("desc".equals(normalizedSortDir)) {
+            direction = Sort.Direction.DESC;
+        } else {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        String search = query == null ? "" : foldOrderSearch(query.strip());
+        if (search.startsWith("#")) {
+            search = search.substring(1);
+        }
+        String pattern = "%" + search.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+        boolean searching = !search.isBlank();
+        Specification<Order> filters = (order, criteria, cb) -> {
+            List<Predicate> conditions = new ArrayList<>();
+            conditions.add(cb.equal(order.get("tenant").get("id"), tenantId));
+            if (status != null) {
+                conditions.add(cb.equal(order.get("status"), status));
+            }
+            if (pickupLocationId != null) {
+                conditions.add(cb.equal(order.get("pickupLocation").get("id"), pickupLocationId));
+            }
+            if (searching) {
+                var pickup = order.join("pickupLocation", JoinType.LEFT);
+                List<Predicate> matches = new ArrayList<>();
+                for (var field : List.of(order.get("externalOrderCode").as(String.class),
+                        order.get("id").cast(String.class), order.get("recipientName").as(String.class),
+                        order.get("pickupAddress").as(String.class), order.get("deliveryAddress").as(String.class),
+                        pickup.get("name").as(String.class))) {
+                    var folded = cb.function("translate", String.class, cb.lower(field),
+                            cb.literal(ORDER_SEARCH_ACCENTS), cb.literal(ORDER_SEARCH_ASCII));
+                    matches.add(cb.like(folded, pattern, '!'));
+                }
+                if (driverIds != null && !driverIds.isEmpty()) {
+                    matches.add(order.get("assignedDriverId").in(driverIds));
+                }
+                conditions.add(cb.or(matches.toArray(Predicate[]::new)));
+            }
+            return cb.and(conditions.toArray(Predicate[]::new));
+        };
+        var result = orderRepository.findAll(filters,
+                PageRequest.of(page, size, Sort.by(direction, sortProperty, "id")));
+        var counts = orderRepository.countByTenantGroupedByStatus(tenantId).stream().collect(
+                Collectors.toMap(OrderRepository.StatusCount::getStatus, OrderRepository.StatusCount::getTotal));
+        return new OrderListPageResponse(PageResponse.fromPage(result.map(OrderResponse::fromEntity)), counts);
+    }
+
+    private static final String ORDER_SEARCH_ACCENTS = "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ";
+    private static final String ORDER_SEARCH_ASCII = foldOrderSearch(ORDER_SEARCH_ACCENTS);
+
+    private static String foldOrderSearch(String value) {
+        return Normalizer.normalize(value.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "").replace('đ', 'd');
+    }
+
     @Transactional(readOnly = true)
     public List<OrderResponse> getAllOrders(UUID tenantId, OrderStatus status, String requesterRole) {
         if (tenantId == null && !"SYSTEM_ADMIN".equals(requesterRole)) {
@@ -329,41 +448,6 @@ public class OrderService {
         List<Order> orders = orderRepository.findAssignedDriverOrders(driverUserId, activeStatuses);
         log.info("Found {} active orders for driver {}", orders.size(), driverUserId);
         return orders.stream().map(OrderResponse::fromEntity).toList();
-    }
-
-    /**
-     * Cập nhật trạng thái đơn hàng.
-     */
-    @Transactional
-    public OrderResponse updateOrderStatus(UUID orderId, OrderStatus newStatus, UUID requesterId,
-            String requesterRole) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
-
-        OrderStatus currentStatus = order.getStatus();
-        if (currentStatus == OrderStatus.CANCELLED) {
-            throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
-        }
-
-        validateStatusTransition(currentStatus, newStatus);
-
-        order.setStatus(newStatus);
-        order.setUpdatedAt(Instant.now());
-
-        if (newStatus == OrderStatus.IN_TRANSIT) {
-            order.setFulfillmentStatus("IN_TRANSIT");
-        } else if (newStatus == OrderStatus.DELIVERED) {
-            order.setFulfillmentStatus("DELIVERED");
-        } else if (newStatus == OrderStatus.FAILED) {
-            order.setFulfillmentStatus("FAILED");
-        }
-
-        Order saved = orderRepository.save(order);
-        emitOrderStatusEvent(saved, currentStatus, newStatus);
-        log.info("Order {} status updated: {} -> {} by user {}", orderId, currentStatus, newStatus, requesterId);
-
-        return OrderResponse.fromEntity(saved);
     }
 
     private void emitOrderStatusEvent(Order order, OrderStatus previous, OrderStatus current) {
@@ -418,6 +502,16 @@ public class OrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
 
+        boolean isDispatcher = List.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR")
+                .contains(requesterRole);
+        boolean isAssignedDriver = "DRIVER".equalsIgnoreCase(requesterRole)
+                && order.getAssignedDriverId() != null
+                && order.getAssignedDriverId().equals(requesterId);
+
+        if (!isDispatcher && !isAssignedDriver) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
         if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
@@ -439,6 +533,10 @@ public class OrderService {
 
     @Transactional
     public OrderResponse cancelOrder(UUID orderId, CancelOrderRequest request, UUID requesterId, String requesterRole) {
+        if ("DRIVER".equalsIgnoreCase(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
@@ -452,6 +550,9 @@ public class OrderService {
         }
 
         OrderStatus previous = order.getStatus();
+        if (custody.holdsOrder(order)) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
         order.setStatus(OrderStatus.CANCELLED);
         order.setFulfillmentStatus("CANCELLED");
         String cancelNote = "[HUỶ ĐƠN]: "
@@ -463,18 +564,5 @@ public class OrderService {
         emitOrderStatusEvent(saved, previous, OrderStatus.CANCELLED);
         log.info("Order cancelled: orderId={}, reason={}", orderId, cancelNote);
         return OrderResponse.fromEntity(saved);
-    }
-
-    private void validateStatusTransition(OrderStatus current, OrderStatus next) {
-        boolean valid = switch (current) {
-            case PAID -> next == OrderStatus.PLANNED || next == OrderStatus.CANCELLED;
-            case PLANNED ->
-                next == OrderStatus.IN_TRANSIT || next == OrderStatus.FAILED || next == OrderStatus.CANCELLED;
-            case IN_TRANSIT -> next == OrderStatus.DELIVERED || next == OrderStatus.FAILED;
-            default -> false;
-        };
-        if (!valid) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
     }
 }

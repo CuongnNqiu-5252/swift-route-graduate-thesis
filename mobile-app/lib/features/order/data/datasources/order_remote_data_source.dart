@@ -102,9 +102,19 @@ class OrderRemoteDataSource {
             final task = Map<String, dynamic>.from(rawTask);
             final rawOrder = task['order'];
             if (rawOrder is! Map) return null;
+            final returnDestination =
+                task['return_destination'] ?? task['returnDestination'];
+            final destination = returnDestination is Map
+                ? returnDestination
+                : null;
             return OrderModel.fromJson(
               Map<String, dynamic>.from(rawOrder),
             ).copyWith(
+              pickupLocationId: destination?['id'] as String?,
+              pickupLocationName: destination?['name'] as String?,
+              pickupAddress: destination?['address'] as String?,
+              pickupLat: (destination?['lat'] as num?)?.toDouble(),
+              pickupLng: (destination?['lng'] as num?)?.toDouble(),
               deliveryTaskId:
                   task['task_id'] as String? ?? task['taskId'] as String?,
               deliveryTaskType:
@@ -272,28 +282,11 @@ class OrderRemoteDataSource {
 
   Future<void> createPackageHandover({
     required String orderId,
-    required String toDriverId,
+    required String reason,
   }) async {
-    final response = await _dio.get('/custody/orders/$orderId/packages');
-    final data = response.data;
-    final raw = data is Map && data['data'] is List
-        ? data['data'] as List
-        : <dynamic>[];
-    final packageIds = raw
-        .whereType<Map>()
-        .map((item) => item['package_id'] ?? item['packageId'])
-        .whereType<String>()
-        .toList();
-    if (packageIds.isEmpty) {
-      throw StateError('Đơn chưa có kiện hàng đang được quản lý');
-    }
     await _dio.post(
       '/custody/handovers',
-      data: {
-        'to_driver_id': toDriverId,
-        'package_ids': packageIds,
-        'reason': 'Tài xế bàn giao toàn bộ kiện của đơn',
-      },
+      data: {'order_id': orderId, 'reason': reason},
     );
   }
 

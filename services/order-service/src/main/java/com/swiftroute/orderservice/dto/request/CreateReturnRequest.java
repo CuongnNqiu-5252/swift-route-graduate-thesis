@@ -13,16 +13,12 @@ public record CreateReturnRequest(
         @NotBlank(message = "reason is required")
         String reason,
         UUID returnLocationId,
-        Integer packageCount,
         String notes,
         String evidenceUrl
 ) {
     public CreateReturnRequest {
         if (requestType == null || requestType.isBlank()) {
             requestType = "RETURN_TO_ORIGIN";
-        }
-        if (packageCount == null || packageCount <= 0) {
-            packageCount = 1;
         }
     }
 }

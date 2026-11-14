@@ -5,13 +5,22 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 
-public interface OrderRepository extends JpaRepository<Order, UUID> {
+public interface OrderRepository extends JpaRepository<Order, UUID>, JpaSpecificationExecutor<Order> {
+
+    @Query("select o.status as status, count(o) as total from Order o where o.tenant.id = :tenantId group by o.status")
+    List<StatusCount> countByTenantGroupedByStatus(UUID tenantId);
+
+    interface StatusCount {
+        OrderStatus getStatus();
+        long getTotal();
+    }
 
     /**
      * All orders belonging to a tenant.
@@ -38,6 +47,10 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     /**
      * Find by public tracking token for unauthenticated recipient tracking.
      */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.id = :id")
+    Optional<Order> findForUpdate(@Param("id") UUID id);
+
     Optional<Order> findByTrackingToken(String trackingToken);
 
     /**

@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.controller;
 
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -51,6 +52,17 @@ public class PickupLocationController {
         Tenant tenant = tenantContextValidator.validateWorkspaceAccess(tenantIdHeader, authHeader);
         List<PickupLocationResponse> response = pickupLocationService.getPickupLocations(tenant.getId(), status);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping("/page")
+    public ApiResponse<PageResponse<PickupLocationResponse>> getPickupLocationPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) PickupLocationStatus status,
+            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
+        Tenant tenant = tenantContextValidator.validateWorkspaceAccess(tenantIdHeader, authHeader);
+        return ApiResponse.success(pickupLocationService.getPickupLocationPage(tenant.getId(), status, page, size));
     }
 
     @Operation(summary = "Lấy chi tiết một điểm lấy hàng theo ID")

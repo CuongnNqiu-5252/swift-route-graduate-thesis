@@ -64,6 +64,14 @@ public class TenantInvitation {
     @Column(name = "invited_by", nullable = false)
     private UUID invitedBy;
 
+    @Column(name = "granted_permissions", nullable = false, columnDefinition = "TEXT")
+    @Builder.Default
+    private String grantedPermissions = "[]";
+
+    @Column(name = "revoked_permissions", nullable = false, columnDefinition = "TEXT")
+    @Builder.Default
+    private String revokedPermissions = "[]";
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
@@ -81,6 +89,8 @@ public class TenantInvitation {
         if (updatedAt == null) updatedAt = Instant.now();
         if (status == null) status = TenantInvitationStatus.PENDING;
         if (role == null) role = TenantMembershipRole.OPERATOR;
+        if (grantedPermissions == null || grantedPermissions.isBlank()) grantedPermissions = "[]";
+        if (revokedPermissions == null || revokedPermissions.isBlank()) revokedPermissions = "[]";
     }
 
     @PreUpdate

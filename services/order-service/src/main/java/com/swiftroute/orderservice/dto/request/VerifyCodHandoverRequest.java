@@ -11,5 +11,6 @@ import jakarta.validation.constraints.Size;
 public record VerifyCodHandoverRequest(
         @NotNull UUID operationId,
         @NotNull @DecimalMin("0") @Digits(integer = 12, fraction = 0) BigDecimal countedTotal,
+        @Size(max = 30) String varianceResolution,
         @Size(max = 1000) String notes) {
 }

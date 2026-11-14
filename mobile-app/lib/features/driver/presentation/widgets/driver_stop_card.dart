@@ -148,8 +148,7 @@ class DriverStopCard extends ConsumerWidget {
                   ),
                   _MetaText(
                     icon: Icons.inventory_2_outlined,
-                    text:
-                        '${stop.packageCount} kiện · ${stop.weightKg.toStringAsFixed(1)} kg',
+                    text: '1 kiện · ${stop.weightKg.toStringAsFixed(1)} kg',
                   ),
                   if (!stop.isReturnTask) CodBadge(amount: stop.codAmount),
                 ],

@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { isSystemAdmin } from '@/lib/portal-access';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useLocale();
   const { user, token, isLoading, logout, refreshProfile } = useAuth();
   const router = useRouter();
 
@@ -24,7 +27,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         role="status"
         className="flex min-h-screen items-center justify-center bg-[#eef1f4] text-sm text-slate-600"
       >
-        Đang xác thực quyền quản trị hệ thống…
+        {t("Đang xác thực quyền quản trị hệ thống…")}
       </div>
     );
   }
@@ -37,12 +40,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return (
       <main className="mx-auto mt-20 max-w-lg space-y-4 rounded-xl border border-slate-200 bg-white p-8">
         <p role="alert" className="text-sm text-slate-800">
-          Chưa thể xác minh tài khoản quản trị. Vui lòng thử lại.
+          {t("Chưa thể xác minh tài khoản quản trị. Vui lòng thử lại.")}
         </p>
         <div className="flex flex-wrap gap-3">
-          <Button onClick={() => void refreshProfile()}>Tải lại thông tin</Button>
+          <Button onClick={() => void refreshProfile()}>{t("Tải lại thông tin")}</Button>
           <Button variant="outline" onClick={logout}>
-            Đăng nhập lại
+            {t("Đăng nhập lại")}
           </Button>
         </div>
       </main>
@@ -52,16 +55,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!isSystemAdmin(user)) {
     return (
       <main className="mx-auto mt-20 max-w-lg space-y-4 rounded-xl border border-slate-200 bg-white p-8">
-        <h1 className="text-xl font-semibold text-slate-950">Không có quyền truy cập</h1>
+        <h1 className="text-xl font-semibold text-slate-950">{t("Không có quyền truy cập")}</h1>
         <p className="text-sm leading-6 text-slate-600">
-          Khu vực này chỉ dành cho quản trị viên nền tảng SwiftRoute.
+          {t("Khu vực này chỉ dành cho quản trị viên nền tảng SwiftRoute.")}
         </p>
         <div className="flex flex-wrap gap-4 pt-2 text-sm">
           <Link href="/organizations" className="font-medium text-[#17766c] hover:underline">
-            Về workspace doanh nghiệp
+            {t("Về trang doanh nghiệp")}
           </Link>
           <Link href="/admin/login" className="font-medium text-slate-700 hover:underline">
-            Đăng nhập bằng tài khoản quản trị
+            {t("Đăng nhập bằng tài khoản quản trị")}
           </Link>
         </div>
       </main>

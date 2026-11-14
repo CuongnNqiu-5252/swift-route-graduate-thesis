@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useMemo, useState } from 'react';
 import { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import { Driver } from '@/domain/entities/driver.entity';
@@ -29,7 +31,7 @@ type PlanFilter = 'ACTION' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'ALL';
 
 const FILTERS: Array<{ key: PlanFilter; label: string; hint: string }> = [
   { key: 'ACTION', label: 'Cần xử lý', hint: 'Bản nháp chờ duyệt và kế hoạch đã duyệt chờ giao tuyến' },
-  { key: 'ACTIVE', label: 'Đang giao', hint: 'Kế hoạch đã giao cho tài xế' },
+  { key: 'ACTIVE', label: 'Tuyến đang thực hiện', hint: 'Kế hoạch đã giao cho tài xế' },
   { key: 'COMPLETED', label: 'Hoàn thành', hint: 'Kế hoạch đã hoàn thành tất cả điểm giao' },
   { key: 'CANCELLED', label: 'Đã hủy', hint: 'Kế hoạch đã bị hủy' },
   { key: 'ALL', label: 'Tất cả', hint: 'Toàn bộ kế hoạch' },
@@ -69,6 +71,7 @@ export function PlanApprovalPanel({
   onReoptimizePlan,
   onInsertOrderIntoPlan,
 }: PlanApprovalPanelProps) {
+  const { t, intlLocale } = useLocale();
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null);
   const [driverOverrides, setDriverOverrides] = useState<Record<string, string>>({});
   const [insertOrderIds, setInsertOrderIds] = useState<Record<string, string>>({});
@@ -149,10 +152,10 @@ export function PlanApprovalPanel({
       <div className="flex flex-col gap-2 border-b border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-gray-900">
-            Kế hoạch điều phối tự động ({counts.ACTION} cần xử lý / {plans.length} tổng)
+            {t("Kế hoạch điều phối tự động (")}{counts.ACTION}{" "}{t("cần xử lý /")}{" "}{plans.length}{" "}{t("tổng)")}
           </h2>
           <p className="text-xs text-gray-500">
-            Theo dõi các lộ trình được OR-Tools sinh tự động, phê duyệt bản nháp hoặc giao tuyến cho tài xế.
+            {t("Theo dõi các lộ trình được OR-Tools sinh tự động, phê duyệt bản nháp hoặc giao tuyến cho tài xế.")}
           </p>
         </div>
 
@@ -163,27 +166,27 @@ export function PlanApprovalPanel({
             onClick={onRefresh}
             isLoading={isLoading}
           >
-            <RefreshCw size={14} /> Làm mới kế hoạch
+            <RefreshCw size={14} />{" "}{t("Làm mới kế hoạch")}
           </Button>
           <Button
             size="sm"
             onClick={onTriggerPlanning}
             isLoading={isTriggering}
           >
-            <Play size={14} /> Chạy lập kế hoạch ngay
+            <Play size={14} />{" "}{t("Chạy lập kế hoạch ngay")}
           </Button>
         </div>
       </div>
 
       {plans.length > 0 && (
-        <div role="tablist" aria-label="Lọc kế hoạch theo trạng thái" className="flex flex-wrap gap-1.5 border-b border-gray-200 px-4 py-2">
+        <div role="tablist" aria-label={t("Lọc kế hoạch theo trạng thái")} className="flex flex-wrap gap-1.5 border-b border-gray-200 px-4 py-2">
           {FILTERS.map((item) => (
             <button
               key={item.key}
               type="button"
               role="tab"
               aria-selected={filter === item.key}
-              title={item.hint}
+              title={t(item.hint)}
               onClick={() => setFilter(item.key)}
               className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                 filter === item.key
@@ -191,7 +194,7 @@ export function PlanApprovalPanel({
                   : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
               }`}
             >
-              {item.label} <span className="tabular-nums opacity-80">({counts[item.key]})</span>
+              {t(item.label)} <span className="tabular-nums opacity-80">({counts[item.key]})</span>
             </button>
           ))}
         </div>
@@ -199,28 +202,28 @@ export function PlanApprovalPanel({
 
       {plans.length === 0 ? (
         <div className="px-4 py-8 text-center text-sm text-gray-500">
-          Chưa có kế hoạch điều phối nào. Khi đơn hàng ở trạng thái sẵn sàng điều phối đạt ngưỡng gom đơn hoặc quá thời gian chờ, hệ thống sẽ tự động sinh lộ trình tại đây.
+          {t("Chưa có kế hoạch điều phối nào. Khi đơn hàng ở trạng thái sẵn sàng điều phối đạt ngưỡng gom đơn hoặc quá thời gian chờ, hệ thống sẽ tự động sinh lộ trình tại đây.")}
         </div>
       ) : (
         <div className="max-h-[360px] overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-gray-200 bg-white text-xs font-medium text-gray-500">
-                <th className="px-4 py-2.5">Mã kế hoạch</th>
-                <th className="px-4 py-2.5">Trạng thái</th>
-                <th className="px-4 py-2.5">Nguồn kích hoạt</th>
-                <th className="px-4 py-2.5 text-right">Số điểm giao</th>
-                <th className="px-4 py-2.5 text-right">Quãng đường</th>
-                <th className="px-4 py-2.5 text-right">Thời gian dự kiến</th>
-                <th className="px-4 py-2.5">Tài xế phụ trách</th>
-                <th className="px-4 py-2.5 text-right">Thao tác</th>
+                <th className="px-4 py-2.5">{t("Mã kế hoạch")}</th>
+                <th className="px-4 py-2.5">{t("Trạng thái")}</th>
+                <th className="px-4 py-2.5">{t("Nguồn kích hoạt")}</th>
+                <th className="px-4 py-2.5 text-right">{t("Số điểm giao")}</th>
+                <th className="px-4 py-2.5 text-right">{t("Quãng đường")}</th>
+                <th className="px-4 py-2.5 text-right">{t("Thời gian dự kiến")}</th>
+                <th className="px-4 py-2.5">{t("Tài xế phụ trách")}</th>
+                <th className="px-4 py-2.5 text-right">{t("Thao tác")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {visiblePlans.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
-                    Không có kế hoạch nào trong nhóm này.
+                    {t("Không có kế hoạch nào trong nhóm này.")}
                   </td>
                 </tr>
               )}
@@ -240,7 +243,7 @@ export function PlanApprovalPanel({
                     <td className="px-4 py-3 font-mono text-xs text-gray-900">
                       #{plan.plan_id.slice(0, 8)}
                       <div className="text-[11px] font-sans text-gray-500">
-                        {new Date(plan.created_at).toLocaleTimeString('vi-VN', {
+                        {new Date(plan.created_at).toLocaleTimeString(intlLocale, {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
@@ -261,7 +264,7 @@ export function PlanApprovalPanel({
                     </td>
 
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-gray-900">
-                      {plan.order_count} đơn
+                      {plan.order_count}{" "}{t("đơn")}
                     </td>
 
                     <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-gray-900">
@@ -289,10 +292,10 @@ export function PlanApprovalPanel({
                               [plan.plan_id]: e.target.value,
                             }))
                           }
-                          aria-label="Chọn tài xế cho kế hoạch"
+                          aria-label={t("Chọn tài xế cho kế hoạch")}
                           className="w-full max-w-[210px] rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-gray-900 focus:outline-none"
                         >
-                          <option value="">-- Chọn tài xế --</option>
+                          <option value="">{t("-- Chọn tài xế --")}</option>
                           {drivers.map((d) => (
                             <option key={d.user_id || d.id} value={d.user_id || d.id}>
                               {d.name} ({d.vehicle_plate})
@@ -303,7 +306,7 @@ export function PlanApprovalPanel({
                         driverNameMap.get(plan.driver_id) ||
                         `Tài xế #${plan.driver_id.slice(0, 8)}`
                       ) : (
-                        <span className="text-gray-400">Chưa gán</span>
+                        <span className="text-gray-400">{t("Chưa gán")}</span>
                       )}
                     </td>
 
@@ -319,7 +322,7 @@ export function PlanApprovalPanel({
                             disabled={isBusy}
                             onClick={() => handleApprove(plan)}
                           >
-                            <Check size={13} /> Duyệt
+                            <Check size={13} />{" "}{t("Duyệt")}
                           </Button>
                         )}
 
@@ -329,7 +332,7 @@ export function PlanApprovalPanel({
                             disabled={isBusy}
                             onClick={() => handleDispatch(plan.plan_id)}
                           >
-                            <Play size={13} /> Giao tuyến
+                            <Play size={13} />{" "}{t("Giao tuyến")}
                           </Button>
                         )}
 
@@ -343,10 +346,10 @@ export function PlanApprovalPanel({
                                   [plan.plan_id]: e.target.value,
                                 }))
                               }
-                              aria-label="Chọn đơn cần chèn vào tuyến đang chạy"
+                              aria-label={t("Chọn đơn cần chèn vào tuyến đang chạy")}
                               className="max-w-[140px] rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 focus:border-gray-900 focus:outline-none"
                             >
-                              <option value="">+ Chèn đơn...</option>
+                              <option value="">{t("+ Chèn đơn...")}</option>
                               {eligibleOrders.map((o) => (
                                 <option key={o.id} value={o.id}>
                                   {o.order_code} ({o.weight_kg ?? 1}kg)
@@ -360,7 +363,7 @@ export function PlanApprovalPanel({
                               onClick={() => handleInsertOrder(plan.plan_id)}
                               title="Chèn đơn hàng vào vị trí tối ưu trên tuyến đang chạy"
                             >
-                              <Plus size={13} /> Chèn
+                              <Plus size={13} />{" "}{t("Chèn")}
                             </Button>
                           </div>
                         )}
@@ -373,7 +376,7 @@ export function PlanApprovalPanel({
                             onClick={() => handleReoptimize(plan.plan_id)}
                             title="Tối ưu lại thứ tự các chặng chưa giao dựa trên vị trí hiện tại"
                           >
-                            <Route size={13} /> Tối ưu lại
+                            <Route size={13} />{" "}{t("Tối ưu lại")}
                           </Button>
                         )}
 
@@ -385,7 +388,7 @@ export function PlanApprovalPanel({
                             onClick={() => handleCancel(plan.plan_id)}
                             className="text-red-700 hover:bg-red-50"
                           >
-                            <X size={13} /> Hủy
+                            <X size={13} />{" "}{t("Hủy")}
                           </Button>
                         )}
                       </div>

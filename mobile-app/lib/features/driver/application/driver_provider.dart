@@ -116,9 +116,7 @@ class DriverNotifier extends AsyncNotifier<DriverModel?> {
       if (current != null) state = AsyncData(current);
       return true;
     } catch (_) {
-      if (current != null) {
-        state = AsyncData(current.copyWith(isAvailable: current.isAvailable));
-      }
+      if (current != null) state = AsyncData(current);
       return false;
     }
   }
@@ -147,12 +145,31 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
     );
   }
 
-  /// 1-Tap Batch Accept: transitions all ASSIGNED tasks on the route to ACCEPTED.
-  Future<void> acceptAllAssigned({List<String>? orderIds}) async {
+  /// Applies an optimistic transform to the current order list, executes [remoteCall],
+  /// refreshes from server on success, and rolls back on failure.
+  Future<void> _runOptimisticOrderUpdate({
+    required OrderModel Function(OrderModel order) transform,
+    required Future<void> Function() remoteCall,
+  }) async {
     final previousList = state.valueOrNull ?? [];
+    state = AsyncData(previousList.map(transform).toList());
+    try {
+      await remoteCall();
+      final fresh = await ref
+          .read(orderRemoteDataSourceProvider)
+          .getAssignedDriverOrders();
+      state = AsyncData(fresh);
+    } catch (_) {
+      state = AsyncData(previousList);
+      rethrow;
+    }
+  }
+
+  /// 1-Tap Batch Accept: transitions all ASSIGNED tasks on the route to ACCEPTED.
+  Future<void> acceptAllAssigned({List<String>? orderIds}) {
     final targetIds = orderIds?.toSet();
-    state = AsyncData(
-      previousList.map((order) {
+    return _runOptimisticOrderUpdate(
+      transform: (order) {
         final match = targetIds == null || targetIds.contains(order.id);
         if (match && order.deliveryTaskStatus == DeliveryTaskStatus.assigned) {
           return order.copyWith(
@@ -160,20 +177,11 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
           );
         }
         return order;
-      }).toList(),
+      },
+      remoteCall: () => ref
+          .read(orderRemoteDataSourceProvider)
+          .batchAcceptDeliveryTasks(orderIds: orderIds),
     );
-    try {
-      await ref
-          .read(orderRemoteDataSourceProvider)
-          .batchAcceptDeliveryTasks(orderIds: orderIds);
-      final fresh = await ref
-          .read(orderRemoteDataSourceProvider)
-          .getAssignedDriverOrders();
-      state = AsyncData(fresh);
-    } catch (e) {
-      state = AsyncData(previousList);
-      rethrow;
-    }
   }
 
   /// 1-Swipe Depot Pickup: confirms physical package pickup for a group of orders
@@ -181,11 +189,10 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
   Future<void> confirmBatchPickup({
     required List<String> orderIds,
     String? notes,
-  }) async {
-    final previousList = state.valueOrNull ?? [];
+  }) {
     final idSet = orderIds.toSet();
-    state = AsyncData(
-      previousList.map((order) {
+    return _runOptimisticOrderUpdate(
+      transform: (order) {
         if (idSet.contains(order.id)) {
           return order.copyWith(
             status: OrderStatus.inTransit,
@@ -193,20 +200,11 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
           );
         }
         return order;
-      }).toList(),
+      },
+      remoteCall: () => ref
+          .read(orderRemoteDataSourceProvider)
+          .batchPickupDeliveryTasks(orderIds: orderIds, notes: notes),
     );
-    try {
-      await ref
-          .read(orderRemoteDataSourceProvider)
-          .batchPickupDeliveryTasks(orderIds: orderIds, notes: notes);
-      final fresh = await ref
-          .read(orderRemoteDataSourceProvider)
-          .getAssignedDriverOrders();
-      state = AsyncData(fresh);
-    } catch (e) {
-      state = AsyncData(previousList);
-      rethrow;
-    }
   }
 
   /// Transition order status (PLANNED -> IN_TRANSIT -> DELIVERED / FAILED)
@@ -218,19 +216,12 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
     String? failureReason,
     String? notes,
     String? proofUrl,
-  }) async {
-    final previousList = state.valueOrNull ?? [];
-    final optimisticList = previousList
-        .map(
-          (order) => order.id == orderId
-              ? order.copyWith(deliveryTaskStatus: nextStatus)
-              : order,
-        )
-        .toList();
-    state = AsyncData(optimisticList);
-
-    try {
-      await ref
+  }) {
+    return _runOptimisticOrderUpdate(
+      transform: (order) => order.id == orderId
+          ? order.copyWith(deliveryTaskStatus: nextStatus)
+          : order,
+      remoteCall: () => ref
           .read(orderRemoteDataSourceProvider)
           .updateDeliveryTaskStatus(
             taskId: taskId,
@@ -238,49 +229,8 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
             failureReason: failureReason,
             notes: notes,
             proofUrl: proofUrl,
-          );
-      // Fetch fresh list from server to ensure full sync
-      final freshList = await ref
-          .read(orderRemoteDataSourceProvider)
-          .getAssignedDriverOrders();
-      state = AsyncData(freshList);
-    } catch (e) {
-      // Rollback on error
-      state = AsyncData(previousList);
-      rethrow;
-    }
-  }
-
-  /// Reports a failed delivery through the canonical delivery-task execution API.
-  Future<void> reportIncident({
-    required String orderId,
-    required String taskId,
-    required String incidentType,
-    String? notes,
-  }) async {
-    try {
-      await ref
-          .read(orderRemoteDataSourceProvider)
-          .createOperationalIncident(
-            orderId: orderId,
-            incidentType: incidentType,
-            notes: notes,
-          );
-      await ref
-          .read(orderRemoteDataSourceProvider)
-          .updateDeliveryTaskStatus(
-            taskId: taskId,
-            status: DeliveryTaskStatus.failed,
-            failureReason: incidentType,
-            notes: notes,
-          );
-      final freshList = await ref
-          .read(orderRemoteDataSourceProvider)
-          .getAssignedDriverOrders();
-      state = AsyncData(freshList);
-    } catch (_) {
-      rethrow;
-    }
+          ),
+    );
   }
 
   /// Completes the delivery first, then records COD as a separate, explicit ledger event.
@@ -372,6 +322,7 @@ class PackageHandoverNotifier
         .actOnPackageHandover(handoverId: handover.id, action: action);
     await refresh();
     await ref.read(driverOrdersProvider.notifier).refreshOrders();
+    await ref.read(driverDispatchPlansProvider.notifier).refresh();
   }
 }
 

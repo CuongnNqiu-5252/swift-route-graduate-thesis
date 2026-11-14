@@ -26,7 +26,7 @@ import io.jsonwebtoken.security.Keys;
 @Component
 public class NotificationAuthorization {
 
-    private static final Set<String> OPERATOR_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR");
+    private static final Set<String> OPERATOR_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR", "VIEWER");
     private static final Set<String> MEMBER_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR", "DRIVER");
 
     private final JwtParser jwtParser;

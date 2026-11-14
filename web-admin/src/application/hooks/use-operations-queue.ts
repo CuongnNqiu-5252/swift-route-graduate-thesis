@@ -11,18 +11,21 @@ const emptyQueue: OperationsQueue = {
 
 export function useOperationsQueue() {
   const [queue, setQueue] = useState<OperationsQueue>(emptyQueue);
-  const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     if (typeof window !== 'undefined' && !localStorage.getItem('tenant_id')) {
       setQueue(emptyQueue);
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
       setQueue(await orderRepository.getOperationsQueue());
+      setHasLoaded(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải hàng đợi vận hành');
     } finally {
@@ -54,15 +57,5 @@ export function useOperationsQueue() {
     };
   }, [refetch]);
 
-  const reassignOrder = async (orderId: string, driverId: string) => {
-    await orderRepository.assignBatch({ assignments: [{ order_id: orderId, driver_id: driverId }] });
-    setQueue((current) => ({
-      ...current,
-      active: current.active.map((order) =>
-        order.id === orderId ? { ...order, assigned_driver_id: driverId, status: 'PLANNED' } : order
-      ),
-    }));
-  };
-
-  return { queue, isLoading, error, refetch, reassignOrder };
+  return { queue, hasLoaded, isLoading, error, refetch };
 }

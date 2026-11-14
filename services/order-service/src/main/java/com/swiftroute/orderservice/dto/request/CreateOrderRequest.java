@@ -13,7 +13,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -61,7 +60,6 @@ public record CreateOrderRequest(
         // Parcel specs
         @NotNull(message = "Khối lượng bưu kiện không được để trống")
         @Positive(message = "Khối lượng phải lớn hơn 0") Double weightKg,
-        @Min(1) @Max(100) Integer packageCount,
         PackageCategory packageCategory,
         @Size(max = 500) String packageDescription,
         @Size(max = 500) String notes,
@@ -79,9 +77,6 @@ public record CreateOrderRequest(
         }
         if (packageCategory == null) {
             packageCategory = PackageCategory.PARCEL;
-        }
-        if (packageCount == null) {
-            packageCount = 1;
         }
         if (codAmount == null) {
             codAmount = BigDecimal.ZERO;

@@ -8,7 +8,6 @@ import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
-import 'package:swiftroute_app/features/driver/data/datasources/driver_remote_data_source.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
@@ -20,7 +19,7 @@ import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 /// Exposes exactly one primary action per phase:
 /// - package still at depot → swipe to confirm pickup (fast-track to OUT_FOR_DELIVERY)
 /// - package on the vehicle → "Giao xong" opening the POD/COD sheet
-/// - return task → swipe to start return / hand over to warehouse
+/// - return task → confirm handover at the warehouse
 class DriverStopDetailSheet extends ConsumerStatefulWidget {
   const DriverStopDetailSheet({
     super.key,
@@ -94,27 +93,15 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
       _showSnack('Nhiệm vụ chưa có mã thực thi. Hãy tải lại lộ trình.');
       return;
     }
-    final status = _order.deliveryTaskStatus ?? DeliveryTaskStatus.assigned;
     try {
-      if (status == DeliveryTaskStatus.assigned ||
-          status == DeliveryTaskStatus.accepted) {
-        await ref
-            .read(driverOrdersProvider.notifier)
-            .confirmBatchPickup(
-              orderIds: [_order.id],
-              notes: 'Bắt đầu hoàn kiện về kho',
-            );
-      } else {
-        // Warehouse staff verifies receipt afterwards on Web Admin.
-        await ref
-            .read(driverOrdersProvider.notifier)
-            .updateDeliveryTask(
-              orderId: _order.id,
-              taskId: taskId,
-              nextStatus: DeliveryTaskStatus.completed,
-              notes: 'Đã bàn giao kiện hoàn cho kho',
-            );
-      }
+      await ref
+          .read(driverOrdersProvider.notifier)
+          .updateDeliveryTask(
+            orderId: _order.id,
+            taskId: taskId,
+            nextStatus: DeliveryTaskStatus.completed,
+            notes: 'Đã bàn giao kiện hoàn cho kho',
+          );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
@@ -138,85 +125,23 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
     );
   }
 
-  /// Starts a dual-confirmation package handover to another active driver.
   Future<void> _createPackageHandover() async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => const _HandoverReasonDialog(),
+    );
+    if (reason == null || !mounted) return;
     setState(() => _isBusy = true);
     try {
-      final currentUserId = ref.read(driverProvider).valueOrNull?.userId;
-      final drivers = await ref
-          .read(driverRemoteDataSourceProvider)
-          .getTenantDrivers();
-      final candidates = drivers
-          .where(
-            (d) =>
-                d.userId != null &&
-                d.userId != currentUserId &&
-                d.status == 'ACTIVE',
-          )
-          .toList();
-      if (!mounted) return;
-      final selected = await showModalBottomSheet<String>(
-        context: context,
-        builder: (sheetContext) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Text(
-                  'Bàn giao kiện cho tài xế',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                ),
-              ),
-              if (candidates.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, 24),
-                  child: Text(
-                    'Không có tài xế khác đang hoạt động.',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                )
-              else
-                for (final d in candidates)
-                  ListTile(
-                    minVerticalPadding: 12,
-                    leading: const CircleAvatar(
-                      backgroundColor: AppColors.primarySoft,
-                      child: Icon(
-                        Icons.person_rounded,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    title: Text(
-                      d.fullName,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: Text('${d.licensePlate} · ${d.phone}'),
-                    onTap: () => Navigator.of(sheetContext).pop(d.userId),
-                  ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
-      );
-      if (selected == null) return;
       await ref
           .read(orderRemoteDataSourceProvider)
-          .createPackageHandover(orderId: _order.id, toDriverId: selected);
+          .createPackageHandover(orderId: _order.id, reason: reason);
       await ref.read(packageHandoverProvider.notifier).refresh();
       if (mounted) {
-        _showSnack(
-          'Đã tạo lượt bàn giao. Hai tài xế xác nhận trong tab Bàn giao.',
-          color: AppColors.success,
-        );
+        _showSnack('Đã gửi yêu cầu bàn giao.', color: AppColors.success);
       }
     } catch (_) {
-      if (mounted) {
-        _showSnack(
-          'Không thể tạo bàn giao. Chỉ kiện đã nhận và chưa có bàn giao khác mới được chuyển.',
-        );
-      }
+      if (mounted) _showSnack('Không gửi được yêu cầu bàn giao.');
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
@@ -356,8 +281,7 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
             _InfoRow(
               icon: Icons.inventory_2_outlined,
               label: 'Kiện hàng',
-              value:
-                  '${order.packageCount} kiện · ${order.weightKg.toStringAsFixed(1)} kg',
+              value: '1 kiện · ${order.weightKg.toStringAsFixed(1)} kg',
             ),
             if (order.packageDescription?.trim().isNotEmpty == true)
               _InfoRow(
@@ -380,15 +304,14 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
               const SizedBox(height: 20),
               if (order.isReturnTask)
                 SlideToConfirmButton(
-                  label: status == DeliveryTaskStatus.outForDelivery
-                      ? 'Vuốt bàn giao kiện hoàn cho kho'
-                      : 'Vuốt bắt đầu mang kiện về kho',
+                  label: 'Vuốt xác nhận đã bàn giao tại kho',
+                  subtitle: 'Kho sẽ kiểm nhận để hoàn tất yêu cầu',
                   icon: Icons.assignment_return_rounded,
                   onConfirmed: _advanceReturn,
                 )
               else if (order.needsPickup)
                 SlideToConfirmButton(
-                  label: 'Vuốt đã lấy ${order.packageCount} kiện',
+                  label: 'Vuốt đã lấy 1 kiện',
                   subtitle: 'Đơn chuyển thẳng sang đang giao',
                   backgroundColor: AppColors.accent,
                   icon: Icons.inventory_2_rounded,
@@ -428,7 +351,7 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
                         label: const Text('Báo sự cố'),
                       ),
                     ),
-                  if (order.isOutForDelivery)
+                  if (order.isOutForDelivery || order.isReturnTask)
                     Expanded(
                       child: TextButton.icon(
                         onPressed: _isBusy ? null : _createPackageHandover,
@@ -501,6 +424,41 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _HandoverReasonDialog extends StatefulWidget {
+  const _HandoverReasonDialog();
+
+  @override
+  State<_HandoverReasonDialog> createState() => _HandoverReasonDialogState();
+}
+
+class _HandoverReasonDialogState extends State<_HandoverReasonDialog> {
+  String _reason = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Yêu cầu bàn giao đơn'),
+      content: TextField(
+        maxLength: 1000,
+        onChanged: (value) => setState(() => _reason = value.trim()),
+        decoration: const InputDecoration(labelText: 'Lý do bàn giao'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Hủy'),
+        ),
+        FilledButton(
+          onPressed: _reason.isEmpty
+              ? null
+              : () => Navigator.pop(context, _reason),
+          child: const Text('Gửi yêu cầu'),
+        ),
+      ],
     );
   }
 }

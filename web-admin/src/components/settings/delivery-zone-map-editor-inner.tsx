@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import axios from 'axios';
 import {
@@ -136,6 +138,7 @@ export default function DeliveryZoneMapEditorInner({
   isCheckingPoint,
   checkResult,
 }: DeliveryZoneMapEditorProps) {
+  const { t } = useLocale();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const centerMarkerRef = useRef<MapLibreMarker | null>(null);
@@ -226,11 +229,11 @@ export default function DeliveryZoneMapEditorInner({
         callbacksRef.current.onCenterChange(lat, lng, address);
       }
     } catch {
-      setGeoError('Đã cập nhật tâm vùng giao hàng, nhưng chưa tra cứu được địa chỉ từ Goong.');
+      setGeoError(t("Đã cập nhật tâm vùng giao hàng, nhưng chưa tra cứu được địa chỉ từ Goong."));
     } finally {
       setResolvingAddress(false);
     }
-  }, []);
+  }, [t]);
 
   const handleMapTestClick = useCallback(async (lat: number, lng: number) => {
     setTestCoords({ lat, lng });
@@ -359,7 +362,7 @@ export default function DeliveryZoneMapEditorInner({
     });
 
     instance.on('error', () => {
-      setMapError('Không tải được nền bản đồ Goong. Hãy kiểm tra NEXT_PUBLIC_GOONG_MAP_KEY.');
+      setMapError(t("Không tải được nền bản đồ Goong. Hãy kiểm tra NEXT_PUBLIC_GOONG_MAP_KEY."));
     });
 
     instance.on('click', ({ lngLat }) => {
@@ -474,7 +477,7 @@ export default function DeliveryZoneMapEditorInner({
         setPredictions(items);
       } catch (err) {
         if (!axios.isCancel(err)) {
-          setGeoError('Không thể tìm kiếm địa điểm qua Goong.');
+          setGeoError(t("Không thể tìm kiếm địa điểm qua Goong."));
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -486,7 +489,7 @@ export default function DeliveryZoneMapEditorInner({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeQuery, searchOpen]);
+  }, [activeQuery, searchOpen, t]);
 
   async function choosePrediction(prediction: MapPlacePrediction) {
     setSearching(true);
@@ -496,7 +499,7 @@ export default function DeliveryZoneMapEditorInner({
     try {
       const detail = await goongMapsClient.getPlaceDetail(prediction.place_id, sessionToken.current);
       if (!detail) {
-        setGeoError('Không lấy được vị trí cho địa điểm đã chọn.');
+        setGeoError(t("Không lấy được vị trí cho địa điểm đã chọn."));
         return;
       }
       if (interactionMode === 'test') {
@@ -511,7 +514,7 @@ export default function DeliveryZoneMapEditorInner({
       const bounds = getCircleBounds(detail.lat, detail.lng, radiusKm);
       mapRef.current?.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 450 });
     } catch {
-      setGeoError('Không lấy được thông tin chi tiết địa điểm.');
+      setGeoError(t("Không lấy được thông tin chi tiết địa điểm."));
     } finally {
       setSearching(false);
     }
@@ -519,7 +522,7 @@ export default function DeliveryZoneMapEditorInner({
 
   function locateMe() {
     if (!navigator.geolocation) {
-      setGeoError('Trình duyệt không hỗ trợ định vị GPS.');
+      setGeoError(t("Trình duyệt không hỗ trợ định vị GPS."));
       return;
     }
     setResolvingAddress(true);
@@ -532,7 +535,7 @@ export default function DeliveryZoneMapEditorInner({
       },
       () => {
         setResolvingAddress(false);
-        setGeoError('Không đọc được vị trí hiện tại từ trình duyệt.');
+        setGeoError(t("Không đọc được vị trí hiện tại từ trình duyệt."));
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
@@ -556,7 +559,7 @@ export default function DeliveryZoneMapEditorInner({
             }`}
           >
             <Target className="h-3.5 w-3.5" />
-            Định tâm & bán kính
+            {t("Định tâm & bán kính")}
           </button>
           <button
             type="button"
@@ -572,7 +575,7 @@ export default function DeliveryZoneMapEditorInner({
             }`}
           >
             <Crosshair className="h-3.5 w-3.5" />
-            Kiểm tra điểm giao
+            {t("Kiểm tra điểm giao")}
           </button>
         </div>
 
@@ -582,7 +585,7 @@ export default function DeliveryZoneMapEditorInner({
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
         >
           <Maximize2 className="h-3.5 w-3.5" />
-          Canh vừa vùng
+          {t("Canh vừa vùng")}
         </button>
       </div>
 
@@ -606,10 +609,10 @@ export default function DeliveryZoneMapEditorInner({
               }}
               placeholder={
                 interactionMode === 'test'
-                  ? 'Tìm địa chỉ giao hàng cần kiểm tra trên bản đồ'
-                  : 'Tìm địa chỉ làm tâm vùng giao hàng'
+                  ? t("Tìm địa chỉ giao hàng cần kiểm tra trên bản đồ")
+                  : t("Tìm địa chỉ làm tâm vùng giao hàng")
               }
-              aria-label="Tìm địa chỉ trên bản đồ"
+              aria-label={t("Tìm địa chỉ trên bản đồ")}
               className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 outline-none focus:border-slate-500"
             />
             {(searching || resolvingAddress || isCheckingPoint) && (
@@ -646,8 +649,8 @@ export default function DeliveryZoneMapEditorInner({
             <button
               type="button"
               onClick={locateMe}
-              title="Lấy vị trí hiện tại"
-              aria-label="Lấy vị trí hiện tại"
+              title={t("Lấy vị trí hiện tại")}
+              aria-label={t("Lấy vị trí hiện tại")}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
             >
               <LocateFixed className="h-4 w-4" />
@@ -659,7 +662,7 @@ export default function DeliveryZoneMapEditorInner({
           <div
             ref={mapContainer}
             className={`h-[380px] w-full ${interactionMode === 'test' ? 'cursor-crosshair' : ''}`}
-            aria-label="Bản đồ vùng giao hàng"
+            aria-label={t("Bản đồ vùng giao hàng")}
           />
         ) : (
           <div className="flex h-[380px] items-center justify-center px-6 text-center text-sm text-rose-700">
@@ -672,8 +675,8 @@ export default function DeliveryZoneMapEditorInner({
             {geoError ||
               mapError ||
               (interactionMode === 'test'
-                ? 'Nhấp lên một vị trí bất kỳ trên bản đồ để kiểm tra đơn có được phép giao tới hay không.'
-                : 'Kéo ghim xanh để đổi tâm vùng hoặc kéo điểm trắng trên viền tròn để thay đổi bán kính.')}
+                ? t("Nhấp lên một vị trí bất kỳ trên bản đồ để kiểm tra đơn có được phép giao tới hay không.")
+                : t("Kéo ghim xanh để đổi tâm vùng hoặc kéo điểm trắng trên viền tròn để thay đổi bán kính."))}
           </span>
           {testCoords && checkResult && interactionMode === 'test' && (
             <span
@@ -685,7 +688,7 @@ export default function DeliveryZoneMapEditorInner({
                   : 'bg-rose-50 text-rose-700'
               }`}
             >
-              Cách tâm {checkResult.distance_km.toFixed(2)} km
+              {t("Cách tâm")}{" "}{checkResult.distance_km.toFixed(2)} km
             </span>
           )}
         </div>

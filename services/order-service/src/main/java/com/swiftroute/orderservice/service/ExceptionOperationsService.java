@@ -1,5 +1,7 @@
 package com.swiftroute.orderservice.service;
 
+import com.swiftroute.orderservice.dto.response.PageRequests;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
@@ -229,6 +231,12 @@ public class ExceptionOperationsService {
      * Query delivery incidents with optional filters.
      */
     @Transactional(readOnly = true)
+    public PageResponse<DeliveryIncidentResponse> getIncidentPage(UUID tenantId, String status, UUID driverId, String severity, UUID orderId, int page, int size) {
+        return PageResponse.fromPage(incidents.findPage(tenantId, (status == null || status.isBlank() ? null : status.trim().toUpperCase(java.util.Locale.ROOT)), driverId, (severity == null || severity.isBlank() ? null : severity.trim().toUpperCase(java.util.Locale.ROOT)), orderId,
+                PageRequests.newestFirst(page, size, "createdAt")).map(DeliveryIncidentResponse::from));
+    }
+
+    @Transactional(readOnly = true)
     public List<DeliveryIncidentResponse> getIncidents(
             UUID tenantId,
             String status,
@@ -305,9 +313,7 @@ public class ExceptionOperationsService {
                         throw new AppException(ErrorCode.VALIDATION_ERROR);
                     }
                     // Physical custody safety check: Never reassign without verified custody
-                    var units = custody.packagesForOrder(order.getId(), tenantId, actorId, role);
-                    boolean hasCustody = units.stream().anyMatch(u -> "IN_CUSTODY".equals(u.status()));
-                    if (hasCustody) {
+                    if (custody.holdsOrder(order)) {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                     }
                     order.setAssignedDriverId(request.replacementDriverId());
@@ -332,7 +338,6 @@ public class ExceptionOperationsService {
                             "RETURN_TO_ORIGIN",
                             request.notes() != null ? request.notes() : "Sự cố giao hàng yêu cầu hoàn trả",
                             null,
-                            order.getPackageCount(),
                             request.notes(),
                             null
                     ));
@@ -419,7 +424,6 @@ public class ExceptionOperationsService {
                 .tenantId(tenantId)
                 .returnLocation(returnLocation)
                 .currentHolderId(holderId)
-                .packageCount(request.packageCount() != null ? request.packageCount() : order.getPackageCount())
                 .requestType(request.requestType() != null ? request.requestType() : "RETURN_TO_ORIGIN")
                 .reason(request.reason())
                 .status("REQUESTED")
@@ -445,6 +449,12 @@ public class ExceptionOperationsService {
     /**
      * Query return requests with optional filters.
      */
+    @Transactional(readOnly = true)
+    public PageResponse<ReturnRequestResponse> getReturnPage(UUID tenantId, String status, UUID driverId, int page, int size) {
+        return PageResponse.fromPage(returns.findPage(tenantId, (status == null || status.isBlank() ? null : status.trim().toUpperCase(java.util.Locale.ROOT)), driverId,
+                PageRequests.newestFirst(page, size, "createdAt")).map(ReturnRequestResponse::from));
+    }
+
     @Transactional(readOnly = true)
     public List<ReturnRequestResponse> getReturnRequests(
             UUID tenantId,
@@ -502,6 +512,10 @@ public class ExceptionOperationsService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
+        if (custody.holdsOrder(order) && !driverId.equals(order.getAssignedDriverId())) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        custody.requireNoActiveHandover(order);
         returnReq.setApprovedBy(actorId);
         returnReq.setUpdatedAt(Instant.now());
 
@@ -516,6 +530,7 @@ public class ExceptionOperationsService {
 
         // Normal return custody execution
         execution.markDeliveryTaskFailed(order, driverId);
+        order.setAssignedDriverId(driverId);
         custody.startReturn(order, actorId);
         DeliveryTask returnTask = execution.createReturnTask(order, driverId);
         returnReq.setReturnTask(returnTask);
@@ -525,6 +540,7 @@ public class ExceptionOperationsService {
         order.setStatus(OrderStatus.FAILED);
         order.setFulfillmentStatus("RETURNING");
         order.setUpdatedAt(Instant.now());
+        execution.completeDeliveryPlanIfFinished(order);
 
         emitOutbox("return.approved", tenantId, returnReq.getId(), Map.of(
                 "tenant_id", tenantId,
@@ -567,6 +583,9 @@ public class ExceptionOperationsService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
+        Order order = returnReq.getOrder();
+        custody.requireNoActiveHandover(order);
+        order.setUpdatedAt(Instant.now());
         returnReq.setStatus("ARRIVED");
         returnReq.setUpdatedAt(Instant.now());
 
@@ -600,6 +619,9 @@ public class ExceptionOperationsService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
+        Order order = returnReq.getOrder();
+        custody.requireNoActiveHandover(order);
+        order.setUpdatedAt(Instant.now());
         returnReq.setStatus("AWAITING_RECEIPT");
         returnReq.setUpdatedAt(Instant.now());
 
@@ -647,6 +669,7 @@ public class ExceptionOperationsService {
         order.setStatus(OrderStatus.RETURNED);
         order.setFulfillmentStatus("RETURNED");
         order.setUpdatedAt(Instant.now());
+        execution.completeDeliveryPlanIfFinished(order);
 
         // Resolve linked incident if open
         if (returnReq.getIncident() != null) {
@@ -697,6 +720,9 @@ public class ExceptionOperationsService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
+        Order order = returnReq.getOrder();
+        custody.requireNoActiveHandover(order);
+        order.setUpdatedAt(Instant.now());
         returnReq.setStatus("DISCREPANCY");
         returnReq.setDiscrepancyType(request.discrepancyType().toUpperCase(Locale.ROOT));
         returnReq.setActualQuantity(request.actualQuantity());
@@ -784,13 +810,13 @@ public class ExceptionOperationsService {
         if (batchOpt.isPresent()) {
             return codLedger.verifyHandover(id, tenantId, actor, role,
                     new com.swiftroute.orderservice.dto.request.VerifyCodHandoverRequest(
-                            UUID.randomUUID(), batchOpt.get().declaredTotal(), notes));
+                            UUID.randomUUID(), batchOpt.get().declaredTotal(), null, notes));
         }
         Order order = orders.findById(id).orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         if (order.getCodHandoverBatchId() != null) {
             return codLedger.verifyHandover(order.getCodHandoverBatchId(), tenantId, actor, role,
                     new com.swiftroute.orderservice.dto.request.VerifyCodHandoverRequest(
-                            UUID.randomUUID(), order.getCodAmount(), notes));
+                            UUID.randomUUID(), order.getCodAmount(), null, notes));
         }
         order.setCodStatus("HANDED_OVER");
         order.setPaymentStatus("PAID");
@@ -836,20 +862,19 @@ public class ExceptionOperationsService {
                 .toList();
 
         var submittedBatches = codLedger.handoverQueue(tenantId, role, "SUBMITTED");
-        List<OperationsReviewResponse.CodItem> codList = new java.util.ArrayList<>();
-        for (var batch : submittedBatches) {
-            for (var line : batch.lines()) {
-                codList.add(new OperationsReviewResponse.CodItem(
+        List<OperationsReviewResponse.CodItem> codList = submittedBatches.stream()
+                .map(batch -> new OperationsReviewResponse.CodItem(
                         batch.id(),
-                        line.orderId(),
-                        line.orderCode(),
                         batch.driverId(),
-                        line.amount(),
+                        batch.ledgerTotal(),
                         batch.declaredTotal(),
+                        batch.lines().size(),
+                        batch.lines().stream()
+                                .map(line -> line.orderCode() != null ? line.orderCode() : line.orderId().toString())
+                                .toList(),
                         batch.notes(),
-                        batch.submittedAt()));
-            }
-        }
+                        batch.submittedAt()))
+                .toList();
 
         return new OperationsReviewResponse(incList, retList, codList);
     }

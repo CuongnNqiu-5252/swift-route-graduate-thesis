@@ -50,11 +50,25 @@ public class JwtService {
     }
 
     public String generateTenantAccessToken(User user, java.util.UUID tenantId, String role, long ttlMinutes) {
+        java.util.List<String> defaultPermissions = com.swiftroute.authservice.entity.enums.TenantPermission
+                .defaultPermissionsForRoleName(role, user.getRole());
+        return generateTenantAccessToken(user, tenantId, role, defaultPermissions, 1L, ttlMinutes);
+    }
+
+    public String generateTenantAccessToken(
+            User user,
+            java.util.UUID tenantId,
+            String role,
+            java.util.List<String> permissions,
+            Long permissionsVersion,
+            long ttlMinutes) {
         return Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("system_role", user.getRole().name())
                 .claim("tenant_id", tenantId != null ? tenantId.toString() : null)
                 .claim("tenant_role", role)
+                .claim("permissions", permissions != null ? permissions : java.util.List.of())
+                .claim("perm_ver", permissionsVersion != null ? permissionsVersion : 1L)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + ttlMinutes * 60_000L))
                 .signWith(secretKey)
@@ -111,6 +125,10 @@ public class JwtService {
     }
 
     public String generateAndStoreRefreshToken(User user, HttpServletRequest request) {
+        return generateAndStoreRefreshToken(user, request, null);
+    }
+
+    public String generateAndStoreRefreshToken(User user, HttpServletRequest request, java.util.UUID activeTenantId) {
         String plainToken = generateSecureRandomToken();
         String hash = sha256(plainToken);
 
@@ -122,6 +140,7 @@ public class JwtService {
                 .revoked(false)
                 .deviceInfo(request != null ? request.getHeader("User-Agent") : null)
                 .ipAddress(request != null ? request.getRemoteAddr() : null)
+                .activeTenantId(activeTenantId)
                 .build();
 
         refreshTokenRepository.save(refreshToken);
@@ -161,5 +180,43 @@ public class JwtService {
     public String extractTenantRole(String token) {
         Claims claims = jwtParser.parseSignedClaims(token).getPayload();
         return claims.get("tenant_role", String.class);
+    }
+
+    public String extractTenantId(String token) {
+        try {
+            Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+            return claims.get("tenant_id", String.class);
+        } catch (io.jsonwebtoken.ExpiredJwtException e) {
+            return e.getClaims().get("tenant_id", String.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public java.util.List<String> extractPermissions(String token) {
+        try {
+            Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+            Object raw = claims.get("permissions");
+            if (raw instanceof java.util.List<?> list) {
+                return list.stream()
+                        .filter(String.class::isInstance)
+                        .map(String.class::cast)
+                        .toList();
+            }
+            return java.util.List.of();
+        } catch (Exception e) {
+            return java.util.List.of();
+        }
+    }
+
+    public Long extractPermissionsVersion(String token) {
+        try {
+            Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+            Number ver = claims.get("perm_ver", Number.class);
+            return ver != null ? ver.longValue() : 1L;
+        } catch (Exception e) {
+            return 1L;
+        }
     }
 }

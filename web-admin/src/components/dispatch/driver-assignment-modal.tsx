@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useState } from 'react';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -33,6 +35,7 @@ export function DriverAssignmentModal({
   isLoadingDrivers,
   onConfirm,
 }: DriverAssignmentModalProps) {
+  const { t } = useLocale();
   const [localDriverIds, setLocalDriverIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReoptimizing, setIsReoptimizing] = useState(false);
@@ -80,7 +83,7 @@ export function DriverAssignmentModal({
     try {
       await onReoptimizeForCount(selectedDriverIds.length);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể tính lại tuyến CVRP');
+      setError(err instanceof Error ? err.message : t("Không thể tính lại tuyến CVRP"));
     } finally {
       setIsReoptimizing(false);
     }
@@ -114,7 +117,7 @@ export function DriverAssignmentModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Phê duyệt & Bàn giao Lộ trình CVRP"
+      title={t("Phê duyệt & Bàn giao Lộ trình CVRP")}
       description={`Phân bổ tối ưu ${totalCount} đơn hàng từ kho cho đội tài xế bằng thuật toán Google OR-Tools CVRP.`}
     >
       <div className="space-y-4">
@@ -122,19 +125,19 @@ export function DriverAssignmentModal({
         <div className="rounded-lg bg-gray-50 p-3.5 border border-gray-200">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-[11px] text-gray-600">Tổng điểm giao</p>
-              <p className="mt-0.5 text-sm font-bold text-gray-900 tabular-nums">{totalCount} điểm</p>
+              <p className="text-[11px] text-gray-600">{t("Tổng điểm giao")}</p>
+              <p className="mt-0.5 text-sm font-bold text-gray-900 tabular-nums">{totalCount}{" "}{t("điểm")}</p>
             </div>
             <div>
-              <p className="text-[11px] text-gray-600">Tổng quãng đường</p>
+              <p className="text-[11px] text-gray-600">{t("Tổng quãng đường")}</p>
               <p className="mt-0.5 text-sm font-bold text-emerald-700 tabular-nums">
                 {result ? `${result.total_distance_km.toFixed(1)} km` : '—'}
               </p>
             </div>
             <div>
-              <p className="text-[11px] text-gray-600">Số tuyến CVRP</p>
+              <p className="text-[11px] text-gray-600">{t("Số tuyến CVRP")}</p>
               <p className="mt-0.5 text-sm font-bold text-blue-800 tabular-nums">
-                {vehicleRoutes.length || 1} tuyến
+                {vehicleRoutes.length || 1}{" "}{t("tuyến")}
               </p>
             </div>
           </div>
@@ -146,7 +149,7 @@ export function DriverAssignmentModal({
             <div className="flex items-start gap-2">
               <Users size={15} className="mt-0.5 shrink-0 text-blue-700" />
               <span>
-                Bạn đã chọn <strong>{driverCount} tài xế</strong> (khác với {vehicleRoutes.length} tuyến đã tính trước đó). Hệ thống sẽ giải lại CVRP cho {targetVehicles} xe khi bàn giao, hoặc bấm cập nhật ngay để xem trước.
+                {t("Bạn đã chọn")}{" "}<strong>{driverCount}{" "}{t("tài xế")}</strong>{" "}{t("(khác với")}{" "}{vehicleRoutes.length}{" "}{t("tuyến đã tính trước đó). Hệ thống sẽ giải lại CVRP cho")}{" "}{targetVehicles}{" "}{t("xe khi bàn giao, hoặc bấm cập nhật ngay để xem trước.")}
               </span>
             </div>
             {onReoptimizeForCount && (
@@ -157,7 +160,7 @@ export function DriverAssignmentModal({
                 isLoading={isReoptimizing}
                 className="shrink-0 border-blue-300 bg-white text-xs text-blue-800 hover:bg-blue-100"
               >
-                <RefreshCw size={12} /> Tính lại CVRP
+                <RefreshCw size={12} />{" "}{t("Tính lại CVRP")}
               </Button>
             )}
           </div>
@@ -167,7 +170,7 @@ export function DriverAssignmentModal({
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="block text-sm font-semibold text-gray-800">
-              Chọn tài xế nhận tuyến ({driverCount}/{availableDrivers.length}):
+              {t("Chọn tài xế nhận tuyến (")}{driverCount}/{availableDrivers.length}):
             </label>
             {availableDrivers.length > 1 && (
               <button
@@ -175,18 +178,18 @@ export function DriverAssignmentModal({
                 onClick={handleSelectAll}
                 className="text-xs font-semibold text-blue-700 hover:text-blue-900 hover:underline"
               >
-                {selectedDriverIds.length === availableDrivers.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                {selectedDriverIds.length === availableDrivers.length ? t("Bỏ chọn tất cả") : t("Chọn tất cả")}
               </button>
             )}
           </div>
 
           {isLoadingDrivers ? (
             <div className="py-4 text-center text-sm text-gray-500">
-              Đang tải danh sách tài xế...
+              {t("Đang tải danh sách tài xế...")}
             </div>
           ) : availableDrivers.length === 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-              Không có tài xế nào đang ở trạng thái Sẵn sàng (Available).
+              {t("Không có tài xế nào đang ở trạng thái Sẵn sàng (Available).")}
             </div>
           ) : (
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
@@ -219,7 +222,7 @@ export function DriverAssignmentModal({
                             <p className="text-sm font-semibold text-gray-900">{driver.name}</p>
                             {isSelected && (
                               <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-900">
-                                Tuyến #{selectedIndex + 1}
+                                {t("Tuyến #")}{selectedIndex + 1}
                               </span>
                             )}
                           </div>
@@ -243,8 +246,8 @@ export function DriverAssignmentModal({
                     {assignedRoute && (
                       <div className="mt-2.5 rounded border border-blue-100 bg-white px-2.5 py-2 text-xs text-gray-800">
                         <div className="flex items-center justify-between font-medium text-blue-950 tabular-nums">
-                          <span>{assignedRoute.ordered_stops.length} điểm giao · {assignedRoute.total_load_kg.toFixed(1)} kg</span>
-                          <span>{assignedRoute.total_distance_km.toFixed(1)} km · ~{Math.ceil(assignedRoute.total_duration_min)} phút</span>
+                          <span>{assignedRoute.ordered_stops.length}{" "}{t("điểm giao ·")}{" "}{assignedRoute.total_load_kg.toFixed(1)} kg</span>
+                          <span>{assignedRoute.total_distance_km.toFixed(1)} km · ~{Math.ceil(assignedRoute.total_duration_min)}{" "}{t("phút")}</span>
                         </div>
                         <p className="mt-1 truncate text-[11px] text-gray-600">
                           Kho → {assignedRoute.ordered_stops.map((s) => s.order?.order_code || s.id.slice(0, 8)).join(' → ')}
@@ -268,7 +271,7 @@ export function DriverAssignmentModal({
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Hủy
+            {t("Hủy")}
           </Button>
           <Button
             onClick={handleConfirm}
@@ -277,7 +280,7 @@ export function DriverAssignmentModal({
           >
             {driverCount > 1
               ? `Phê duyệt & Giao ${driverCount} tuyến CVRP`
-              : 'Phê duyệt & Giao đơn'}
+              : t("Phê duyệt & Giao đơn")}
           </Button>
         </div>
       </div>

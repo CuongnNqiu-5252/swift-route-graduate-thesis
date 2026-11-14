@@ -1,5 +1,7 @@
 package com.swiftroute.orderservice.repository;
 
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,6 +21,9 @@ public interface PickupLocationRepository extends JpaRepository<PickupLocation, 
     List<PickupLocation> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 
     List<PickupLocation> findByTenantIdAndStatusOrderByCreatedAtDesc(UUID tenantId, PickupLocationStatus status);
+
+    @Query("select p from PickupLocation p where p.tenant.id = :tenantId and (:status is null or p.status = :status)")
+    Page<PickupLocation> findPage(UUID tenantId, PickupLocationStatus status, Pageable pageable);
 
     Optional<PickupLocation> findByIdAndTenantId(UUID id, UUID tenantId);
 

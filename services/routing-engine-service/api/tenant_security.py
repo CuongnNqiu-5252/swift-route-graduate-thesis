@@ -24,11 +24,12 @@ async def require_tenant_access(request: Request):
         return
 
     # Allow internal service-to-service calls (e.g., from order-service via X-Internal-Key)
-    internal_key = os.getenv("TENANT_INTERNAL_KEY", "")
+    internal_key = os.getenv("TENANT_INTERNAL_KEY", "").strip()
     req_internal_key = request.headers.get("x-internal-key")
     if req_internal_key is not None:
-        if not internal_key or req_internal_key == internal_key:
+        if internal_key and req_internal_key == internal_key:
             return
+        raise HTTPException(401, "Invalid internal key")
 
     claims = _decode_jwt(request.headers.get("authorization", ""))
     system_role = str(claims.get("system_role") or "").upper()
@@ -50,5 +51,6 @@ async def require_tenant_access(request: Request):
         raise HTTPException(403, "Cross-tenant routing request denied")
     tenant = requested or tenant
 
-    if request.method != "GET" and membership_role == "VIEWER" and not admin:
+    is_optimization = path.startswith("/optimize") or path.startswith("optimize")
+    if (request.method != "GET" or is_optimization) and membership_role == "VIEWER" and not admin:
         raise HTTPException(403, "Read-only membership")

@@ -1,5 +1,6 @@
 package com.swiftroute.driverservice.controller;
 
+import com.swiftroute.driverservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -72,6 +73,17 @@ public class DriverController {
      * List all drivers (scoped to authorized tenant, or filtered by tenant_id for SYSTEM_ADMIN / internal calls).
      * Used by Web Admin and Dispatch console.
      */
+    @GetMapping("/page")
+    public ApiResponse<PageResponse<DriverResponse>> getDriverPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestParam(value = "tenant_id", required = false) UUID tenantIdParam,
+            Authentication authentication) {
+        UUID tenant = tenantId != null ? tenantId : tenantIdParam;
+        return ApiResponse.success(driverService.getDriverPage(tenant, resolveRole(authentication), page, size));
+    }
+
     @Operation(summary = "List all drivers (or filter by tenant)")
     @GetMapping
     public ResponseEntity<ApiResponse<List<DriverResponse>>> getAllDrivers(

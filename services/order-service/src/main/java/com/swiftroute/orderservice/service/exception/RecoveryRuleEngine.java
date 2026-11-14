@@ -107,7 +107,6 @@ public class RecoveryRuleEngine {
                     .tenantId(incident.getTenantId())
                     .returnLocation(order.getPickupLocation())
                     .currentHolderId(order.getAssignedDriverId())
-                    .packageCount(order.getPackageCount() != null ? order.getPackageCount() : 1)
                     .requestedBy(incident.getReportedBy())
                     .requestType("RETURN_TO_ORIGIN")
                     .reason("Tự động yêu cầu hoàn hàng sau khi vượt quá số lần giao tối đa (" + attempts + " lần)")

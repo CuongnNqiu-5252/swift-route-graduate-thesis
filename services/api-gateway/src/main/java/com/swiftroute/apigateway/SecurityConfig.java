@@ -59,10 +59,12 @@ public class SecurityConfig {
                                                                 "/api/auth/login",
                                                                 "/api/auth/register",
                                                                 "/api/auth/email/verify",
+                                                                "/api/auth/email/resend-public",
                                                                 "/api/auth/password/forgot",
                                                                 "/api/auth/password/reset",
                                                                 "/api/auth/refresh",
-                                                                "/api/auth/invitations/accept")
+                                                                "/api/auth/invitations/accept",
+                                                                "/api/auth/invitations/preview")
                                                 .permitAll()
                                                 .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll() // CORS preflight
                                                 .pathMatchers("/actuator/health").permitAll()

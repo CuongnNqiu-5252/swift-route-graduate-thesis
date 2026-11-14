@@ -88,7 +88,7 @@ export const VERIFICATION_ACTION_LABEL: Record<string, string> = {
 };
 
 export const BUSINESS_TYPE_LABEL: Record<string, string> = {
-  RESTAURANT: 'Nhà hàng / F&B',
+  RESTAURANT: 'Nhà hàng',
   CAFE: 'Cà phê / Trà sữa',
   PHARMACY: 'Nhà thuốc / Y tế',
   RETAIL: 'Bán lẻ',
@@ -97,7 +97,7 @@ export const BUSINESS_TYPE_LABEL: Record<string, string> = {
 };
 
 export const DELIVERY_MODE_LABEL: Record<string, string> = {
-  OWN_FLEET: 'Đội xe nội bộ',
+  OWN_FLEET: 'Đội giao hàng riêng',
   SHARED_POOL: 'Mạng lưới tài xế dùng chung',
   SHARED_NETWORK: 'Mạng lưới tài xế dùng chung',
   HYBRID: 'Kết hợp nội bộ và dùng chung',
@@ -130,11 +130,11 @@ export const REVIEW_DECISION_OPTIONS: Array<{
   },
 ];
 
-export function formatAdminDateTime(value?: string): string {
+export function formatAdminDateTime(value?: string, locale = 'vi-VN'): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('vi-VN', {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(date);

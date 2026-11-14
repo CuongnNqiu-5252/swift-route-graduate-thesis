@@ -47,6 +47,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/login",
             "/api/auth/register",
             "/api/auth/email/verify",
+            "/api/auth/email/resend-public",
             "/api/auth/password/forgot",
             "/api/auth/password/reset",
             "/api/auth/refresh",
@@ -111,6 +112,11 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                         // User has no tenant claim (e.g. USER or SYSTEM_ADMIN without scoped token); validate UUID
                         if (!isValidUuid(clientTenant)) {
                             return writeBadRequestResponse(exchange, "Invalid X-Tenant-Id header format");
+                        }
+                        if (!isSystemAdmin) {
+                            log.warn("Non-admin user {} with no tenant claim attempted to supply X-Tenant-Id: {}",
+                                    claims.userId(), clientTenant);
+                            return writeForbiddenResponse(exchange, "Forbidden: Cross-tenant access denied");
                         }
                         effectiveTenantId = clientTenant;
                     }

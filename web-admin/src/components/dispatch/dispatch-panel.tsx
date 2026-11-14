@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { Driver } from '@/domain/entities/driver.entity';
 import { Order } from '@/domain/entities/order.entity';
 import { DispatchDepot, OptimizationResult } from '@/domain/entities/routing.entity';
@@ -49,6 +51,7 @@ export function DispatchPanel({
   result,
   onOpenAssignModal,
 }: DispatchPanelProps) {
+  const { t } = useLocale();
   const compatibleOrders = orders.filter(isOrderSelectable);
   const isAllSelected = compatibleOrders.length > 0
     && compatibleOrders.every((order) => selectedOrders.some((selected) => selected.id === order.id));
@@ -67,10 +70,10 @@ export function DispatchPanel({
       <CardHeader className="border-b border-gray-100 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base font-bold text-gray-900">Đơn chờ điều phối</CardTitle>
-            <p className="mt-0.5 text-xs text-gray-600">Chọn các đơn cùng kho và đội xe để giải bài toán CVRP.</p>
+            <CardTitle className="text-base font-bold text-gray-900">{t("Đơn chờ điều phối")}</CardTitle>
+            <p className="mt-0.5 text-xs text-gray-600">{t("Chọn các đơn cùng kho và đội xe để giải bài toán CVRP.")}</p>
           </div>
-          <Badge className="shrink-0 bg-blue-100 text-blue-900 tabular-nums">{selectedOrders.length}/{orders.length} đơn</Badge>
+          <Badge className="shrink-0 bg-blue-100 text-blue-900 tabular-nums">{selectedOrders.length}/{orders.length}{" "}{t("đơn")}</Badge>
         </div>
 
         {depot && (
@@ -88,11 +91,11 @@ export function DispatchPanel({
         <div className="mt-3 flex items-center justify-between pt-1 text-xs">
           <button type="button" onClick={isAllSelected ? onDeselectAll : onSelectAll} className="flex items-center gap-1.5 font-medium text-blue-700 hover:text-blue-800">
             {isAllSelected
-              ? <><CheckSquare size={14} /> Bỏ chọn tất cả</>
-              : <><Square size={14} /> Chọn đơn cùng kho ({compatibleOrders.length})</>}
+              ? <><CheckSquare size={14} />{" "}{t("Bỏ chọn tất cả")}</>
+              : <><Square size={14} />{" "}{t("Chọn đơn cùng kho (")}{compatibleOrders.length})</>}
           </button>
           {selectedOrders.length > 0 && (
-            <span className="font-medium text-gray-600 tabular-nums">Tổng tải: <strong className="text-gray-900">{selectedOrders.reduce((sum, order) => sum + (order.weight_kg || 0), 0).toFixed(1)} kg</strong></span>
+            <span className="font-medium text-gray-600 tabular-nums">{t("Tổng tải:")}{" "}<strong className="text-gray-900">{selectedOrders.reduce((sum, order) => sum + (order.weight_kg || 0), 0).toFixed(1)} kg</strong></span>
           )}
         </div>
       </CardHeader>
@@ -101,8 +104,8 @@ export function DispatchPanel({
         {orders.length === 0 ? (
           <div className="flex h-40 flex-col items-center justify-center text-center text-xs text-gray-600">
             <Clock size={28} className="mb-2 text-gray-400" />
-            <p className="font-medium text-gray-700">Không có đơn sẵn sàng điều phối</p>
-            <p className="mt-1 text-gray-600">Đơn mới hợp lệ sẽ tự động xuất hiện tại đây khi sẵn sàng điều phối.</p>
+            <p className="font-medium text-gray-700">{t("Không có đơn sẵn sàng điều phối")}</p>
+            <p className="mt-1 text-gray-600">{t("Đơn mới hợp lệ sẽ tự động xuất hiện tại đây khi sẵn sàng điều phối.")}</p>
           </div>
         ) : orders.map((order) => {
           const isSelected = selectedOrders.some((selected) => selected.id === order.id);
@@ -134,7 +137,7 @@ export function DispatchPanel({
             <div className="flex items-center justify-between text-xs">
               <span className="flex items-center gap-1.5 font-semibold text-gray-800">
                 <Users size={13} className="text-blue-700" />
-                Đội xe tham gia ({selectedDriverIds.length || 1}/{availableDrivers.length} tài xế)
+                {t("Đội xe tham gia (")}{selectedDriverIds.length || 1}/{availableDrivers.length}{" "}{t("tài xế)")}
               </span>
               {availableDrivers.length > 1 && onSelectAllDrivers && (
                 <button
@@ -179,7 +182,7 @@ export function DispatchPanel({
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center gap-1 font-semibold text-blue-950">
                 <Route size={12} className="text-blue-700" />
-                Kết quả chia tuyến CVRP ({vehicleRoutes.length} xe)
+                {t("Kết quả chia tuyến CVRP (")}{vehicleRoutes.length} xe)
               </span>
               {onSelectVehicleRoute && (
                 <button
@@ -187,7 +190,7 @@ export function DispatchPanel({
                   onClick={() => onSelectVehicleRoute(null)}
                   className={`font-semibold ${activeVehicleIndex === null ? 'text-blue-800 underline' : 'text-gray-600 hover:text-blue-800'}`}
                 >
-                  Xem toàn đội
+                  {t("Xem toàn đội")}
                 </button>
               )}
             </div>
@@ -208,10 +211,10 @@ export function DispatchPanel({
                     }`}
                   >
                     <span className="font-semibold truncate max-w-[130px]">
-                      Tuyến #{idx + 1}: {matchedDriver?.name || `Tài xế ${idx + 1}`}
+                      {t("Tuyến #")}{idx + 1}: {matchedDriver?.name || `Tài xế ${idx + 1}`}
                     </span>
                     <span className="shrink-0 font-medium text-gray-700 tabular-nums">
-                      {vr.ordered_stops.length} đơn · {vr.total_distance_km.toFixed(1)} km · ~{Math.ceil(vr.total_duration_min)}p
+                      {vr.ordered_stops.length}{" "}{t("đơn ·")}{" "}{vr.total_distance_km.toFixed(1)} km · ~{Math.ceil(vr.total_duration_min)}p
                     </span>
                   </button>
                 );

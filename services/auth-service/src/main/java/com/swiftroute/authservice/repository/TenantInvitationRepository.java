@@ -1,5 +1,7 @@
 package com.swiftroute.authservice.repository;
 
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +18,8 @@ public interface TenantInvitationRepository extends JpaRepository<TenantInvitati
     @Override
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     Optional<TenantInvitation> findById(UUID id);
+
+    Page<TenantInvitation> findByTenantId(UUID tenantId, Pageable pageable);
 
     List<TenantInvitation> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 

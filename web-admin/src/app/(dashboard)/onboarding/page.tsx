@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/application/contexts/auth-context';
@@ -8,6 +10,13 @@ import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-l
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  BUSINESS_TYPE_LABEL,
+  DELIVERY_MODE_LABEL,
+  formatAdminDateTime,
+  TENANT_LIFECYCLE_LABEL,
+  VERIFICATION_STATUS_META,
+} from '@/domain/entities/platform-verification.entity';
 import LocationMapPicker from '@/components/locations/location-map-picker';
 
 const STEPS = ['BUSINESS_PROFILE', 'PICKUP_POINT', 'DELIVERY_MODE', 'DELIVERY_SETTINGS', 'VERIFICATION_SUBMISSION'] as const;
@@ -20,7 +29,24 @@ const LABEL: Record<Step, string> = {
   VERIFICATION_SUBMISSION: 'Gửi xét duyệt',
 };
 
+const DELIVERY_MODE_DESCRIPTION: Record<string, string> = {
+  OWN_FLEET: 'Doanh nghiệp giao hàng bằng đội tài xế do mình quản lý.',
+  SHARED_POOL: 'Bạn có thể lưu lựa chọn này. Tính năng giao đơn qua mạng lưới dùng chung chưa khả dụng.',
+  HYBRID: 'Hiện đơn hàng được giao bằng đội tài xế riêng vì mạng lưới dùng chung chưa khả dụng.',
+};
+
+const READINESS_LABEL: Record<string, string> = {
+  TENANT_PENDING: 'Doanh nghiệp chưa được duyệt',
+  TENANT_REJECTED: 'Doanh nghiệp bị từ chối',
+  TENANT_SUSPENDED: 'Doanh nghiệp đang tạm ngưng',
+  NO_PICKUP_POINT: 'Chưa có điểm lấy hàng',
+  SHARED_NETWORK_UNAVAILABLE: 'Mạng lưới tài xế dùng chung chưa khả dụng',
+  DRIVER_SERVICE_UNAVAILABLE: 'Chưa thể kiểm tra đội tài xế',
+  NO_ACTIVE_DRIVER: 'Chưa có tài xế đủ điều kiện hoạt động',
+};
+
 export default function OnboardingPage() {
+  const { t, intlLocale } = useLocale();
   const { user } = useAuth();
   const tenantId = user?.tenantId;
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -50,9 +76,9 @@ export default function OnboardingPage() {
         if (depot) setPickup({ id: depot.id, name: depot.name, address: depot.address, lat: String(depot.lat), lng: String(depot.lng) });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không tải được tiến độ thiết lập');
+      setError(e instanceof Error ? e.message : t("Không tải được tiến độ thiết lập"));
     }
-  }, [tenantId]);
+  }, [t, tenantId]);
 
   useEffect(() => {
     let active = true;
@@ -75,10 +101,10 @@ export default function OnboardingPage() {
         }
       })
       .catch((e) => {
-        if (active) setError(e instanceof Error ? e.message : 'Không tải được tiến độ thiết lập');
+        if (active) setError(e instanceof Error ? e.message : t("Không tải được tiến độ thiết lập"));
       });
     return () => { active = false; };
-  }, [tenantId]);
+  }, [t, tenantId]);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,7 +113,7 @@ export default function OnboardingPage() {
     setError('');
     try {
       if (step === 'PICKUP_POINT') {
-        if (!pickup.lat || !pickup.lng) throw new Error('Hãy chọn điểm lấy hàng trên bản đồ để xác định tọa độ.');
+        if (!pickup.lat || !pickup.lng) throw new Error(t("Hãy chọn điểm lấy hàng trên bản đồ để xác định tọa độ."));
         const payload = { name: pickup.name, address: pickup.address, lat: Number(pickup.lat), lng: Number(pickup.lng), contactPhone: profile.contact_phone, isDefault: true };
         const saved = pickup.id
           ? await pickupLocationRepository.updatePickupLocation(pickup.id, payload)
@@ -110,7 +136,7 @@ export default function OnboardingPage() {
       const index = STEPS.indexOf(step);
       setStep(STEPS[Math.min(index + 1, STEPS.length - 1)]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không thể lưu bước thiết lập');
+      setError(e instanceof Error ? e.message : t("Không thể lưu bước thiết lập"));
     } finally {
       setBusy(false);
     }
@@ -132,14 +158,14 @@ export default function OnboardingPage() {
       sessionStorage.removeItem(storageKey);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không thể gửi hồ sơ xét duyệt');
+      setError(e instanceof Error ? e.message : t("Không thể gửi hồ sơ xét duyệt"));
     } finally {
       setBusy(false);
     }
   }
 
-  if (!tenantId) return <p>Chọn hoặc tạo tổ chức tại <Link href="/organizations" className="font-medium text-blue-700 underline underline-offset-4">Tổ chức của bạn</Link>.</p>;
-  if (!progress || !profile) return <div className="space-y-3"><p role="status">Đang tải workspace…</p>{error && <p role="alert" className="text-red-700">{error}</p>}<Button variant="outline" onClick={load}>Thử lại</Button></div>;
+  if (!tenantId) return <p>{t("Chọn hoặc tạo tổ chức tại")}{" "}<Link href="/organizations" className="font-medium text-blue-700 underline underline-offset-4">{t("Tổ chức của bạn")}</Link>.</p>;
+  if (!progress || !profile) return <div className="space-y-3"><p role="status">{t("Đang tải tiến độ thiết lập…")}</p>{error && <p role="alert" className="text-red-700">{error}</p>}<Button variant="outline" onClick={load}>{t("Thử lại")}</Button></div>;
 
   const latest = progress.verification_requests[0];
   const index = STEPS.indexOf(step);
@@ -151,54 +177,54 @@ export default function OnboardingPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold text-gray-950">Thiết lập {progress.tenant.business_name}</h1><p className="mt-1 text-sm text-gray-600">Hoàn thành hồ sơ vận hành trước khi gửi quản trị viên xét duyệt.</p></div>
-        <Button variant="outline" onClick={load}>Cập nhật trạng thái</Button>
+        <div><h1 className="text-2xl font-semibold text-gray-950">{t("Thiết lập")}{" "}{progress.tenant.business_name}</h1><p className="mt-1 text-sm text-gray-600">{t("Hoàn thành hồ sơ vận hành trước khi gửi quản trị viên xét duyệt.")}</p></div>
+        <Button variant="outline" onClick={load}>{t("Cập nhật trạng thái")}</Button>
       </div>
 
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       <div className="grid gap-4 rounded-xl border border-gray-200 bg-white p-5 sm:grid-cols-3">
-        <div><p className="text-xs font-medium uppercase tracking-wide text-gray-500">Doanh nghiệp</p><p className="mt-1 font-semibold text-gray-950">{progress.tenant.status}</p></div>
-        <div><p className="text-xs font-medium uppercase tracking-wide text-gray-500">Hồ sơ xét duyệt</p><p className="mt-1 font-semibold text-gray-950">{latest?.status || 'CHƯA GỬI'}</p></div>
-        <div><p className="text-xs font-medium uppercase tracking-wide text-gray-500">Tiến độ</p><p className="mt-1 font-semibold text-gray-950">{progress.completed_steps.length}/{STEPS.length} bước</p></div>
-        {latest?.reason && <p className="sm:col-span-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Phản hồi từ quản trị viên: {latest.reason}</p>}
-        <p className="sm:col-span-3 text-sm text-gray-600">{progress.readiness.ready_for_operations ? 'Doanh nghiệp đã sẵn sàng vận hành.' : `Điều kiện còn thiếu: ${progress.readiness.missing_requirements.join(', ')}`}</p>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t("Doanh nghiệp")}</p><p className="mt-1 font-semibold text-gray-950">{t(TENANT_LIFECYCLE_LABEL[progress.tenant.status]?.label ?? t("Chưa xác định"))}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t("Hồ sơ xét duyệt")}</p><p className="mt-1 font-semibold text-gray-950">{latest ? (t(VERIFICATION_STATUS_META[latest.status]?.label ?? t("Chưa xác định"))) : t("Chưa gửi")}</p></div>
+        <div><p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t("Tiến độ")}</p><p className="mt-1 font-semibold text-gray-950">{progress.completed_steps.length}/{STEPS.length}{" "}{t("bước")}</p></div>
+        {latest?.reason && <p className="sm:col-span-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t("Phản hồi từ quản trị viên:")}{" "}{latest.reason}</p>}
+        <p className="sm:col-span-3 text-sm text-gray-600">{progress.readiness.ready_for_operations ? t("Doanh nghiệp đã sẵn sàng vận hành.") : `${t("Chưa thể vận hành.")} ${progress.readiness.missing_requirements.map((code) => t(READINESS_LABEL[code] ?? t("Cần kiểm tra thêm điều kiện vận hành"))).join(' · ')}`}</p>
       </div>
 
-      <nav aria-label="Tiến độ onboarding" className="flex gap-2 overflow-x-auto pb-1">
+      <nav aria-label={t("Tiến độ thiết lập doanh nghiệp")} className="flex gap-2 overflow-x-auto pb-1">
         {STEPS.map((item, itemIndex) => (
           <button key={item} onClick={() => setStep(item)} className={`min-h-11 shrink-0 rounded-lg border px-3 py-2 text-sm font-medium ${step === item ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-700'}`}>
-            {progress.completed_steps.includes(item) ? 'Đã xong · ' : `${itemIndex + 1}. `}{LABEL[item]}
+            {progress.completed_steps.includes(item) ? t("Đã xong · ") : `${itemIndex + 1}. `}{t(LABEL[item])}
           </button>
         ))}
       </nav>
 
-      {!owner && <p className="rounded-lg bg-gray-100 p-3 text-sm text-gray-700">Bạn có thể xem tiến độ. Chỉ OWNER mới có thể thay đổi thông tin hoặc gửi hồ sơ.</p>}
+      {!owner && <p className="rounded-lg bg-gray-100 p-3 text-sm text-gray-700">{t("Bạn có thể xem tiến độ. Chỉ chủ sở hữu mới có thể thay đổi thông tin hoặc gửi hồ sơ.")}</p>}
 
       <Card>
-        <CardHeader><CardTitle>{LABEL[step]}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t(LABEL[step])}</CardTitle></CardHeader>
         <CardContent>
           <form onSubmit={save} className="space-y-5">
             <fieldset disabled={!owner || busy || Boolean(isReviewLocked && step !== 'VERIFICATION_SUBMISSION')} className="space-y-4 disabled:opacity-60">
-              {step === 'BUSINESS_PROFILE' && <>{field('business_name', 'Tên doanh nghiệp', 2)}{field('contact_phone', 'Số điện thoại', 9)}{field('address', 'Địa chỉ', 5)}{field('country_code', 'Mã quốc gia', 2)}<label className="block text-sm font-medium text-gray-800">Loại hình<select className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={profile.business_type} onChange={(event) => setProfile({ ...profile, business_type: event.target.value })}>{['RESTAURANT', 'CAFE', 'RETAIL', 'PHARMACY', 'OTHER'].map((type) => <option key={type}>{type}</option>)}</select></label></>}
+              {step === 'BUSINESS_PROFILE' && <>{field('business_name', t("Tên doanh nghiệp"), 2)}{field('contact_phone', t("Số điện thoại"), 9)}{field('address', t("Địa chỉ"), 5)}{field('country_code', t("Mã quốc gia"), 2)}<label className="block text-sm font-medium text-gray-800">{t("Loại hình")}<select className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={profile.business_type} onChange={(event) => setProfile({ ...profile, business_type: event.target.value })}>{['RESTAURANT', 'CAFE', 'RETAIL', 'PHARMACY', 'OTHER'].map((type) => <option key={type} value={type}>{t(BUSINESS_TYPE_LABEL[type])}</option>)}</select></label></>}
 
-              {step === 'PICKUP_POINT' && <><p className="text-sm text-gray-600">Chọn đúng vị trí trên bản đồ. Địa chỉ và tọa độ này sẽ được đóng băng trong snapshot xét duyệt.</p><Input label="Tên điểm lấy hàng" required value={pickup.name} onChange={(event) => setPickup({ ...pickup, name: event.target.value })}/><Input label="Địa chỉ" required value={pickup.address} onChange={(event) => setPickup({ ...pickup, address: event.target.value })}/><LocationMapPicker lat={pickup.lat ? Number(pickup.lat) : 10.0452} lng={pickup.lng ? Number(pickup.lng) : 105.7469} address={pickup.address} onChange={(lat, lng, address) => setPickup((current) => ({ ...current, lat: String(lat), lng: String(lng), address: address || current.address }))}/><div className="grid gap-3 sm:grid-cols-2"><Input label="Vĩ độ" required type="number" step="any" min={-90} max={90} value={pickup.lat} onChange={(event) => setPickup({ ...pickup, lat: event.target.value })}/><Input label="Kinh độ" required type="number" step="any" min={-180} max={180} value={pickup.lng} onChange={(event) => setPickup({ ...pickup, lng: event.target.value })}/></div></>}
+              {step === 'PICKUP_POINT' && <><p className="text-sm text-gray-600">{t("Chọn đúng vị trí trên bản đồ. Địa chỉ và tọa độ này sẽ được lưu theo hồ sơ tại thời điểm gửi.")}</p><Input label={t("Tên điểm lấy hàng")} required value={pickup.name} onChange={(event) => setPickup({ ...pickup, name: event.target.value })}/><Input label={t("Địa chỉ")} required value={pickup.address} onChange={(event) => setPickup({ ...pickup, address: event.target.value })}/><LocationMapPicker lat={pickup.lat ? Number(pickup.lat) : 10.0452} lng={pickup.lng ? Number(pickup.lng) : 105.7469} address={pickup.address} onChange={(lat, lng, address) => setPickup((current) => ({ ...current, lat: String(lat), lng: String(lng), address: address || current.address }))}/><div className="grid gap-3 sm:grid-cols-2"><Input label={t("Vĩ độ")} required type="number" step="any" min={-90} max={90} value={pickup.lat} onChange={(event) => setPickup({ ...pickup, lat: event.target.value })}/><Input label={t("Kinh độ")} required type="number" step="any" min={-180} max={180} value={pickup.lng} onChange={(event) => setPickup({ ...pickup, lng: event.target.value })}/></div></>}
 
-              {step === 'DELIVERY_MODE' && <><label className="block text-sm font-medium text-gray-800">Phương thức giao hàng<select className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={profile.delivery_mode} onChange={(event) => setProfile({ ...profile, delivery_mode: event.target.value })}>{['OWN_FLEET', 'SHARED_POOL', 'HYBRID'].map((mode) => <option key={mode}>{mode}</option>)}</select></label><div className="space-y-2 text-sm text-gray-600"><p><strong className="text-gray-900">OWN_FLEET:</strong> sử dụng tài xế riêng của doanh nghiệp.</p><p><strong className="text-gray-900">HYBRID:</strong> hiện vận hành bằng đội xe riêng; Shared Pool chưa khả dụng.</p><p><strong className="text-gray-900">SHARED_POOL:</strong> có thể lưu lựa chọn nhưng chưa thể phát đơn qua mạng dùng chung.</p></div></>}
+              {step === 'DELIVERY_MODE' && <><label className="block text-sm font-medium text-gray-800">{t("Phương thức giao hàng")}<select aria-describedby="delivery-mode-description" className="mt-1 min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3" value={profile.delivery_mode} onChange={(event) => setProfile({ ...profile, delivery_mode: event.target.value })}>{['OWN_FLEET', 'SHARED_POOL', 'HYBRID'].map((mode) => <option key={mode} value={mode}>{t(DELIVERY_MODE_LABEL[mode])}</option>)}</select></label><p id="delivery-mode-description" className="text-sm text-gray-600">{t(DELIVERY_MODE_DESCRIPTION[profile.delivery_mode] ?? t("Chưa xác định"))}</p></>}
 
-              {step === 'DELIVERY_SETTINGS' && <><label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={profile.delivery_settings.preparation_enabled} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, preparation_enabled: event.target.checked } })}/>Có bước chuẩn bị hàng</label><Input label="Thời gian chuẩn bị (phút)" type="number" min={0} max={240} required value={profile.delivery_settings.preparation_minutes} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, preparation_minutes: Number(event.target.value) } })}/><label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={profile.delivery_settings.delivery_verification_required} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, delivery_verification_required: event.target.checked } })}/>Yêu cầu xác nhận giao hàng</label><label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={profile.delivery_settings.sensitive_handling} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, sensitive_handling: event.target.checked } })}/>Xử lý hàng nhạy cảm</label></>}
+              {step === 'DELIVERY_SETTINGS' && <><label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={profile.delivery_settings.preparation_enabled} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, preparation_enabled: event.target.checked } })}/>{t("Có bước chuẩn bị hàng")}</label><Input label={t("Thời gian chuẩn bị (phút)")} type="number" min={0} max={240} required value={profile.delivery_settings.preparation_minutes} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, preparation_minutes: Number(event.target.value) } })}/><label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={profile.delivery_settings.delivery_verification_required} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, delivery_verification_required: event.target.checked } })}/>{t("Yêu cầu xác nhận giao hàng")}</label><label className="flex min-h-11 items-center gap-3"><input type="checkbox" checked={profile.delivery_settings.sensitive_handling} onChange={(event) => setProfile({ ...profile, delivery_settings: { ...profile.delivery_settings, sensitive_handling: event.target.checked } })}/>{t("Xử lý hàng nhạy cảm")}</label></>}
 
-              {step === 'VERIFICATION_SUBMISSION' && <><p className="text-sm text-gray-600">Khi gửi, hệ thống lưu một snapshot bất biến gồm hồ sơ, cấu hình và các điểm lấy hàng đang hoạt động.</p><dl className="grid gap-3 rounded-lg bg-gray-50 p-4 sm:grid-cols-2"><div><dt className="text-xs text-gray-500">Doanh nghiệp</dt><dd className="font-medium">{profile.business_name}</dd></div><div><dt className="text-xs text-gray-500">Phương thức giao</dt><dd className="font-medium">{profile.delivery_mode}</dd></div><div><dt className="text-xs text-gray-500">Địa chỉ</dt><dd className="font-medium">{profile.address}</dd></div><div><dt className="text-xs text-gray-500">Điểm lấy hàng</dt><dd className="font-medium">{progress.completed_steps.includes('PICKUP_POINT') ? 'Đã cấu hình' : 'Chưa hoàn tất'}</dd></div></dl><Button type="button" onClick={submit} isLoading={busy} disabled={!owner || Boolean(isReviewLocked)}>Gửi hồ sơ xét duyệt</Button></>}
+              {step === 'VERIFICATION_SUBMISSION' && <><p className="text-sm text-gray-600">{t("Khi gửi, hệ thống lưu hồ sơ, cấu hình và các điểm lấy hàng đang hoạt động. Các chỉnh sửa sau đó không cập nhật bản đã gửi.")}</p><dl className="grid gap-3 rounded-lg bg-gray-50 p-4 sm:grid-cols-2"><div><dt className="text-xs text-gray-500">{t("Doanh nghiệp")}</dt><dd className="font-medium">{profile.business_name}</dd></div><div><dt className="text-xs text-gray-500">{t("Phương thức giao")}</dt><dd className="font-medium">{t(DELIVERY_MODE_LABEL[profile.delivery_mode] ?? t("Chưa xác định"))}</dd></div><div><dt className="text-xs text-gray-500">{t("Địa chỉ")}</dt><dd className="font-medium">{profile.address}</dd></div><div><dt className="text-xs text-gray-500">{t("Điểm lấy hàng")}</dt><dd className="font-medium">{progress.completed_steps.includes('PICKUP_POINT') ? t("Đã cấu hình") : t("Chưa hoàn tất")}</dd></div></dl><Button type="button" onClick={submit} isLoading={busy} disabled={!owner || Boolean(isReviewLocked)}>{t("Gửi hồ sơ xét duyệt")}</Button></>}
             </fieldset>
 
-            <div className="flex justify-between border-t border-gray-100 pt-4"><Button variant="outline" type="button" disabled={index === 0} onClick={() => setStep(STEPS[index - 1])}>Quay lại</Button>{step !== 'VERIFICATION_SUBMISSION' && <Button type="submit" disabled={!owner || Boolean(isReviewLocked)} isLoading={busy}>Lưu và tiếp tục</Button>}</div>
+            <div className="flex justify-between border-t border-gray-100 pt-4"><Button variant="outline" type="button" disabled={index === 0} onClick={() => setStep(STEPS[index - 1])}>{t("Quay lại")}</Button>{step !== 'VERIFICATION_SUBMISSION' && <Button type="submit" disabled={!owner || Boolean(isReviewLocked)} isLoading={busy}>{t("Lưu và tiếp tục")}</Button>}</div>
           </form>
         </CardContent>
       </Card>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5"><h2 className="font-semibold text-gray-950">Lịch sử xét duyệt</h2>{progress.verification_requests.length === 0 ? <p className="mt-3 text-sm text-gray-600">Chưa có hồ sơ. Hoàn tất thông tin và gửi xét duyệt.</p> : <div className="mt-3 divide-y">{progress.verification_requests.map((request) => <div key={request.request_id} className="py-3"><p className="font-medium text-gray-900">{request.status}</p><p className="mt-1 text-sm text-gray-600">{request.submitted_at || 'Chưa ghi nhận thời gian'}{request.reason ? ` · ${request.reason}` : ''}</p></div>)}</div>}</section>
+      <section className="rounded-xl border border-gray-200 bg-white p-5"><h2 className="font-semibold text-gray-950">{t("Lịch sử xét duyệt")}</h2>{progress.verification_requests.length === 0 ? <p className="mt-3 text-sm text-gray-600">{t("Chưa có hồ sơ. Hoàn tất thông tin và gửi xét duyệt.")}</p> : <div className="mt-3 divide-y">{progress.verification_requests.map((request) => <div key={request.request_id} className="py-3"><p className="font-medium text-gray-900">{t(VERIFICATION_STATUS_META[request.status]?.label ?? t("Chưa xác định"))}</p><p className="mt-1 text-sm text-gray-600">{request.submitted_at ? formatAdminDateTime(request.submitted_at, intlLocale) : t("Chưa ghi nhận thời gian")}{request.reason ? ` · ${request.reason}` : ''}</p></div>)}</div>}</section>
 
-      {progress.tenant.status === 'APPROVED' && !progress.readiness.ready_for_operations && <p className="rounded-lg bg-blue-50 p-4 text-sm text-blue-900">Doanh nghiệp đã được duyệt. Nếu dùng đội xe riêng, tiếp tục <Link href="/members" className="font-semibold underline underline-offset-4">mời tài xế</Link> và <Link href="/drivers" className="font-semibold underline underline-offset-4">hoàn thiện hồ sơ vận hành</Link>.</p>}
+      {progress.tenant.status === 'APPROVED' && !progress.readiness.ready_for_operations && <p className="rounded-lg bg-blue-50 p-4 text-sm text-blue-900">{t("Doanh nghiệp đã được duyệt. Nếu dùng đội giao hàng riêng, tiếp tục")}{" "}<Link href="/members" className="font-semibold underline underline-offset-4">{t("mời tài xế")}</Link>{" "}{t("và")}{" "}<Link href="/drivers" className="font-semibold underline underline-offset-4">{t("hoàn thiện hồ sơ vận hành")}</Link>.</p>}
     </div>
   );
 }

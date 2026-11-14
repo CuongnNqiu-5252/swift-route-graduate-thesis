@@ -1,5 +1,7 @@
 package com.swiftroute.driverservice.controller;
 
+import org.springframework.web.bind.annotation.RequestParam;
+import com.swiftroute.driverservice.dto.response.PageResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -41,7 +43,7 @@ public class EarningController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER','VIEWER')")
     public ResponseEntity<ApiResponse<List<DriverEarningResponse>>> tenantEarnings(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
@@ -49,8 +51,30 @@ public class EarningController {
         return ResponseEntity.ok(ApiResponse.success(service.tenantEarnings(requireTenantId(tenantId), from, to)));
     }
 
+    @GetMapping("/me/page")
+    @PreAuthorize("hasRole('DRIVER')")
+    public ApiResponse<PageResponse<DriverEarningResponse>> myEarningPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            Authentication authentication,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+        return ApiResponse.success(service.myEarningPage(resolveUserId(authentication), from, to, page, size));
+    }
+
+    @GetMapping("/page")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER','VIEWER')")
+    public ApiResponse<PageResponse<DriverEarningResponse>> tenantEarningPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
+        return ApiResponse.success(service.tenantEarningPage(requireTenantId(tenantId), from, to, page, size));
+    }
+
     @GetMapping("/policy")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER','VIEWER')")
     public ResponseEntity<ApiResponse<EarningPolicyResponse>> policy(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
         return ResponseEntity.ok(ApiResponse.success(service.policy(requireTenantId(tenantId))));

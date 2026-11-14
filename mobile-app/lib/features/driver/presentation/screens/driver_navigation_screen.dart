@@ -175,7 +175,9 @@ class _DriverNavigationScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}'),
+          content: Text(
+            'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
+          ),
         ),
       );
     }
@@ -219,26 +221,15 @@ class _DriverNavigationScreenState
   Future<void> _handleReturnSwipe(OrderModel current) async {
     final taskId = current.deliveryTaskId;
     if (taskId == null) return;
-    final status = current.deliveryTaskStatus ?? DeliveryTaskStatus.assigned;
     try {
-      if (status == DeliveryTaskStatus.assigned ||
-          status == DeliveryTaskStatus.accepted) {
-        await ref
-            .read(driverOrdersProvider.notifier)
-            .confirmBatchPickup(
-              orderIds: [current.id],
-              notes: 'Bắt đầu hoàn kiện về kho',
-            );
-      } else {
-        await ref
-            .read(driverOrdersProvider.notifier)
-            .updateDeliveryTask(
-              orderId: current.id,
-              taskId: taskId,
-              nextStatus: DeliveryTaskStatus.completed,
-              notes: 'Đã bàn giao kiện hoàn cho kho',
-            );
-      }
+      await ref
+          .read(driverOrdersProvider.notifier)
+          .updateDeliveryTask(
+            orderId: current.id,
+            taskId: taskId,
+            nextStatus: DeliveryTaskStatus.completed,
+            notes: 'Đã bàn giao kiện hoàn cho kho',
+          );
       if (!mounted) return;
       await _syncRouteForCurrentStop(force: true);
     } catch (e) {
@@ -246,7 +237,9 @@ class _DriverNavigationScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Không cập nhật được đơn hoàn: ${AppFormatters.errorMessage(e)}'),
+          content: Text(
+            'Không cập nhật được đơn hoàn: ${AppFormatters.errorMessage(e)}',
+          ),
         ),
       );
     }
@@ -603,10 +596,7 @@ class _BottomTripCockpit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalPackages = depotGroup.fold<int>(
-      0,
-      (sum, item) => sum + item.packageCount,
-    );
+    final totalPackages = depotGroup.length;
     final contactPhone = toDepot ? order.senderPhone : order.recipientPhone;
 
     return Container(
@@ -790,10 +780,8 @@ class _BottomTripCockpit extends StatelessWidget {
           // Zero-Switch Primary Operational CTA
           if (order.isReturnTask)
             SlideToConfirmButton(
-              label:
-                  order.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery
-                  ? 'Vuốt bàn giao kiện hoàn cho Kho'
-                  : 'Vuốt bắt đầu mang kiện về Kho',
+              label: 'Vuốt xác nhận đã bàn giao tại kho',
+              subtitle: 'Kho sẽ kiểm nhận để hoàn tất yêu cầu',
               backgroundColor: AppColors.primary,
               icon: Icons.assignment_return_rounded,
               onConfirmed: onSwipeReturn,

@@ -55,10 +55,6 @@ public class ReturnRequest {
     @Column(name = "current_holder_id")
     private UUID currentHolderId;
 
-    @Column(name = "package_count", nullable = false)
-    @Builder.Default
-    private Integer packageCount = 1;
-
     @Column(name = "request_type", nullable = false, length = 30)
     private String requestType;
 

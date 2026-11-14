@@ -6,7 +6,6 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 import com.swiftroute.orderservice.entity.Tenant;
-import com.swiftroute.orderservice.entity.enums.TenantStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.TenantRepository;
@@ -19,7 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Validates tenant access authoritatively at the backend service layer.
  * Enforces stateless JWT claims (system_role, tenant_id, tenant_role) and
- * database tenant lifecycle status (single source of truth in order_db.tenants).
+ * database tenant lifecycle status (single source of truth in
+ * order_db.tenants).
  */
 @Component
 @RequiredArgsConstructor
@@ -30,7 +30,8 @@ public class TenantContextValidator {
     private final TenantRepository tenantRepository;
 
     /**
-     * Authoritatively resolves and validates tenant access for the current workspace request.
+     * Authoritatively resolves and validates tenant access for the current
+     * workspace request.
      *
      * @param tenantIdHeader Header X-Tenant-Id (optional if present in JWT)
      * @param authHeader     Header Authorization Bearer token
@@ -80,7 +81,8 @@ public class TenantContextValidator {
     }
 
     /**
-     * Extracts the authenticated user ID (JWT subject) without performing additional lookups.
+     * Extracts the authenticated user ID (JWT subject) without performing
+     * additional lookups.
      */
     public Optional<UUID> extractUserId(String authHeader) {
         Claims claims = jwtTokenValidator.parseAndValidate(authHeader);
@@ -141,4 +143,3 @@ public class TenantContextValidator {
         }
     }
 }
-

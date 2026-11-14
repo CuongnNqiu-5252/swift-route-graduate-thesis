@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useState, useEffect, useCallback } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
@@ -44,6 +46,7 @@ const SCHEDULED_HOURS = Array.from({ length: 24 }, (_, i) => {
 });
 
 export default function SettingsPage() {
+  const { t } = useLocale();
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [selectedType, setSelectedType] = useState<BusinessType>('OTHER');
   const [timeWeight, setTimeWeight] = useState(0.5);
@@ -79,11 +82,11 @@ export default function SettingsPage() {
       const data = await tenantSettingsRepository.getSettings();
       applySettingsData(data);
     } catch {
-      toast.error('Không thể tải cấu hình doanh nghiệp');
+      toast.error(t("Không thể tải cấu hình doanh nghiệp"));
     } finally {
       setIsLoading(false);
     }
-  }, [applySettingsData]);
+  }, [applySettingsData, t]);
 
   useEffect(() => {
     let mounted = true;
@@ -94,7 +97,7 @@ export default function SettingsPage() {
       })
       .catch(() => {
         if (!mounted) return;
-        toast.error('Không thể tải cấu hình doanh nghiệp');
+        toast.error(t("Không thể tải cấu hình doanh nghiệp"));
       })
       .finally(() => {
         if (!mounted) return;
@@ -103,16 +106,16 @@ export default function SettingsPage() {
     return () => {
       mounted = false;
     };
-  }, [applySettingsData]);
+  }, [applySettingsData, t]);
 
   const handleApplyPreset = async () => {
     setIsApplyingPreset(true);
     try {
       await tenantSettingsRepository.applyPreset(selectedType);
-      toast.success(`Đã áp dụng cấu hình đề xuất cho ngành ${BUSINESS_TYPE_LABEL[selectedType]}`);
+      toast.success(`${t("Đã áp dụng cấu hình đề xuất cho ngành")} ${t(BUSINESS_TYPE_LABEL[selectedType])}`);
       await reloadSettings();
     } catch {
-      toast.error('Lỗi khi áp dụng cấu hình đề xuất');
+      toast.error(t("Lỗi khi áp dụng cấu hình đề xuất"));
     } finally {
       setIsApplyingPreset(false);
     }
@@ -138,10 +141,10 @@ export default function SettingsPage() {
           scheduled_dispatch_time: scheduledTime,
         },
       });
-      toast.success('Đã lưu cấu hình doanh nghiệp thành công!');
+      toast.success(t("Đã lưu cấu hình doanh nghiệp thành công!"));
       await reloadSettings();
     } catch {
-      toast.error('Lỗi khi lưu cấu hình');
+      toast.error(t("Lỗi khi lưu cấu hình"));
     } finally {
       setIsSaving(false);
     }
@@ -152,7 +155,7 @@ export default function SettingsPage() {
       <div className="flex h-96 items-center justify-center">
         <div className="flex flex-col items-center gap-2">
           <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-          <p className="text-sm text-gray-500">Đang tải thông tin cấu hình...</p>
+          <p className="text-sm text-gray-500">{t("Đang tải thông tin cấu hình...")}</p>
         </div>
       </div>
     );
@@ -167,10 +170,10 @@ export default function SettingsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-5">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Cài đặt Doanh nghiệp & Điều phối
+            {t("Cài đặt Doanh nghiệp & Điều phối")}
           </h1>
           <p className="text-sm text-gray-500">
-            Quản trị loại hình kinh doanh, vùng phục vụ giao hàng, hàm mục tiêu và ràng buộc gom đơn
+            {t("Quản trị loại hình kinh doanh, vùng phục vụ giao hàng, hàm mục tiêu và ràng buộc gom đơn")}
           </p>
         </div>
         {activeTab === 'general' && (
@@ -181,7 +184,7 @@ export default function SettingsPage() {
               onClick={reloadSettings}
               disabled={isSaving || isApplyingPreset}
             >
-              <RotateCcw size={14} className="mr-1.5" /> Khôi phục
+              <RotateCcw size={14} className="mr-1.5" />{" "}{t("Khôi phục")}
             </Button>
             <Button
               size="sm"
@@ -189,7 +192,7 @@ export default function SettingsPage() {
               isLoading={isSaving}
               className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
             >
-              <Save size={15} className="mr-1.5" /> Lưu cài đặt
+              <Save size={15} className="mr-1.5" />{" "}{t("Lưu cài đặt")}
             </Button>
           </div>
         )}
@@ -201,7 +204,7 @@ export default function SettingsPage() {
         className="space-y-6"
       >
         <Tabs.List
-          aria-label="Danh mục cài đặt"
+          aria-label={t("Danh mục cài đặt")}
           className="inline-flex rounded-lg border border-slate-200 bg-white p-1"
         >
           <Tabs.Trigger
@@ -209,14 +212,14 @@ export default function SettingsPage() {
             className="inline-flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
           >
             <Sliders size={15} />
-            Cài đặt chung & Điều phối
+            {t("Cài đặt chung & Điều phối")}
           </Tabs.Trigger>
           <Tabs.Trigger
             value="delivery-zone"
             className="inline-flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors data-[state=active]:bg-slate-900 data-[state=active]:text-white"
           >
             <MapPin size={15} />
-            Vùng giao hàng
+            {t("Vùng giao hàng")}
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -229,10 +232,10 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
                 <Store size={18} className="text-blue-600" />
-                Hồ sơ Ngành hàng & Loại hình kinh doanh
+                {t("Hồ sơ Ngành hàng & Loại hình kinh doanh")}
               </h2>
               <p className="text-xs text-gray-500">
-                Lựa chọn mô hình kinh doanh để hệ thống áp dụng bộ thông số thực tế được tối ưu trước
+                {t("Lựa chọn mô hình kinh doanh để hệ thống áp dụng bộ thông số thực tế được tối ưu trước")}
               </p>
             </div>
             <Button
@@ -242,7 +245,7 @@ export default function SettingsPage() {
               isLoading={isApplyingPreset}
               className="border-blue-200 text-blue-700 hover:bg-blue-50"
             >
-              <Sparkles size={14} className="mr-1.5 text-blue-600" /> Áp dụng hồ sơ đề xuất
+              <Sparkles size={14} className="mr-1.5 text-blue-600" />{" "}{t("Áp dụng hồ sơ đề xuất")}
             </Button>
           </div>
 
@@ -270,15 +273,15 @@ export default function SettingsPage() {
                     </div>
                     {isSelected && <CheckCircle2 size={16} className="text-blue-600" />}
                   </div>
-                  <p className="text-xs font-semibold text-gray-900">{BUSINESS_TYPE_LABEL[type]}</p>
+                  <p className="text-xs font-semibold text-gray-900">{t(BUSINESS_TYPE_LABEL[type])}</p>
                 </div>
               );
             })}
           </div>
 
           <div className="rounded-lg bg-gray-50 p-3.5 border border-gray-100 text-xs text-gray-600">
-            <span className="font-semibold text-gray-800">Đặc điểm khuyến nghị: </span>
-            {BUSINESS_TYPE_DESCRIPTION[selectedType]}
+            <span className="font-semibold text-gray-800">{t("Đặc điểm khuyến nghị:")}{" "}</span>
+            {t(BUSINESS_TYPE_DESCRIPTION[selectedType])}
           </div>
         </CardContent>
       </Card>
@@ -289,20 +292,20 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
               <Sliders size={18} className="text-blue-600" />
-              Trọng số Tối ưu hóa Lộ trình (Multi-criteria Objective)
+              {t("Trọng số Tối ưu hóa Lộ trình (Multi-criteria Objective)")}
             </h2>
             <p className="text-xs text-gray-500">
-              Cân bằng giữa ưu tiên tốc độ giao hàng (rút ngắn thời gian) và cắt giảm chi phí (rút ngắn cự ly di chuyển)
+              {t("Cân bằng giữa ưu tiên tốc độ giao hàng (rút ngắn thời gian) và cắt giảm chi phí (rút ngắn cự ly di chuyển)")}
             </p>
           </div>
 
           <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/60 p-5">
             <div className="flex items-center justify-between text-sm font-medium">
               <span className="flex items-center gap-1.5 text-blue-700">
-                <Clock size={16} /> Thời gian giao hàng: {timeWeightPercent}%
+                <Clock size={16} />{" "}{t("Thời gian giao hàng:")}{" "}{timeWeightPercent}%
               </span>
               <span className="flex items-center gap-1.5 text-emerald-700">
-                <Gauge size={16} /> Tiết kiệm chi phí & Quãng đường: {costWeightPercent}%
+                <Gauge size={16} />{" "}{t("Tiết kiệm chi phí & Quãng đường:")}{" "}{costWeightPercent}%
               </span>
             </div>
 
@@ -317,9 +320,9 @@ export default function SettingsPage() {
             />
 
             <div className="flex justify-between text-[11px] text-gray-400">
-              <span>0% Thời gian (Tối đa hóa lợi nhuận)</span>
-              <span>Cân bằng (50/50)</span>
-              <span>100% Thời gian (Giao siêu tốc)</span>
+              <span>{t("0% Thời gian (Tối đa hóa lợi nhuận)")}</span>
+              <span>{t("Cân bằng (50/50)")}</span>
+              <span>{t("100% Thời gian (Giao siêu tốc)")}</span>
             </div>
           </div>
         </CardContent>
@@ -331,17 +334,17 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
               <Gauge size={18} className="text-blue-600" />
-              Ràng buộc Gom đơn & Chính sách Đội xe
+              {t("Ràng buộc Gom đơn & Chính sách Đội xe")}
             </h2>
             <p className="text-xs text-gray-500">
-              Kiểm soát số lượng kiện hàng trên mỗi chuyến xe và quy chế phân công tài xế
+              {t("Kiểm soát số lượng kiện hàng trên mỗi chuyến xe và quy chế phân công tài xế")}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Số đơn gộp tối đa mỗi tài xế / chuyến
+                {t("Số đơn gộp tối đa mỗi tài xế / chuyến")}
               </label>
               <div className="flex items-center gap-3">
                 <input
@@ -352,13 +355,13 @@ export default function SettingsPage() {
                   onChange={(e) => setMaxOrders(parseInt(e.target.value) || 1)}
                   className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
                 />
-                <span className="text-xs text-gray-500">đơn hàng / chuyến xe (Khuyến nghị 2 - 10)</span>
+                <span className="text-xs text-gray-500">{t("đơn hàng / chuyến xe (Khuyến nghị 2 - 10)")}</span>
               </div>
             </div>
 
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Thời gian chờ gom đơn tối đa trước khi xuất bến
+                {t("Thời gian chờ gom đơn tối đa trước khi xuất bến")}
               </label>
               <div className="flex items-center gap-3">
                 <input
@@ -369,21 +372,21 @@ export default function SettingsPage() {
                   onChange={(e) => setMaxWaitMinutes(parseInt(e.target.value) || 1)}
                   className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
                 />
-                <span className="text-xs text-gray-500">phút (Kích hoạt điều phối ngay cả khi chưa đủ số đơn)</span>
+                <span className="text-xs text-gray-500">{t("phút (Kích hoạt điều phối ngay cả khi chưa đủ số đơn)")}</span>
               </div>
             </div>
 
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Chiến lược xử lý đơn hỏa tốc (Urgent Orders)
+                {t("Chiến lược xử lý đơn hỏa tốc (Urgent Orders)")}
               </label>
               <select
                 value={urgentMode}
                 onChange={(e) => setUrgentMode(e.target.value as 'IMMEDIATE_SINGLE' | 'BATCH_IMMEDIATE')}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
               >
-                <option value="IMMEDIATE_SINGLE">Gán ngay tài xế gần nhất (Khuyến nghị)</option>
-                <option value="BATCH_IMMEDIATE">Kích hoạt giải toán lại toàn bộ lô gom ngay</option>
+                <option value="IMMEDIATE_SINGLE">{t("Gán ngay tài xế gần nhất (Khuyến nghị)")}</option>
+                <option value="BATCH_IMMEDIATE">{t("Kích hoạt giải toán lại toàn bộ lô gom ngay")}</option>
               </select>
             </div>
 
@@ -396,9 +399,9 @@ export default function SettingsPage() {
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-900">Cho phép dùng Tài xế Pool (Sàn chung)</span>
+                  <span className="text-sm font-medium text-gray-900">{t("Cho phép dùng Tài xế Pool (Sàn chung)")}</span>
                   <p className="text-[11px] text-gray-500">
-                    Tự động huy động thêm tài xế Pool của sàn khi đội xe nội bộ quá tải hoặc thiếu người
+                    {t("Tự động huy động thêm tài xế Pool của sàn khi đội xe nội bộ quá tải hoặc thiếu người")}
                   </p>
                 </div>
               </label>
@@ -411,9 +414,9 @@ export default function SettingsPage() {
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <span className="text-sm font-medium text-gray-900">Yêu cầu nhân viên duyệt trước khi phát xe</span>
+                  <span className="text-sm font-medium text-gray-900">{t("Yêu cầu nhân viên duyệt trước khi phát xe")}</span>
                   <p className="text-[11px] text-gray-500">
-                    Lộ trình tạo ra ở trạng thái DRAFT chờ nhân viên điều phối bấm Duyệt trên Web Admin
+                    {t("Lộ trình tạo ra ở trạng thái DRAFT chờ nhân viên điều phối bấm Duyệt trên Web Admin")}
                   </p>
                 </div>
               </label>
@@ -428,10 +431,10 @@ export default function SettingsPage() {
                   />
                   <div>
                     <span className="text-sm font-medium text-gray-900">
-                      Tự động gom đơn theo ca cố định hàng ngày (Scheduled Wave)
+                      {t("Tự động gom đơn theo ca cố định hàng ngày (Scheduled Wave)")}
                     </span>
                     <p className="text-[11px] text-gray-500">
-                      Hệ thống sẽ tự động quét và phân tuyến toàn bộ đơn hàng đang chờ vào đúng khung giờ được chọn
+                      {t("Hệ thống sẽ tự động quét và phân tuyến toàn bộ đơn hàng đang chờ vào đúng khung giờ được chọn")}
                     </p>
                   </div>
                 </label>
@@ -439,7 +442,7 @@ export default function SettingsPage() {
                 {scheduledEnabled && (
                   <div className="ml-7 flex flex-wrap items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="text-xs font-semibold text-gray-700">
-                      Khung giờ xuất bến hàng ngày:
+                      {t("Khung giờ xuất bến hàng ngày:")}
                     </label>
                     <select
                       value={scheduledTime}
@@ -453,7 +456,7 @@ export default function SettingsPage() {
                       ))}
                     </select>
                     <span className="text-xs text-gray-500">
-                      (Định dạng 24h, theo múi giờ Việt Nam GMT+7)
+                      {t("(Định dạng 24h, theo múi giờ Việt Nam GMT+7)")}
                     </span>
                   </div>
                 )}

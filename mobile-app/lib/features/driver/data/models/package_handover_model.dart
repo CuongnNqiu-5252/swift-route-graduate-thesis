@@ -5,7 +5,7 @@ class PackageHandoverModel {
     required this.toDriverId,
     required this.status,
     required this.reason,
-    required this.packageCodes,
+    required this.orderCode,
   });
 
   final String id;
@@ -13,12 +13,9 @@ class PackageHandoverModel {
   final String toDriverId;
   final String status;
   final String reason;
-  final List<String> packageCodes;
+  final String orderCode;
 
   factory PackageHandoverModel.fromJson(Map<String, dynamic> json) {
-    final packages = json['packages'] is List
-        ? json['packages'] as List
-        : const <dynamic>[];
     return PackageHandoverModel(
       id: (json['handover_id'] ?? json['handoverId'] ?? '').toString(),
       fromDriverId: (json['from_driver_id'] ?? json['fromDriverId'] ?? '')
@@ -26,14 +23,13 @@ class PackageHandoverModel {
       toDriverId: (json['to_driver_id'] ?? json['toDriverId'] ?? '').toString(),
       status: (json['status'] ?? '').toString(),
       reason: (json['reason'] ?? '').toString(),
-      packageCodes: packages
-          .whereType<Map>()
-          .map(
-            (item) =>
-                (item['package_code'] ?? item['packageCode'] ?? '').toString(),
-          )
-          .where((code) => code.isNotEmpty)
-          .toList(),
+      orderCode:
+          (json['order_code'] ??
+                  json['orderCode'] ??
+                  json['order_id'] ??
+                  json['orderId'] ??
+                  '')
+              .toString(),
     );
   }
 }

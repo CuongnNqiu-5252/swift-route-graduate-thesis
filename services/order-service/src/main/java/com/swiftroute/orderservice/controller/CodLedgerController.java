@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.controller;
 
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -75,6 +76,16 @@ public class CodLedgerController {
                 .body(ApiResponse.success(ledger.submitHandover(requireTenantId(tenantId), driverId, role, request)));
     }
 
+    @GetMapping("/handovers/page")
+    public ApiResponse<PageResponse<CodHandoverResponse>> handoverPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String status,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role) {
+        return ApiResponse.success(ledger.handoverPage(requireTenantId(tenantId), role, status, page, size));
+    }
+
     @GetMapping("/handovers")
     public ResponseEntity<ApiResponse<List<CodHandoverResponse>>> handovers(
             @RequestParam(required = false) String status,
@@ -92,6 +103,16 @@ public class CodLedgerController {
             @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
                 ledger.verifyHandover(handoverId, requireTenantId(tenantId), cashierId, role, request)));
+    }
+
+    @GetMapping("/disputes/page")
+    public ApiResponse<PageResponse<CodDisputeResponse>> disputePage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String status,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role) {
+        return ApiResponse.success(ledger.disputePage(requireTenantId(tenantId), role, status, page, size));
     }
 
     @GetMapping("/disputes")

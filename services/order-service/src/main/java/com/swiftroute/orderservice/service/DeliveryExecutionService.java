@@ -58,8 +58,15 @@ public class DeliveryExecutionService {
     private final OutboxEventRepository outboxEvents;
     private final DispatchPlanRepository dispatchPlans;
 
+    public boolean holdsOrder(Order order) {
+        return custody.holdsOrder(order);
+    }
+
     @Transactional
     public DeliveryTask assign(Order order, UUID driverId) {
+        if (!driverId.equals(order.getAssignedDriverId()) && holdsOrder(order)) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
         return tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                 .map(task -> {
                     if (!task.getDriverId().equals(driverId)) {
@@ -102,7 +109,7 @@ public class DeliveryExecutionService {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                     }
                     task.setDriverId(driverId);
-                    task.setStatus(DeliveryTaskStatus.ASSIGNED);
+                    task.setStatus(DeliveryTaskStatus.OUT_FOR_DELIVERY);
                     task.setUpdatedAt(Instant.now());
                     return task;
                 })
@@ -111,11 +118,15 @@ public class DeliveryExecutionService {
                         .tenantId(order.getTenant().getId())
                         .driverId(driverId)
                         .taskType("RETURN")
+                        .status(DeliveryTaskStatus.OUT_FOR_DELIVERY)
                         .build()));
     }
 
     @Transactional
     public DeliveryTask reactivateForRedelivery(Order order, UUID driverId) {
+        if (!driverId.equals(order.getAssignedDriverId()) && holdsOrder(order)) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
         DeliveryTask task = tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                 .orElseGet(() -> DeliveryTask.builder()
                         .order(order)
@@ -160,7 +171,10 @@ public class DeliveryExecutionService {
         requireDriver(role);
         return tasks.findByDriverIdAndStatusIn(driverId, ACTIVE).stream()
                 .filter(task -> task.getOrder().getStatus() != OrderStatus.CANCELLED)
-                .map(DriverDeliveryTaskResponse::from)
+                .map(task -> "RETURN".equals(task.getTaskType())
+                        ? DriverDeliveryTaskResponse.from(task, returnRequests.findByReturnTask_Id(task.getId())
+                                .map(ReturnRequest::getReturnLocation).orElse(null))
+                        : DriverDeliveryTaskResponse.from(task))
                 .toList();
     }
 
@@ -178,7 +192,14 @@ public class DeliveryExecutionService {
         if (task.getOrder().getStatus() == OrderStatus.CANCELLED) {
             throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
         }
+        if (task.getOrder().getAssignedDriverId() != null
+                && !driverId.equals(task.getOrder().getAssignedDriverId())) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         if (previous == request.status()) {
+            if ("RETURN".equals(task.getTaskType()) && previous == DeliveryTaskStatus.COMPLETED) {
+                return task;
+            }
             Order order = task.getOrder();
             applyOrderState(task, order, driverId, request);
             orders.save(order);
@@ -193,6 +214,7 @@ public class DeliveryExecutionService {
         }
 
         Order order = task.getOrder();
+        custody.requireNoActiveHandover(order);
         if ("DELIVERY".equals(task.getTaskType())
                 && previous.ordinal() < DeliveryTaskStatus.PICKED_UP.ordinal()
                 && (request.status() == DeliveryTaskStatus.PICKED_UP
@@ -243,6 +265,14 @@ public class DeliveryExecutionService {
         if (planId == null && task.getOrder() != null) {
             planId = task.getOrder().getPlanId();
         }
+        completeDeliveryPlanIfFinished(planId);
+    }
+
+    public void completeDeliveryPlanIfFinished(Order order) {
+        completeDeliveryPlanIfFinished(order.getPlanId());
+    }
+
+    private void completeDeliveryPlanIfFinished(UUID planId) {
         if (planId == null) {
             return;
         }
@@ -480,8 +510,10 @@ public class DeliveryExecutionService {
         }
         if ("RETURN".equals(taskType)) {
             return switch (from) {
-                case ASSIGNED -> to == DeliveryTaskStatus.ACCEPTED || to == DeliveryTaskStatus.OUT_FOR_DELIVERY;
-                case ACCEPTED -> to == DeliveryTaskStatus.OUT_FOR_DELIVERY;
+                case ASSIGNED -> to == DeliveryTaskStatus.ACCEPTED || to == DeliveryTaskStatus.OUT_FOR_DELIVERY
+                        || to == DeliveryTaskStatus.COMPLETED;
+                case ACCEPTED -> to == DeliveryTaskStatus.OUT_FOR_DELIVERY || to == DeliveryTaskStatus.COMPLETED;
+                case ARRIVED -> to == DeliveryTaskStatus.COMPLETED;
                 case OUT_FOR_DELIVERY -> to == DeliveryTaskStatus.COMPLETED;
                 default -> false;
             };

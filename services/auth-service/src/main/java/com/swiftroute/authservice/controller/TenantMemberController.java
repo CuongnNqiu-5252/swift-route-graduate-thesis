@@ -1,5 +1,7 @@
 package com.swiftroute.authservice.controller;
 
+import org.springframework.web.bind.annotation.RequestParam;
+import com.swiftroute.authservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -53,6 +55,24 @@ public class TenantMemberController {
         UUID inviterUserId = resolveUserId(authentication);
         InviteMemberResponse response = tenantEmployeeService.inviteMember(tenantId, inviterUserId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+    }
+
+    @GetMapping("/page")
+    public ApiResponse<PageResponse<TenantMemberResponse>> memberPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @PathVariable UUID tenantId,
+            Authentication authentication) {
+        return ApiResponse.success(tenantEmployeeService.memberPage(tenantId, resolveUserId(authentication), page, size));
+    }
+
+    @GetMapping("/invitations/page")
+    public ApiResponse<PageResponse<TenantInvitationResponse>> invitationPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @PathVariable UUID tenantId,
+            Authentication authentication) {
+        return ApiResponse.success(tenantEmployeeService.invitationPage(tenantId, resolveUserId(authentication), page, size));
     }
 
     @Operation(summary = "Lấy danh sách thành viên / nhân sự của doanh nghiệp")

@@ -1,7 +1,12 @@
 package com.swiftroute.orderservice.controller;
 
+import org.springframework.web.bind.annotation.RequestParam;
+import com.swiftroute.orderservice.dto.response.PageRequests;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.http.MediaType;
@@ -67,12 +72,23 @@ public class DispatchController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    @GetMapping("/plans/page")
+    public ApiResponse<PageResponse<DispatchPlanResponse>> listPlanPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        return ApiResponse.success(PageResponse.fromPage(dispatchPlanRepository.findByTenantId(requireTenantId(tenantId),
+                PageRequests.newestFirst(page, size, "createdAt")).map(this::toResponse)));
+    }
+
     @GetMapping("/driver-plans")
     @Operation(summary = "List active DISPATCHED plans assigned to the calling driver")
     public ResponseEntity<ApiResponse<List<DispatchPlanResponse>>> listDriverPlans(
-            @RequestAttribute("authorizedUserId") UUID driverId) {
+            @RequestAttribute("authorizedUserId") UUID driverId,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
         List<DispatchPlanResponse> result = dispatchPlanRepository
-                .findAllByDriverIdAndPlanStatusIn(driverId, List.of(PlanStatus.DISPATCHED))
+                .findAllByTenantIdAndDriverIdAndPlanStatusIn(
+                        requireTenantId(tenantId), driverId, List.of(PlanStatus.DISPATCHED))
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -127,8 +143,13 @@ public class DispatchController {
     @PostMapping("/plans/{planId}/acknowledge")
     @Operation(summary = "Driver acknowledges acceptance of the dispatched plan")
     public ResponseEntity<ApiResponse<DispatchPlanResponse>> acknowledgePlan(
-            @PathVariable UUID planId) {
-        DispatchPlan plan = orchestrationService.acknowledgeByDriver(planId);
+            @PathVariable UUID planId,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String role) {
+        DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
+        authorizeDriverPlanAction(plan, userId, role);
+        plan = orchestrationService.acknowledgeByDriver(planId);
         return ResponseEntity.ok(ApiResponse.success(toResponse(plan)));
     }
 
@@ -136,8 +157,13 @@ public class DispatchController {
     @Operation(summary = "Driver declines the dispatched plan")
     public ResponseEntity<ApiResponse<DispatchPlanResponse>> declinePlan(
             @PathVariable UUID planId,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String role,
             @Valid @RequestBody CancelPlanRequest request) {
-        DispatchPlan plan = orchestrationService.declineByDriver(planId, request.reason());
+        DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
+        authorizeDriverPlanAction(plan, userId, role);
+        plan = orchestrationService.declineByDriver(planId, request.reason());
         return ResponseEntity.ok(ApiResponse.success(toResponse(plan)));
     }
 
@@ -220,6 +246,21 @@ public class DispatchController {
         return dispatchPlanRepository.findById(planId)
                 .filter(p -> p.getTenant().getId().equals(tenantId))
                 .orElseThrow(() -> new AppException(ErrorCode.PLAN_NOT_FOUND));
+    }
+
+    private void authorizeDriverPlanAction(DispatchPlan plan, UUID userId, String role) {
+        if (role == null) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        String normalizedRole = role.toUpperCase(Locale.ROOT);
+        if (!Set.of("DRIVER", "OWNER", "SYSTEM_ADMIN").contains(normalizedRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        if ("DRIVER".equals(normalizedRole)) {
+            if (plan.getDriverId() == null || !plan.getDriverId().equals(userId)) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

@@ -1,158 +1,104 @@
 'use client';
 
 import Link from 'next/link';
-import { MetricStrip } from '@/components/ui/metric-strip';
-import { useState } from 'react';
-import { toast } from 'sonner';
-import { useOperationsQueue } from '@/application/hooks/use-operations-queue';
+import { ArrowRight, RefreshCw, Route } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useAuth } from '@/application/contexts/auth-context';
 import { useDrivers } from '@/application/hooks/use-drivers';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { useOperationsQueue } from '@/application/hooks/use-operations-queue';
 import { Button } from '@/components/ui/button';
-import { Modal } from '@/components/ui/modal';
-import { OrderStatusBadge } from '@/components/orders/order-status-badge';
-import { formatVNDate } from '@/lib/utils';
-import {
-  Route,
-  ArrowRight,
-  AlertTriangle,
-} from 'lucide-react';
+import { useLocale } from '@/i18n/provider';
+import type { OperationsQueue } from '@/infrastructure/repositories/order.repository';
 
+const groups = [
+  { key: 'ready_for_dispatch', label: 'Chờ điều phối' },
+  { key: 'active', label: 'Đang thực hiện' },
+  { key: 'intervention', label: 'Cần can thiệp' },
+] as const satisfies readonly { key: keyof OperationsQueue; label: string }[];
 
 export default function DashboardOverviewPage() {
-  const { queue, isLoading: isLoadingOrders, error, reassignOrder } = useOperationsQueue();
-  const { drivers } = useDrivers();
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
-  const [isReassigning, setIsReassigning] = useState(false);
+  const { user } = useAuth();
+  const { t, intlLocale } = useLocale();
+  const { queue, hasLoaded, isLoading, error, refetch } = useOperationsQueue();
+  const { drivers, isLoading: driversLoading, error: driversError, refetch: refetchDrivers } = useDrivers();
 
-  const paidOrders = queue.ready_for_dispatch;
-  const inTransitOrders = queue.active.filter((order) => order.status === 'IN_TRANSIT');
-  const interventionOrders = queue.intervention;
-  const reassignableOrders = queue.active.filter((order) => order.status === 'PLANNED');
-  const availableDrivers = drivers.filter((d) => d.status === 'AVAILABLE' || !d.status);
-
-  const activeOrders = queue.active;
-  const recentOrders = [...paidOrders, ...activeOrders, ...interventionOrders].slice(0, 6);
-  const operationalOrderCount = paidOrders.length + activeOrders.length + interventionOrders.length;
-
-  const handleReassign = async (driverId: string) => {
-    if (!selectedOrderId) return;
-    setIsReassigning(true);
-    try {
-      await reassignOrder(selectedOrderId, driverId);
-      toast.success('Đã điều phối lại tài xế.');
-      setSelectedOrderId(null);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Không thể điều phối lại tài xế.');
-    } finally {
-      setIsReassigning(false);
-    }
-  };
+  const number = new Intl.NumberFormat(intlLocale);
+  const chartData = groups.map(({ key, label }) => ({ label: t(label), count: queue[key].length }));
+  const canLoadQueue = Boolean(user?.tenantId);
+  const showQueue = canLoadQueue && !error && hasLoaded;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Tổng quan vận hành
-          </h1>
-          <p className="text-sm text-gray-500">
-            Theo dõi đơn đang chạy và xử lý công việc cần ưu tiên.
-          </p>
+          <h1 className="text-2xl font-semibold text-slate-950">{t('Tổng quan vận hành')}</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/dispatch">
-            <Button>
-              <Route size={16} /> Mở điều phối
+        <div className="flex flex-wrap gap-2">
+          {canLoadQueue && (
+            <Button variant="outline" onClick={() => void Promise.all([refetch(), refetchDrivers()])} isLoading={isLoading || driversLoading}>
+              <RefreshCw size={15} aria-hidden="true" />{t('Làm mới dữ liệu')}
             </Button>
+          )}
+          <Link href={canLoadQueue ? '/dispatch' : '/organizations'} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <Route size={16} aria-hidden="true" />{t(canLoadQueue ? 'Mở điều phối' : 'Chọn doanh nghiệp')}
           </Link>
         </div>
-      </div>
+      </header>
 
-      <MetricStrip loading={isLoadingOrders} metrics={[
-        { label: 'Đơn trong vận hành', value: operationalOrderCount, href: '/orders' },
-        { label: 'Chờ điều phối', value: paidOrders.length, href: '/dispatch' },
-        { label: 'Đang giao', value: inTransitOrders.length, href: '/orders' },
-        { label: 'Tài xế sẵn sàng', value: availableDrivers.length, href: '/drivers' },
-      ]} />
-      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
-
-      <Card className="shadow-sm">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="text-amber-600" size={18} /> Cần can thiệp</CardTitle><p className="text-xs text-gray-500">Đơn thất bại hoặc bị huỷ cần dispatcher kiểm tra và quyết định xử lý tiếp.</p></CardHeader>
-        <CardContent>{interventionOrders.length === 0 ? <p className="text-sm text-gray-500">Không có đơn cần can thiệp.</p> : <div className="space-y-2">{interventionOrders.map((order) => <div key={order.id} className="flex items-center justify-between rounded-lg border border-amber-200 p-3 text-sm"><span className="font-medium">{order.order_code}</span><OrderStatusBadge status={order.status} /></div>)}</div>}</CardContent>
-      </Card>
-
-      <Card className="shadow-sm">
-        <CardHeader><CardTitle className="text-base">Điều phối lại trước pickup</CardTitle><p className="text-xs text-gray-500">Chỉ các đơn đã lập kế hoạch mới có thể đổi tài xế trước khi hàng được lấy.</p></CardHeader>
-        <CardContent>{reassignableOrders.length === 0 ? <p className="text-sm text-gray-500">Không có đơn nào có thể điều phối lại.</p> : <div className="space-y-2">{reassignableOrders.map((order) => <div key={order.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3 text-sm"><span className="font-medium">{order.order_code}</span><Button size="sm" variant="outline" onClick={() => setSelectedOrderId(order.id)}>Chọn tài xế</Button></div>)}</div>}</CardContent>
-      </Card>
-      <Modal open={selectedOrderId !== null} onOpenChange={(open) => !open && setSelectedOrderId(null)} title="Điều phối lại tài xế" description="Thao tác này chỉ khả dụng trước khi tài xế xác nhận pickup.">
-        <div className="space-y-2">{availableDrivers.map((driver) => <Button key={driver.id} variant="outline" className="w-full justify-start" isLoading={isReassigning} onClick={() => handleReassign(driver.user_id)}>{driver.name}{driver.vehicle_plate ? ` · ${driver.vehicle_plate}` : ''}</Button>)}{availableDrivers.length === 0 && <p className="text-sm text-gray-500">Không có tài xế sẵn sàng.</p>}</div>
-      </Modal>
-
-      {/* Recent Orders Section */}
-      <Card className="shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
-          <div>
-            <CardTitle className="text-base font-bold text-gray-900">
-              Đơn hàng Gần đây Nhất
-            </CardTitle>
-            <p className="text-xs text-gray-500">
-              Các đơn đang chờ xử lý, đang giao hoặc cần can thiệp
-            </p>
-          </div>
-          <Link
-            href="/orders"
-            className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-          >
-            Xem tất cả đơn <ArrowRight size={14} />
-          </Link>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoadingOrders ? (
-            <div className="flex h-32 items-center justify-center">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            </div>
-          ) : recentOrders.length === 0 ? (
-            <div className="py-8 text-center text-sm text-gray-400">Chưa có đơn hàng nào</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500 border-y">
-                  <tr>
-                    <th className="px-4 py-3">Mã đơn</th>
-                    <th className="px-4 py-3">Cửa hàng</th>
-                    <th className="px-4 py-3">Địa chỉ giao</th>
-                    <th className="px-4 py-3">Trọng lượng</th>
-                    <th className="px-4 py-3">Trạng thái</th>
-                    <th className="px-4 py-3">Thời gian tạo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {recentOrders.map((order) => (
-                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-mono font-medium text-blue-700">
-                        {order.order_code}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">{order.tenant_name || '—'}</td>
-                      <td className="px-4 py-3 text-gray-600 max-w-xs truncate">
-                        {order.delivery_address}
-                      </td>
-                      <td className="px-4 py-3">{order.weight_kg} kg</td>
-                      <td className="px-4 py-3">
-                        <OrderStatusBadge status={order.status} />
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-500">
-                        {formatVNDate(order.created_at)}
-                      </td>
-                    </tr>
+      {canLoadQueue ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]">
+          <section aria-labelledby="queue-chart-heading" className="min-w-0 rounded-xl border border-slate-200 p-4 sm:p-5">
+            <h2 id="queue-chart-heading" className="font-semibold text-slate-950">{t('Số đơn theo nhóm vận hành')}</h2>
+            {error ? (
+              <p className="mt-5 text-sm text-rose-700" role="alert">{t('Không thể tải hàng đợi vận hành')}</p>
+            ) : showQueue ? (
+              <>
+                <dl className="mt-4 grid grid-cols-3 gap-2 border-b border-slate-200 pb-4 sm:gap-4">
+                  {chartData.map(({ label, count }) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="text-xs font-medium text-slate-600 sm:text-sm">{label}</dt>
+                      <dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{number.format(count)}</dd>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </dl>
+                {chartData.some(({ count }) => count > 0) && (
+                  <div className="mt-4 h-56 min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 320, height: 208 }}>
+                      <BarChart data={chartData} layout="vertical" margin={{ top: 6, right: 12, bottom: 0, left: 0 }}>
+                        <CartesianGrid horizontal={false} stroke="#e2e8f0" />
+                        <YAxis type="category" dataKey="label" width={110} tickLine={false} axisLine={false} tick={{ fill: '#475569', fontSize: 11 }} />
+                        <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: '#475569', fontSize: 12 }} tickFormatter={(value: number) => number.format(value)} />
+                        <Tooltip cursor={{ fill: '#eff6ff' }} formatter={(value) => [number.format(Number(value)), t('Số đơn')]} />
+                        <Bar dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} maxBarSize={26} isAnimationActive="auto" animationDuration={400} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="mt-5 text-sm text-slate-600" role="status">{t('Đang tải hàng đợi vận hành…')}</p>
+            )}
+          </section>
+
+          <section aria-labelledby="driver-count-heading" className="flex flex-col justify-between gap-5 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+            <div>
+              <h2 id="driver-count-heading" className="text-sm font-medium text-slate-700">{t('Hồ sơ tài xế')}</h2>
+              {driversError ? (
+                <p className="mt-2 text-sm text-rose-700" role="status">{t('Không thể tải tài xế')}</p>
+              ) : (
+                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-950" aria-live="polite">
+                  {driversLoading ? '—' : number.format(drivers.length)}
+                </p>
+              )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <Link href="/drivers" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline">
+              {t('Xem danh sách tài xế')}<ArrowRight size={15} aria-hidden="true" />
+            </Link>
+          </section>
+        </div>
+      ) : (
+        <p className="rounded-xl border border-slate-200 p-5 text-sm text-slate-600">{t('Chọn doanh nghiệp để xem dữ liệu vận hành.')}</p>
+      )}
     </div>
   );
 }

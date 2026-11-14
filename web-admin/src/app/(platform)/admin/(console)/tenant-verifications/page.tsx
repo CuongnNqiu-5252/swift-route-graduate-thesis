@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { FormEvent, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '@/application/contexts/auth-context';
@@ -11,6 +13,7 @@ import { VERIFICATION_FILTER_OPTIONS } from '@/domain/entities/platform-verifica
 import { isSystemAdmin } from '@/lib/portal-access';
 
 export default function TenantVerificationsPage() {
+  const { t } = useLocale();
   const { user } = useAuth();
   const allowed = isSystemAdmin(user);
 
@@ -41,7 +44,7 @@ export default function TenantVerificationsPage() {
   if (!allowed) {
     return (
       <div className="rounded-lg border border-rose-200 bg-rose-50/70 p-4 text-sm text-rose-700">
-        Chỉ tài khoản System Admin mới có quyền xét duyệt hồ sơ doanh nghiệp.
+        {t("Chỉ tài khoản System Admin mới có quyền xét duyệt hồ sơ doanh nghiệp.")}
       </div>
     );
   }
@@ -72,10 +75,10 @@ export default function TenantVerificationsPage() {
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
-            Xét duyệt doanh nghiệp
+            {t("Xét duyệt doanh nghiệp")}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Kiểm tra hồ sơ vận hành đã gửi, phê duyệt kích hoạt và quản lý trạng thái hoạt động doanh nghiệp.
+            {t("Kiểm tra hồ sơ vận hành đã gửi, phê duyệt kích hoạt và quản lý trạng thái hoạt động doanh nghiệp.")}
           </p>
         </div>
 
@@ -87,7 +90,7 @@ export default function TenantVerificationsPage() {
           className="bg-white"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          Làm mới
+          {t("Làm mới")}
         </Button>
       </div>
 
@@ -98,7 +101,7 @@ export default function TenantVerificationsPage() {
         >
           <span>{queueError}</span>
           <Button variant="outline" size="sm" onClick={() => void loadQueue()}>
-            Thử lại
+            {t("Thử lại")}
           </Button>
         </div>
       )}
@@ -106,7 +109,7 @@ export default function TenantVerificationsPage() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div
           role="tablist"
-          aria-label="Lọc theo trạng thái hồ sơ"
+          aria-label={t("Lọc theo trạng thái hồ sơ")}
           className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/70 p-1"
         >
           {VERIFICATION_FILTER_OPTIONS.map((option) => {
@@ -124,7 +127,7 @@ export default function TenantVerificationsPage() {
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {option.label}
+                {t(option.label)}
               </button>
             );
           })}
@@ -139,13 +142,13 @@ export default function TenantVerificationsPage() {
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Tìm tên doanh nghiệp…"
-              aria-label="Tìm theo tên doanh nghiệp"
+              placeholder={t("Tìm tên doanh nghiệp…")}
+              aria-label={t("Tìm theo tên doanh nghiệp")}
               className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500"
             />
           </div>
           <Button type="submit" variant="outline" className="shrink-0 bg-white">
-            Tìm
+            {t("Tìm")}
           </Button>
         </form>
       </div>

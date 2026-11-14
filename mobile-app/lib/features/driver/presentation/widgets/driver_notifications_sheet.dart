@@ -76,7 +76,8 @@ class _DriverNotificationsSheetState
           },
         );
       case 'COD':
-        final isDiscrepancy = item.templateCode == 'cod.handover_discrepancy';
+        final isDiscrepancy =
+            item.templateCode == 'cod.handover_settled_with_variance';
         return _NotificationPresentation(
           label: isDiscrepancy ? 'Chênh lệch COD' : 'Đối soát COD',
           icon: isDiscrepancy
@@ -475,4 +476,3 @@ class _FilterChipButton extends StatelessWidget {
     );
   }
 }
-

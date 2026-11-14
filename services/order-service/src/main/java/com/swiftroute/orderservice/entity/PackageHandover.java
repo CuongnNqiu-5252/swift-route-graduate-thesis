@@ -1,8 +1,6 @@
 package com.swiftroute.orderservice.entity;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 import jakarta.persistence.*;
@@ -27,7 +25,7 @@ public class PackageHandover {
     @Column(name = "from_driver_id", nullable = false)
     private UUID fromDriverId;
 
-    @Column(name = "to_driver_id", nullable = false)
+    @Column(name = "to_driver_id")
     private UUID toDriverId;
 
     @Column(nullable = false, length = 30)
@@ -37,23 +35,26 @@ public class PackageHandover {
     @Column(nullable = false, length = 1000)
     private String reason;
 
-    @Column(name = "requested_by", nullable = false)
-    private UUID requestedBy;
-
-    private Instant senderConfirmedAt;
-    private Instant receiverConfirmedAt;
+    private UUID assignedBy;
+    private Instant assignedAt;
+    private UUID rejectedBy;
+    private Instant rejectedAt;
     private Instant completedAt;
+    private UUID cancelledBy;
     private Instant cancelledAt;
 
     @Column(length = 1000)
-    private String notes;
+    private String adminNotes;
+
+    @Column(length = 1000)
+    private String receiverNotes;
 
     @Version
     private Long version;
 
-    @OneToMany(mappedBy = "handover", cascade = CascadeType.ALL, orphanRemoval = true)
-    @Builder.Default
-    private List<PackageHandoverItem> items = new ArrayList<>();
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id", nullable = false)
+    private Order order;
 
     @Builder.Default
     private Instant createdAt = Instant.now();

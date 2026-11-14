@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useMemo } from 'react';
 import {
   createColumnHelper,
@@ -36,31 +38,32 @@ export function VerificationQueueTable({
   onOpenDetail,
   onPageChange,
 }: VerificationQueueTableProps) {
+  const { t, intlLocale } = useLocale();
   const items = queue?.content ?? [];
 
   const columns = useMemo(
     () => [
-      columnHelper.accessor((row) => row.business_name || 'Doanh nghiệp chưa đặt tên', {
+      columnHelper.accessor((row) => row.business_name || t("Doanh nghiệp chưa đặt tên"), {
         id: 'business_name',
-        header: () => <span>Doanh nghiệp</span>,
+        header: () => <span>{t("Doanh nghiệp")}</span>,
         cell: (info) => {
           const row = info.row.original;
           return (
             <div className="min-w-0">
               <p className="truncate font-medium text-slate-950">{info.getValue()}</p>
               <p className="num mt-0.5 truncate text-xs text-slate-500">
-                ID {row.tenant_id.slice(0, 8).toUpperCase()} · Hồ sơ #{row.request_id.slice(0, 8).toUpperCase()}
+                ID {row.tenant_id.slice(0, 8).toUpperCase()}{" "}{t("· Hồ sơ #")}{row.request_id.slice(0, 8).toUpperCase()}
               </p>
             </div>
           );
         },
       }),
       columnHelper.accessor('status', {
-        header: () => <span>Trạng thái</span>,
+        header: () => <span>{t("Trạng thái")}</span>,
         cell: (info) => {
           const status = info.getValue();
           const meta = VERIFICATION_STATUS_META[status] ?? {
-            label: status,
+            label: t("Chưa xác định"),
             dotClass: 'bg-slate-400',
             badgeClass: 'bg-slate-100 text-slate-700',
           };
@@ -69,13 +72,13 @@ export function VerificationQueueTable({
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${meta.badgeClass}`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} aria-hidden="true" />
-              {meta.label}
+              {t(meta.label)}
             </span>
           );
         },
       }),
       columnHelper.accessor('version', {
-        header: () => <span className="block text-right">Phiên bản</span>,
+        header: () => <span className="block text-right">{t("Phiên bản")}</span>,
         cell: (info) => (
           <span className="num block text-right text-sm text-slate-600">
             v{info.getValue()}
@@ -83,16 +86,16 @@ export function VerificationQueueTable({
         ),
       }),
       columnHelper.accessor('submitted_at', {
-        header: () => <span className="block text-right">Thời điểm gửi</span>,
+        header: () => <span className="block text-right">{t("Thời điểm gửi")}</span>,
         cell: (info) => (
           <span className="num block text-right text-sm text-slate-600">
-            {formatAdminDateTime(info.getValue())}
+            {formatAdminDateTime(info.getValue(), intlLocale)}
           </span>
         ),
       }),
       columnHelper.display({
         id: 'actions',
-        header: () => <span className="block text-right">Thao tác</span>,
+        header: () => <span className="block text-right">{t("Thao tác")}</span>,
         cell: (info) => {
           const row = info.row.original;
           return (
@@ -107,7 +110,7 @@ export function VerificationQueueTable({
                 isLoading={loadingDetailId === row.request_id}
                 className="bg-white"
               >
-                Mở hồ sơ
+                {t("Mở hồ sơ")}
                 <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
               </Button>
             </div>
@@ -115,7 +118,7 @@ export function VerificationQueueTable({
         },
       }),
     ],
-    [loadingDetailId, onOpenDetail],
+    [intlLocale, loadingDetailId, onOpenDetail, t],
   );
 
   // TanStack Table handles headless rows & column mapping cleanly.
@@ -129,7 +132,7 @@ export function VerificationQueueTable({
   if (loading && items.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-lg border border-slate-200 bg-white">
-        <p className="text-sm text-slate-500">Đang tải danh sách hồ sơ xét duyệt…</p>
+        <p className="text-sm text-slate-500">{t("Đang tải danh sách hồ sơ xét duyệt…")}</p>
       </div>
     );
   }
@@ -140,15 +143,15 @@ export function VerificationQueueTable({
         <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500">
           <Inbox className="h-5 w-5" aria-hidden="true" />
         </div>
-        <p className="mt-3 text-sm font-semibold text-slate-900">Không có hồ sơ phù hợp</p>
+        <p className="mt-3 text-sm font-semibold text-slate-900">{t("Không có hồ sơ phù hợp")}</p>
         <p className="mt-1 max-w-md text-xs leading-5 text-slate-500">
           {hasActiveFilters
-            ? 'Không tìm thấy yêu cầu nào khớp bộ lọc hiện tại. Thử chuyển trạng thái hoặc xóa từ khóa tìm kiếm.'
-            : 'Chưa có yêu cầu xét duyệt nào được gửi từ doanh nghiệp.'}
+            ? t("Không tìm thấy yêu cầu nào khớp bộ lọc hiện tại. Thử chuyển trạng thái hoặc xóa từ khóa tìm kiếm.")
+            : t("Chưa có yêu cầu xét duyệt nào được gửi từ doanh nghiệp.")}
         </p>
         {hasActiveFilters && (
           <Button variant="outline" size="sm" onClick={onResetFilters} className="mt-4">
-            Đặt lại bộ lọc
+            {t("Đặt lại bộ lọc")}
           </Button>
         )}
       </div>
@@ -197,7 +200,7 @@ export function VerificationQueueTable({
       {queue && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
           <span className="num">
-            {queue.total_elements} hồ sơ
+            {queue.total_elements}{" "}{t("hồ sơ")}
             {queue.total_pages > 0 && ` · Trang ${queue.page_number + 1} / ${queue.total_pages}`}
           </span>
           {queue.total_pages > 1 && (
@@ -208,7 +211,7 @@ export function VerificationQueueTable({
                 disabled={queue.is_first || loading}
                 onClick={() => onPageChange(queue.page_number - 1)}
               >
-                Trước
+                {t("Trước")}
               </Button>
               <Button
                 variant="outline"
@@ -216,7 +219,7 @@ export function VerificationQueueTable({
                 disabled={queue.is_last || loading}
                 onClick={() => onPageChange(queue.page_number + 1)}
               >
-                Sau
+                {t("Sau")}
               </Button>
             </div>
           )}

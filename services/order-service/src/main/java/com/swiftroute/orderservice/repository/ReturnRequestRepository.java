@@ -1,5 +1,8 @@
 package com.swiftroute.orderservice.repository;
 
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -21,9 +24,20 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
 
     List<ReturnRequest> findAllByCurrentHolderIdAndStatusInOrderByCreatedAtDesc(UUID driverId, Collection<String> statuses);
 
+    @Query("""
+            select item from ReturnRequest item
+            where item.tenantId = :tenantId
+              and (:status is null or upper(item.status) = :status)
+              and (:driverId is null or item.currentHolderId = :driverId)
+            """)
+    Page<ReturnRequest> findPage(UUID tenantId, String status, UUID driverId, Pageable pageable);
+
     Optional<ReturnRequest> findByIdAndTenantId(UUID id, UUID tenantId);
 
     Optional<ReturnRequest> findByReturnTask_Id(UUID taskId);
+
+    List<ReturnRequest> findAllByOrder_IdAndCurrentHolderIdAndStatusIn(
+            UUID orderId, UUID driverId, Collection<String> statuses);
 
     Optional<ReturnRequest> findByOrder_Id(UUID orderId);
 

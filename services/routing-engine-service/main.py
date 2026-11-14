@@ -24,7 +24,10 @@ logger = logging.getLogger("routing-engine.main")
 
 def _load_root_env() -> None:
     """Populate missing env vars from workspace root .env for local non-Docker runs."""
-    env_path = Path(__file__).resolve().parents[2] / ".env"
+    resolved = Path(__file__).resolve()
+    if len(resolved.parents) <= 2:
+        return
+    env_path = resolved.parents[2] / ".env"
     if not env_path.is_file():
         return
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():

@@ -42,11 +42,11 @@ public record OperationsReviewResponse(
 
     public record CodItem(
             UUID id,
-            UUID orderId,
-            String orderCode,
             UUID driverId,
-            BigDecimal collectedAmount,
+            BigDecimal ledgerTotal,
             BigDecimal declaredAmount,
+            int orderCount,
+            List<String> orderCodes,
             String notes,
             Instant declaredAt) {}
 }

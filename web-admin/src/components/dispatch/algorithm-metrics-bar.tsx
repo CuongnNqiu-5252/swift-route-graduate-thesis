@@ -1,3 +1,7 @@
+'use client';
+
+import { useLocale } from '@/i18n/provider';
+
 import { Card, CardContent } from '@/components/ui/card';
 import { OptimizationResult } from '@/domain/entities/routing.entity';
 import { Cpu, Clock, Navigation, CheckCircle2 } from 'lucide-react';
@@ -14,6 +18,7 @@ const ALGORITHM_NAMES: Record<string, string> = {
 };
 
 export function AlgorithmMetricsBar({ result, roadMetrics }: AlgorithmMetricsBarProps) {
+  const { t } = useLocale();
   const algoDisplay = ALGORITHM_NAMES[result.algorithm_used] || result.algorithm_used;
 
   return (
@@ -28,13 +33,13 @@ export function AlgorithmMetricsBar({ result, roadMetrics }: AlgorithmMetricsBar
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold uppercase tracking-wider text-blue-700">
-                  Thuật toán sử dụng
+                  {t("Thuật toán sử dụng")}
                 </span>
                 <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">
-                  <CheckCircle2 size={10} /> Đã tối ưu
+                  <CheckCircle2 size={10} />{" "}{t("Đã tối ưu")}
                 </span>
               </div>
-              <p className="text-sm font-bold text-gray-900">{algoDisplay}</p>
+              <p className="text-sm font-bold text-gray-900">{t(algoDisplay)}</p>
             </div>
           </div>
 
@@ -45,7 +50,7 @@ export function AlgorithmMetricsBar({ result, roadMetrics }: AlgorithmMetricsBar
                 <Clock size={16} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Thời gian tính toán</p>
+                <p className="text-xs text-gray-500">{t("Thời gian tính toán")}</p>
                 <p className="text-sm font-bold text-gray-900">
                   {result.execution_time_ms < 1
                     ? `${(result.execution_time_ms * 1000).toFixed(0)} µs`
@@ -61,9 +66,9 @@ export function AlgorithmMetricsBar({ result, roadMetrics }: AlgorithmMetricsBar
                 <Navigation size={16} />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Quãng đường thực tế Goong</p>
+                <p className="text-xs text-gray-500">{t("Quãng đường thực tế Goong")}</p>
                 <p className="text-sm font-bold text-emerald-700">
-                  {roadMetrics ? formatRoadDistance(roadMetrics.distanceMeters) : 'Đang tính…'}
+                  {roadMetrics ? formatRoadDistance(roadMetrics.distanceMeters) : t("Đang tính…")}
                 </p>
               </div>
             </div>
@@ -71,9 +76,9 @@ export function AlgorithmMetricsBar({ result, roadMetrics }: AlgorithmMetricsBar
             <div className="h-8 w-px bg-gray-200" />
 
             <div>
-              <p className="text-xs text-gray-500">Thời gian chạy xe Goong</p>
+              <p className="text-xs text-gray-500">{t("Thời gian chạy xe Goong")}</p>
               <p className="text-sm font-bold text-gray-900">
-                {roadMetrics ? `~${Math.max(1, Math.round(roadMetrics.durationSeconds / 60))} phút` : 'Đang tính…'} ({result.ordered_stops.length} điểm)
+                {roadMetrics ? `~${Math.max(1, Math.round(roadMetrics.durationSeconds / 60))} ${t("phút")}` : t("Đang tính…")} ({result.ordered_stops.length}{" "}{t("điểm)")}
               </p>
             </div>
           </div>

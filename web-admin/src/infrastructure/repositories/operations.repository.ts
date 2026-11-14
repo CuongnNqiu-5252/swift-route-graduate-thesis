@@ -34,7 +34,6 @@ export interface ReturnRequestDto {
   return_location_name: string | null;
   return_address: string | null;
   current_holder_id: string | null;
-  package_count: number;
   requested_by: string;
   approved_by: string | null;
   return_task_id: string | null;
@@ -64,7 +63,6 @@ export interface CreateReturnParams {
   request_type?: string;
   reason: string;
   return_location_id?: string;
-  package_count?: number;
   notes?: string;
   evidence_url?: string;
 }
@@ -96,11 +94,12 @@ export interface CodHandoverLineDto {
 export interface CodHandoverDto {
   id: string;
   driver_id: string;
-  status: 'SUBMITTED' | 'VERIFIED' | 'DISCREPANCY' | 'RESOLVED';
+  status: 'SUBMITTED' | 'SETTLED' | 'SETTLED_WITH_VARIANCE' | 'DISCREPANCY';
   ledger_total: number;
   declared_total: number;
   counted_total: number | null;
   discrepancy_amount: number | null;
+  variance_resolution: 'DRIVER_RESPONSIBLE' | 'BUSINESS_ADJUSTMENT' | 'OTHER' | null;
   notes: string | null;
   submitted_at: string;
   verified_by: string | null;
@@ -121,7 +120,30 @@ export interface CodDashboardDto {
   disputes?: unknown[];
 }
 
+export interface OrderHandoverDto {
+  handover_id: string;
+  order_id: string;
+  order_code: string | null;
+  from_driver_id: string;
+  to_driver_id: string | null;
+  status: 'REQUESTED' | 'ASSIGNED';
+  reason: string;
+}
+
 export const operationsRepository = {
+  async getOrderHandovers(): Promise<OrderHandoverDto[]> {
+    const res = await api.get<{ data: OrderHandoverDto[] } | OrderHandoverDto[]>('/custody/handovers/queue');
+    return Array.isArray(res.data) ? res.data : res.data.data;
+  },
+
+  async assignOrderHandover(id: string, driverId: string): Promise<void> {
+    await api.patch(`/custody/handovers/${id}/assign`, { to_driver_id: driverId });
+  },
+
+  async closeOrderHandover(id: string, action: 'reject' | 'cancel', notes: string): Promise<void> {
+    await api.patch(`/custody/handovers/${id}/${action}`, { notes });
+  },
+
   async reportIncident(params: {
     order_id?: string;
     dispatch_plan_id?: string;
@@ -195,11 +217,14 @@ export const operationsRepository = {
     return res.data;
   },
 
-  async verifyCod(id: string, countedTotal?: number, notes?: string): Promise<unknown> {
+  async settleCodReceipt(id: string, params: {
+    counted_total: number;
+    variance_resolution?: 'DRIVER_RESPONSIBLE' | 'BUSINESS_ADJUSTMENT' | 'OTHER';
+    notes?: string;
+  }): Promise<unknown> {
     const res = await api.post(`/cod/handovers/${id}/verify`, {
       operation_id: crypto.randomUUID(),
-      counted_total: countedTotal ?? 0,
-      notes,
+      ...params,
     });
     return res.data;
   },
@@ -207,6 +232,7 @@ export const operationsRepository = {
   async verifyCodHandover(id: string, params: {
     operation_id: string;
     counted_total: number;
+    variance_resolution?: 'DRIVER_RESPONSIBLE' | 'BUSINESS_ADJUSTMENT' | 'OTHER';
     notes?: string;
   }): Promise<CodHandoverDto> {
     const res = await api.post<CodHandoverDto>(`/cod/handovers/${id}/verify`, params);

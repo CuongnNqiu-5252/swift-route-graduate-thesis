@@ -41,7 +41,8 @@ public class OperationalAlertConsumer {
             "plan.dispatched",
             "route.updated",
             "return.approved",
-            "cod.handover_verified",
+            "cod.handover_settled",
+            "cod.handover_settled_with_variance",
             "cod.dispute_resolved",
             "settlement.approved",
             "settlement.paid",
@@ -58,7 +59,6 @@ public class OperationalAlertConsumer {
             "driver.unavailable_recovery",
             "delivery.delay_detected",
             "cod.handover_submitted",
-            "cod.handover_discrepancy",
             "return.discrepancy");
 
     private final JdbcTemplate jdbc;
@@ -198,9 +198,9 @@ public class OperationalAlertConsumer {
             case "route.updated" -> "Lộ trình giao hàng của bạn vừa được cập nhật";
             case "return.approved" -> "Yêu cầu hoàn hàng về kho đã được duyệt";
             case "return.discrepancy" -> "Cảnh báo chênh lệch khi nhận hàng hoàn tại kho";
-            case "cod.handover_submitted" -> "Tài xế nộp bảng kê bàn giao COD chờ đối soát";
-            case "cod.handover_verified" -> "Đã xác nhận bàn giao tiền COD thành công";
-            case "cod.handover_discrepancy" -> "Cảnh báo chênh lệch tiền bàn giao COD";
+            case "cod.handover_submitted" -> "Có phiếu nộp COD mới chờ kiểm đếm";
+            case "cod.handover_settled" -> "Phiếu nộp COD đã được quyết toán đủ";
+            case "cod.handover_settled_with_variance" -> "Phiếu nộp COD đã được quyết toán có chênh lệch";
             case "cod.dispute_resolved" -> "Đã xử lý khoản chênh lệch COD";
             case "settlement.approved" -> "Kỳ đối soát thu nhập đã được phê duyệt";
             case "settlement.paid" -> "Thu nhập đối soát đã được thanh toán";
@@ -274,19 +274,19 @@ public class OperationalAlertConsumer {
         }
         if ("cod.handover_submitted".equals(routingKey)) {
             long declared = Math.round(payload.path("declared_total").asDouble(0));
-            int count = payload.path("collection_count").asInt(1);
-            return "Tài xế vừa gửi yêu cầu bàn giao " + formatVnd(declared)
+            int count = payload.path("order_count").asInt(1);
+            return "Tài xế vừa lập phiếu nộp " + formatVnd(declared)
                     + " tiền thu hộ COD (" + count + " đơn). Vui lòng kiểm đếm tại quầy.";
         }
-        if ("cod.handover_verified".equals(routingKey)) {
+        if ("cod.handover_settled".equals(routingKey)) {
             long counted = Math.round(payload.path("counted_total").asDouble(0));
-            return "Quầy thu ngân đã xác nhận nhận đủ " + formatVnd(counted) + " tiền thu hộ COD bạn bàn giao.";
+            return "Quầy thu ngân đã quyết toán đủ " + formatVnd(counted) + " cho phiếu nộp COD của bạn.";
         }
-        if ("cod.handover_discrepancy".equals(routingKey)) {
-            long expected = Math.round(payload.path("expected_amount").asDouble(0));
+        if ("cod.handover_settled_with_variance".equals(routingKey)) {
+            long expected = Math.round(payload.path("ledger_total").asDouble(0));
             long counted = Math.round(payload.path("counted_total").asDouble(0));
-            return "Phát sinh chênh lệch khi kiểm đếm COD (Sổ sách: " + formatVnd(expected)
-                    + " · Thực đếm: " + formatVnd(counted) + ").";
+            return "Phiếu nộp COD đã được quyết toán có chênh lệch (Sổ sách: " + formatVnd(expected)
+                    + " · Thực đếm: " + formatVnd(counted) + "). Xem ghi chú để biết kết luận.";
         }
         if ("cod.dispute_resolved".equals(routingKey)) {
             String resolution = translateCodResolutionType(payload.path("resolution_type").asText("RESOLVED"));
@@ -346,8 +346,9 @@ public class OperationalAlertConsumer {
         }
         if (routingKey == null) return "LOW";
         return switch (routingKey) {
-            case "assignment.escalated", "driver.unavailable_recovery", "return.discrepancy", "cod.handover_discrepancy" -> "HIGH";
-            case "assignment.timeout", "delivery.delay_detected", "plan.cancelled", "cod.handover_submitted" -> "MEDIUM";
+            case "assignment.escalated", "driver.unavailable_recovery", "return.discrepancy" -> "HIGH";
+            case "assignment.timeout", "delivery.delay_detected", "plan.cancelled", "cod.handover_submitted",
+                 "cod.handover_settled_with_variance" -> "MEDIUM";
             default -> "LOW";
         };
     }
@@ -358,7 +359,7 @@ public class OperationalAlertConsumer {
             case "delivery.incident" -> incidentId != null && !incidentId.isBlank()
                     ? "/operations?incident=" + incidentId
                     : "/operations";
-            case "incident.resolved", "cod.handover_submitted", "cod.handover_discrepancy", "return.discrepancy" -> "/operations";
+            case "incident.resolved", "cod.handover_submitted", "cod.handover_settled_with_variance", "return.discrepancy" -> "/operations";
             case "order.delivery_completed.v1" -> "/orders";
             case "plan.acknowledged", "plan.cancelled", "assignment.timeout", "assignment.escalated",
                  "driver.unavailable_recovery", "delivery.delay_detected" -> "/dispatch";

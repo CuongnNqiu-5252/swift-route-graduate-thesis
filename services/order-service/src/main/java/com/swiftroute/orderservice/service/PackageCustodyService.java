@@ -1,164 +1,109 @@
 package com.swiftroute.orderservice.service;
 
 import java.time.Instant;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.swiftroute.orderservice.dto.request.AssignPackageHandoverRequest;
 import com.swiftroute.orderservice.dto.request.CreatePackageHandoverRequest;
 import com.swiftroute.orderservice.dto.response.PackageHandoverResponse;
-import com.swiftroute.orderservice.dto.response.PackageUnitResponse;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.PackageCustodyEvent;
 import com.swiftroute.orderservice.entity.PackageHandover;
-import com.swiftroute.orderservice.entity.PackageHandoverItem;
-import com.swiftroute.orderservice.entity.PackageUnit;
-import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
-import com.swiftroute.orderservice.repository.DeliveryTaskRepository;
 import com.swiftroute.orderservice.repository.OrderRepository;
+import com.swiftroute.orderservice.repository.ReturnRequestRepository;
 import com.swiftroute.orderservice.repository.PackageCustodyEventRepository;
 import com.swiftroute.orderservice.repository.PackageHandoverRepository;
-import com.swiftroute.orderservice.repository.PackageUnitRepository;
+import com.swiftroute.orderservice.service.planning.DispatchOrchestrationService;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class PackageCustodyService {
-    private static final List<String> ACTIVE_HANDOVER_STATUSES = List.of("REQUESTED", "SENDER_CONFIRMED", "DISPUTED");
+    private static final List<String> ACTIVE_HANDOVER_STATUSES = List.of("REQUESTED", "ASSIGNED");
+    private static final Set<String> OPERATOR_ROLES = Set.of(
+            "SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "WAREHOUSE_STAFF",
+            "TENANT_OWNER", "MANAGER", "STAFF");
 
-    private final PackageUnitRepository packageUnits;
     private final PackageCustodyEventRepository custodyEvents;
     private final PackageHandoverRepository handovers;
-    private final DeliveryTaskRepository deliveryTasks;
     private final OrderRepository orders;
+    private final ReturnRequestRepository returns;
+    private final OperationalReadinessService readiness;
+    private final ObjectProvider<DispatchOrchestrationService> dispatchOrchestration;
 
     @Transactional
     public void acquireAtPickup(Order order, UUID driverId) {
-        List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
-        if (units.isEmpty()) {
-            int count = order.getPackageCount() == null ? 1 : order.getPackageCount();
-            String tokenPrefix = order.getTrackingToken() != null ? order.getTrackingToken() : order.getId().toString().substring(0, 8);
-            for (int index = 1; index <= count; index++) {
-                units.add(packageUnits.save(PackageUnit.builder()
-                        .order(order)
-                        .tenantId(order.getTenant().getId())
-                        .packageNumber(index)
-                        .packageCode(tokenPrefix + "-P" + String.format("%02d", index))
-                        .build()));
-            }
-        }
-
-        for (PackageUnit unit : units) {
-            if (unit.getCurrentCustodianId() != null && !driverId.equals(unit.getCurrentCustodianId())) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
-            if (Set.of("DELIVERED", "RETURNED", "CANCELLED").contains(unit.getStatus())) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
-            if (driverId.equals(unit.getCurrentCustodianId()) && "IN_CUSTODY".equals(unit.getStatus())) {
-                // Driver already holds physical custody of this package (e.g. following incident resolution / redelivery)
-                unit.setUpdatedAt(Instant.now());
-                continue;
-            }
-            if (unit.getCurrentCustodianId() != null || !"PENDING_PICKUP".equals(unit.getStatus())) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
-            unit.setCurrentCustodianId(driverId);
-            unit.setStatus("IN_CUSTODY");
-            unit.setUpdatedAt(Instant.now());
-            record(unit, "PICKUP_CONFIRMED", null, driverId, null, driverId, "Tài xế xác nhận lấy hàng");
+        requireAssignedDriver(order, driverId);
+        requireNoActiveHandover(order);
+        if (!holdsOrder(order)) {
+            record(order, "PICKUP_CONFIRMED", null, driverId, null, driverId, "Tài xế xác nhận lấy hàng");
         }
     }
 
     @Transactional
     public void releaseAtDelivery(Order order, UUID driverId) {
-        List<PackageUnit> units = requireOrderCustody(order, driverId);
-        for (PackageUnit unit : units) {
-            unit.setCurrentCustodianId(null);
-            unit.setStatus("DELIVERED");
-            unit.setUpdatedAt(Instant.now());
-            record(unit, "DELIVERY_RELEASED", driverId, null, null, driverId, "Giao hàng thành công");
-        }
+        requireHeldOrder(order, driverId);
+        requireNoActiveHandover(order);
+        record(order, "DELIVERY_RELEASED", driverId, null, null, driverId, "Giao hàng thành công");
     }
 
     @Transactional
     public void startReturn(Order order, UUID actorId) {
-        List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
-        if (units.isEmpty() && order.getAssignedDriverId() != null) {
-            int count = order.getPackageCount() == null ? 1 : order.getPackageCount();
-            String tokenPrefix = order.getTrackingToken() != null ? order.getTrackingToken() : order.getId().toString().substring(0, 8);
-            for (int index = 1; index <= count; index++) {
-                units.add(packageUnits.save(PackageUnit.builder()
-                        .order(order)
-                        .tenantId(order.getTenant().getId())
-                        .packageNumber(index)
-                        .packageCode(tokenPrefix + "-P" + String.format("%02d", index))
-                        .currentCustodianId(order.getAssignedDriverId())
-                        .status("IN_CUSTODY")
-                        .build()));
-            }
-        }
-        if (units.isEmpty()) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        for (PackageUnit unit : units) {
-            if (Set.of("RETURNED", "CANCELLED").contains(unit.getStatus())) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
-            if (unit.getCurrentCustodianId() == null) {
-                if (order.getAssignedDriverId() == null) {
-                    throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-                }
-                unit.setCurrentCustodianId(order.getAssignedDriverId());
-            }
-            unit.setStatus("RETURNING");
-            unit.setUpdatedAt(Instant.now());
-            record(unit, "RETURN_STARTED", unit.getCurrentCustodianId(), unit.getCurrentCustodianId(), null, actorId,
-                    "Yêu cầu hoàn về nơi gửi đã được phê duyệt");
-        }
+        UUID driverId = order.getAssignedDriverId();
+        requireAssignedDriver(order, driverId);
+        requireNoActiveHandover(order);
+        record(order, "RETURN_STARTED", driverId, driverId, null, actorId, "Yêu cầu hoàn hàng được duyệt");
     }
 
     @Transactional
     public void receiveReturn(Order order, UUID actorId, String notes) {
-        List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
-        if (units.isEmpty() || units.stream().anyMatch(unit -> unit.getCurrentCustodianId() == null || !"RETURNING".equals(unit.getStatus()))) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        for (PackageUnit unit : units) {
-            UUID previous = unit.getCurrentCustodianId();
-            unit.setCurrentCustodianId(null);
-            unit.setStatus("RETURNED");
-            unit.setUpdatedAt(Instant.now());
-            record(unit, "RETURN_RECEIVED", previous, null, null, actorId, notes);
-        }
+        UUID driverId = order.getAssignedDriverId();
+        requireReturnCustody(order, driverId);
+        record(order, "RETURN_RECEIVED", driverId, null, null, actorId, notes);
     }
 
-    @Transactional(readOnly = true)
     public void requireReturnCustody(Order order, UUID driverId) {
-        List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
-        if (units.isEmpty() || units.stream().anyMatch(unit ->
-                !driverId.equals(unit.getCurrentCustodianId()) || !"RETURNING".equals(unit.getStatus()))) {
+        requireHeldOrder(order, driverId);
+        requireNoActiveHandover(order);
+        if (!"RETURNING".equals(order.getFulfillmentStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
     }
 
-    @Transactional(readOnly = true)
-    public List<PackageUnitResponse> packagesForOrder(UUID orderId, UUID tenantId, UUID actorId, String role) {
-        Order order = orders.findById(orderId).orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        boolean operator = isOperator(role);
-        boolean assignedDriver = order.getAssignedDriverId() != null && order.getAssignedDriverId().equals(actorId);
-        if (!order.getTenant().getId().equals(tenantId) || (!operator && !assignedDriver)) {
-            throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+    public boolean holdsOrder(Order order) {
+        return custodyEvents.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId())
+                .map(event -> event.getToCustodianId() != null)
+                .orElse(false);
+    }
+
+    public void requireNoActiveHandover(Order order) {
+        if (handovers.existsByOrder_IdAndStatusIn(order.getId(), ACTIVE_HANDOVER_STATUSES)) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
-        return packageUnits.findByOrder_IdOrderByPackageNumberAsc(orderId).stream().map(PackageUnitResponse::from).toList();
+    }
+
+    private void requireAssignedDriver(Order order, UUID driverId) {
+        if (driverId == null || !driverId.equals(order.getAssignedDriverId())) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+    }
+
+    private void requireHeldOrder(Order order, UUID driverId) {
+        requireAssignedDriver(order, driverId);
+        if (!custodyEvents.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId())
+                .map(event -> driverId.equals(event.getToCustodianId())).orElse(false)) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
     }
 
     @Transactional
@@ -168,51 +113,46 @@ public class PackageCustodyService {
             String role,
             CreatePackageHandoverRequest request) {
         requireDriver(role);
-        if (driverId.equals(request.toDriverId())) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
-        List<UUID> ids = List.copyOf(new LinkedHashSet<>(request.packageIds()));
-        if (ids.size() != request.packageIds().size()) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
-        List<PackageUnit> units = packageUnits.findByIdIn(ids);
-        if (units.size() != ids.size() || units.stream().anyMatch(unit ->
-                !unit.getTenantId().equals(tenantId)
-                        || !driverId.equals(unit.getCurrentCustodianId())
-                        || !Set.of("IN_CUSTODY", "RETURNING").contains(unit.getStatus()))) {
+        Order order = orders.findForUpdate(request.orderId())
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        if (!tenantId.equals(order.getTenant().getId())) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
+        requireHeldOrder(order, driverId);
+        requireNoActiveHandover(order);
 
+        order.setUpdatedAt(Instant.now());
         PackageHandover handover = PackageHandover.builder()
+                .order(order)
                 .tenantId(tenantId)
                 .fromDriverId(driverId)
-                .toDriverId(request.toDriverId())
                 .reason(request.reason().trim())
-                .requestedBy(driverId)
                 .build();
-        for (PackageUnit unit : units) {
-            handover.getItems().add(PackageHandoverItem.builder()
-                    .handover(handover)
-                    .packageUnit(unit)
-                    .previousStatus(unit.getStatus())
-                    .build());
-            unit.setStatus("HANDOVER_PENDING");
-            unit.setUpdatedAt(Instant.now());
-        }
         return PackageHandoverResponse.from(handovers.saveAndFlush(handover));
     }
 
     @Transactional
-    public PackageHandoverResponse senderConfirm(UUID handoverId, UUID tenantId, UUID driverId, String role, String notes) {
-        requireDriver(role);
+    public PackageHandoverResponse assign(
+            UUID handoverId,
+            UUID tenantId,
+            UUID operatorId,
+            String role,
+            AssignPackageHandoverRequest request) {
+        requireOperator(role);
         PackageHandover handover = ownedHandover(handoverId, tenantId);
-        if (!driverId.equals(handover.getFromDriverId()) || !"REQUESTED".equals(handover.getStatus())) {
+        if (!"REQUESTED".equals(handover.getStatus())
+                || handover.getFromDriverId().equals(request.toDriverId())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
-        handover.setStatus("SENDER_CONFIRMED");
-        handover.setSenderConfirmedAt(Instant.now());
-        handover.setUpdatedAt(Instant.now());
-        handover.setNotes(notes);
+        readiness.requireAssignment(handover.getOrder().getTenant(), request.toDriverId());
+
+        Instant now = Instant.now();
+        handover.setToDriverId(request.toDriverId());
+        handover.setStatus("ASSIGNED");
+        handover.setAssignedBy(operatorId);
+        handover.setAssignedAt(now);
+        handover.setAdminNotes(trimToNull(request.notes()));
+        handover.setUpdatedAt(now);
         return PackageHandoverResponse.from(handover);
     }
 
@@ -220,67 +160,74 @@ public class PackageCustodyService {
     public PackageHandoverResponse receiverConfirm(UUID handoverId, UUID tenantId, UUID driverId, String role, String notes) {
         requireDriver(role);
         PackageHandover handover = ownedHandover(handoverId, tenantId);
-        if (!driverId.equals(handover.getToDriverId()) || !"SENDER_CONFIRMED".equals(handover.getStatus())) {
+        if (!driverId.equals(handover.getToDriverId()) || !"ASSIGNED".equals(handover.getStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         Instant now = Instant.now();
-        Set<UUID> affectedOrders = new LinkedHashSet<>();
-        for (PackageHandoverItem item : handover.getItems()) {
-            PackageUnit unit = item.getPackageUnit();
-            if (!"PENDING".equals(item.getStatus())
-                    || !"HANDOVER_PENDING".equals(unit.getStatus())
-                    || !handover.getFromDriverId().equals(unit.getCurrentCustodianId())) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
-            unit.setCurrentCustodianId(driverId);
-            unit.setStatus("RETURNING".equals(item.getPreviousStatus()) ? "RETURNING" : "IN_CUSTODY");
-            unit.setUpdatedAt(now);
-            item.setStatus("TRANSFERRED");
-            affectedOrders.add(unit.getOrder().getId());
-            record(unit, "HANDOVER_COMPLETED", handover.getFromDriverId(), driverId, handover.getId(), driverId, notes);
-        }
+        Order order = orders.findForUpdate(handover.getOrder().getId())
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        requireHeldOrder(order, handover.getFromDriverId());
+        String taskType = "RETURNING".equals(order.getFulfillmentStatus()) ? "RETURN" : "DELIVERY";
+        dispatchOrchestration.getObject().synchronizePackageTransfer(order, handover.getFromDriverId(), driverId, taskType);
+        returns.findAllByOrder_IdAndCurrentHolderIdAndStatusIn(order.getId(), handover.getFromDriverId(),
+                List.of("REQUESTED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT",
+                        "DISCREPANCY", "EXECUTION_FAILED"))
+                .forEach(request -> {
+                    request.setCurrentHolderId(driverId);
+                    request.setUpdatedAt(now);
+                });
+        record(order, "HANDOVER_COMPLETED", handover.getFromDriverId(), driverId, handover.getId(), driverId, notes);
         handover.setStatus("COMPLETED");
-        handover.setReceiverConfirmedAt(now);
         handover.setCompletedAt(now);
         handover.setUpdatedAt(now);
-        handover.setNotes(notes);
+        handover.setReceiverNotes(trimToNull(notes));
 
-        for (UUID orderId : affectedOrders) {
-            List<PackageUnit> orderUnits = packageUnits.findByOrder_IdOrderByPackageNumberAsc(orderId);
-            if (!orderUnits.isEmpty() && orderUnits.stream().allMatch(unit -> driverId.equals(unit.getCurrentCustodianId()))) {
-                Order order = orderUnits.get(0).getOrder();
-                order.setAssignedDriverId(driverId);
-                order.setUpdatedAt(now);
-                deliveryTasks.findByOrder_IdAndTaskType(orderId, "DELIVERY")
-                        .filter(task -> task.getStatus() != DeliveryTaskStatus.COMPLETED && task.getStatus() != DeliveryTaskStatus.CANCELLED)
-                        .ifPresent(task -> task.setDriverId(driverId));
-                deliveryTasks.findByOrder_IdAndTaskType(orderId, "RETURN")
-                        .filter(task -> task.getStatus() != DeliveryTaskStatus.COMPLETED && task.getStatus() != DeliveryTaskStatus.CANCELLED)
-                        .ifPresent(task -> task.setDriverId(driverId));
-            }
-        }
         return PackageHandoverResponse.from(handover);
     }
 
     @Transactional
-    public PackageHandoverResponse cancel(UUID handoverId, UUID tenantId, UUID driverId, String role, String notes) {
-        requireDriver(role);
+    public PackageHandoverResponse reject(
+            UUID handoverId,
+            UUID tenantId,
+            UUID operatorId,
+            String role,
+            String notes) {
+        requireOperator(role);
         PackageHandover handover = ownedHandover(handoverId, tenantId);
-        if (!driverId.equals(handover.getFromDriverId()) || !Set.of("REQUESTED", "SENDER_CONFIRMED").contains(handover.getStatus())) {
+        if (!"REQUESTED".equals(handover.getStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
-        for (PackageHandoverItem item : handover.getItems()) {
-            if (!"PENDING".equals(item.getStatus())) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
-            item.setStatus("CANCELLED");
-            item.getPackageUnit().setStatus(item.getPreviousStatus());
-            item.getPackageUnit().setUpdatedAt(Instant.now());
+        Instant now = Instant.now();
+        handover.setStatus("REJECTED");
+        handover.setRejectedBy(operatorId);
+        handover.setRejectedAt(now);
+        handover.setAdminNotes(requireNotes(notes));
+        handover.setUpdatedAt(now);
+        return PackageHandoverResponse.from(handover);
+    }
+
+    @Transactional
+    public PackageHandoverResponse cancel(
+            UUID handoverId,
+            UUID tenantId,
+            UUID actorId,
+            String role,
+            String notes) {
+        PackageHandover handover = ownedHandover(handoverId, tenantId);
+        boolean operator = isOperator(role);
+        boolean requestingDriver = "DRIVER".equalsIgnoreCase(role)
+                && actorId.equals(handover.getFromDriverId())
+                && "REQUESTED".equals(handover.getStatus());
+        if ((!operator && !requestingDriver)
+                || !Set.of("REQUESTED", "ASSIGNED").contains(handover.getStatus())) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
+        Instant now = Instant.now();
         handover.setStatus("CANCELLED");
-        handover.setCancelledAt(Instant.now());
-        handover.setUpdatedAt(Instant.now());
-        handover.setNotes(notes);
+        handover.setCancelledBy(actorId);
+        handover.setCancelledAt(now);
+        handover.setAdminNotes(requireNotes(notes));
+        handover.setUpdatedAt(now);
         return PackageHandoverResponse.from(handover);
     }
 
@@ -292,13 +239,12 @@ public class PackageCustodyService {
                 .toList();
     }
 
-    private List<PackageUnit> requireOrderCustody(Order order, UUID driverId) {
-        List<PackageUnit> units = packageUnits.findByOrder_IdOrderByPackageNumberAsc(order.getId());
-        if (units.isEmpty() || units.stream().anyMatch(unit ->
-                !driverId.equals(unit.getCurrentCustodianId()) || !"IN_CUSTODY".equals(unit.getStatus()))) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        return units;
+    @Transactional(readOnly = true)
+    public List<PackageHandoverResponse> operationalQueue(UUID tenantId, String role) {
+        requireOperator(role);
+        return handovers.findOperationalQueue(tenantId, ACTIVE_HANDOVER_STATUSES).stream()
+                .map(PackageHandoverResponse::from)
+                .toList();
     }
 
     private PackageHandover ownedHandover(UUID id, UUID tenantId) {
@@ -310,7 +256,7 @@ public class PackageCustodyService {
     }
 
     private void record(
-            PackageUnit unit,
+            Order order,
             String type,
             UUID from,
             UUID to,
@@ -318,8 +264,8 @@ public class PackageCustodyService {
             UUID actor,
             String reason) {
         custodyEvents.save(PackageCustodyEvent.builder()
-                .packageUnit(unit)
-                .tenantId(unit.getTenantId())
+                .order(order)
+                .tenantId(order.getTenant().getId())
                 .eventType(type)
                 .fromCustodianId(from)
                 .toCustodianId(to)
@@ -330,13 +276,33 @@ public class PackageCustodyService {
     }
 
     private boolean isOperator(String role) {
-        return Set.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "WAREHOUSE_STAFF")
-                .contains(role == null ? "" : role.toUpperCase(Locale.ROOT));
+        return OPERATOR_ROLES.contains(role == null ? "" : role.toUpperCase(Locale.ROOT));
+    }
+
+    private void requireOperator(String role) {
+        if (!isOperator(role)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
     }
 
     private void requireDriver(String role) {
         if (!"DRIVER".equalsIgnoreCase(role)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
+    }
+
+    private String requireNotes(String notes) {
+        String value = trimToNull(notes);
+        if (value == null) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        return value;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }

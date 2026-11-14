@@ -16,9 +16,32 @@ public record TenantInvitationResponse(
         TenantInvitationStatus status,
         UUID invitedBy,
         Instant expiresAt,
-        Instant createdAt) {
+        Instant createdAt,
+        java.util.List<String> grantedPermissions,
+        java.util.List<String> revokedPermissions) {
+
+    public TenantInvitationResponse(
+            UUID id,
+            UUID tenantId,
+            UUID driverId,
+            String email,
+            TenantMembershipRole role,
+            TenantInvitationStatus status,
+            UUID invitedBy,
+            Instant expiresAt,
+            Instant createdAt) {
+        this(id, tenantId, driverId, email, role, status, invitedBy, expiresAt, createdAt,
+                java.util.List.of(), java.util.List.of());
+    }
 
     public static TenantInvitationResponse fromEntity(TenantInvitation inv) {
+        return fromEntity(inv, java.util.List.of(), java.util.List.of());
+    }
+
+    public static TenantInvitationResponse fromEntity(
+            TenantInvitation inv,
+            java.util.List<String> grantedPermissions,
+            java.util.List<String> revokedPermissions) {
         return new TenantInvitationResponse(
                 inv.getId(),
                 inv.getTenantId(),
@@ -28,6 +51,8 @@ public record TenantInvitationResponse(
                 inv.getStatus(),
                 inv.getInvitedBy(),
                 inv.getExpiresAt(),
-                inv.getCreatedAt());
+                inv.getCreatedAt(),
+                grantedPermissions != null ? grantedPermissions : java.util.List.of(),
+                revokedPermissions != null ? revokedPermissions : java.util.List.of());
     }
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import type { GeoJSONSource } from 'maplibre-gl';
@@ -39,6 +41,7 @@ function popupContent(title: string, body: string) {
 }
 
 export default function OrderTrackingMap({ pickup, delivery, driver, driverName, orderCode }: OrderTrackingMapProps) {
+  const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
@@ -78,8 +81,8 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
     const map = mapRef.current;
     if (!map) return;
     markersRef.current.forEach((item) => item.remove());
-    const pickupMarker = new Marker({ element: marker('#0f766e', 'Điểm lấy hàng') }).setLngLat([pickupLng, pickupLat]).setPopup(new Popup({ offset: 14, closeButton: false }).setDOMContent(popupContent('Điểm lấy hàng', orderCode ? `Đơn ${orderCode}` : 'Điểm bắt đầu tuyến'))).addTo(map);
-    const deliveryMarker = new Marker({ element: marker('#e11d48', 'Điểm giao hàng') }).setLngLat([deliveryLng, deliveryLat]).setPopup(new Popup({ offset: 14, closeButton: false }).setDOMContent(popupContent('Điểm giao hàng', orderCode ? `Đơn ${orderCode}` : 'Điểm đến của đơn'))).addTo(map);
+    const pickupMarker = new Marker({ element: marker('#0f766e', t("Điểm lấy hàng")) }).setLngLat([pickupLng, pickupLat]).setPopup(new Popup({ offset: 14, closeButton: false }).setDOMContent(popupContent(t("Điểm lấy hàng"), orderCode ? `Đơn ${orderCode}` : 'Điểm bắt đầu tuyến'))).addTo(map);
+    const deliveryMarker = new Marker({ element: marker('#e11d48', t("Điểm giao hàng")) }).setLngLat([deliveryLng, deliveryLat]).setPopup(new Popup({ offset: 14, closeButton: false }).setDOMContent(popupContent(t("Điểm giao hàng"), orderCode ? `Đơn ${orderCode}` : 'Điểm đến của đơn'))).addTo(map);
     const driverMarker = driverLat != null && driverLng != null ? new Marker({ element: marker('#2563eb', `Vị trí tài xế ${driverName || ''}`.trim(), true) }).setLngLat([driverLng, driverLat]).setPopup(new Popup({ offset: 18, closeButton: false }).setDOMContent(popupContent(driverName || 'Tài xế đang giao', 'GPS trực tiếp từ ứng dụng tài xế'))).addTo(map) : null;
     markersRef.current = [pickupMarker, deliveryMarker, ...(driverMarker ? [driverMarker] : [])];
     const bounds = new LngLatBounds().extend([pickupLng, pickupLat]).extend([deliveryLng, deliveryLat]);
@@ -87,7 +90,7 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
     const frame = () => map.fitBounds(bounds, { padding: 58, maxZoom: 16, duration: 450 });
     if (map.loaded()) frame(); else map.once('load', frame);
     return () => { map.off('load', frame); };
-  }, [deliveryLat, deliveryLng, driverLat, driverLng, driverName, orderCode, pickupLat, pickupLng]);
+  }, [deliveryLat, deliveryLng, driverLat, driverLng, driverName, orderCode, pickupLat, pickupLng, t]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -119,7 +122,7 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
       aria-label="Bản đồ theo dõi đơn hàng và tài xế"
     />
     <div className="pointer-events-none absolute start-3 top-3 z-10 max-w-[calc(100%-5rem)] rounded-xl bg-slate-950/90 px-3 py-2.5 text-white shadow-[0_8px_24px_rgb(15_23_42/0.22)]">
-      <div className="flex items-center gap-2 text-xs font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={14} /> : route.error ? <AlertTriangle className="text-amber-300" size={14} /> : <Navigation className="text-blue-300" size={14} />}{route.isLoading ? 'Đang cập nhật tuyến' : driver ? `${driverName || 'Tài xế'} đang tới điểm giao` : driverName ? `Đang chờ GPS của ${driverName}` : 'Tuyến giao dự kiến'}</div>
+      <div className="flex items-center gap-2 text-xs font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={14} /> : route.error ? <AlertTriangle className="text-amber-300" size={14} /> : <Navigation className="text-blue-300" size={14} />}{route.isLoading ? 'Đang cập nhật tuyến' : driver ? `${driverName || t("Tài xế")} đang tới điểm giao` : driverName ? `Đang chờ GPS của ${driverName}` : 'Tuyến giao dự kiến'}</div>
       <p className="mt-1 text-[11px] text-slate-300">{route.coordinates.length ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.max(1, Math.round(route.durationSeconds / 60))} phút` : route.error || 'Đang chờ dữ liệu đường đi'}</p>
     </div>
     {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}

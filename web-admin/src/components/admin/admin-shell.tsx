@@ -1,5 +1,9 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+import { LanguageSelect } from '@/components/layout/language-select';
+
+import { accountRoleLabel } from '@/domain/entities/member.entity';
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -30,6 +34,7 @@ export function AdminShell({
   onLogout,
   children,
 }: AdminShellProps) {
+  const { t } = useLocale();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -42,11 +47,11 @@ export function AdminShell({
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-950">SwiftRoute</p>
-            <p className="truncate text-xs text-slate-500">Quản trị nền tảng</p>
+            <p className="truncate text-xs text-slate-500">{t("Quản trị nền tảng")}</p>
           </div>
         </div>
 
-        <nav aria-label="Điều hướng quản trị hệ thống" className="flex-1 px-3 py-4">
+        <nav aria-label={t("Điều hướng quản trị hệ thống")} className="flex-1 px-3 py-4">
           <ul className="space-y-1">
             {ADMIN_NAV_ITEMS.map(({ href, label, icon: Icon }) => {
               const active = pathname.startsWith(href);
@@ -63,7 +68,7 @@ export function AdminShell({
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0 text-[#17766c]" aria-hidden="true" />
-                    <span className="truncate">{label}</span>
+                    <span className="truncate">{t(label)}</span>
                   </Link>
                 </li>
               );
@@ -72,7 +77,7 @@ export function AdminShell({
         </nav>
 
         <div className="px-6 py-4 text-xs text-slate-500">
-          Khu vực kiểm duyệt & vòng đời doanh nghiệp
+          {t("Khu vực kiểm duyệt & vòng đời doanh nghiệp")}
         </div>
       </aside>
 
@@ -82,7 +87,7 @@ export function AdminShell({
             <button
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
-              aria-label={mobileMenuOpen ? 'Đóng điều hướng' : 'Mở điều hướng'}
+              aria-label={mobileMenuOpen ? t("Đóng điều hướng") : t("Mở điều hướng")}
               className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 lg:hidden"
             >
               {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -93,21 +98,22 @@ export function AdminShell({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-4">
-            <div className="text-right leading-tight">
-              <p className="text-sm font-medium text-slate-900">{userName || userEmail || 'Quản trị viên'}</p>
-              {userRole && <p className="text-xs text-slate-500">{userRole}</p>}
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <LanguageSelect />
+            <div className="hidden min-w-0 text-right leading-tight sm:block">
+              <p className="text-sm font-medium text-slate-900">{userName || userEmail || t("Quản trị viên")}</p>
+              {userRole && <p className="text-xs text-slate-500">{t(accountRoleLabel(userRole))}</p>}
             </div>
-            <Button variant="outline" size="sm" onClick={onLogout} className="bg-white">
+            <Button variant="outline" size="sm" onClick={onLogout} aria-label={t("Đăng xuất")} className="bg-white">
               <LogOut className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Đăng xuất</span>
+              <span className="hidden sm:inline">{t("Đăng xuất")}</span>
             </Button>
           </div>
         </header>
 
         {mobileMenuOpen && (
           <nav
-            aria-label="Điều hướng di động"
+            aria-label={t("Điều hướng di động")}
             className="mx-3 mb-2 rounded-xl border border-slate-200 bg-white p-2 lg:hidden"
           >
             {ADMIN_NAV_ITEMS.map(({ href, label, icon: Icon }) => {
@@ -123,7 +129,7 @@ export function AdminShell({
                   )}
                 >
                   <Icon className="h-4 w-4 text-[#17766c]" />
-                  <span>{label}</span>
+                  <span>{t(label)}</span>
                 </Link>
               );
             })}

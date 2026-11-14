@@ -138,7 +138,6 @@ class OrderModel {
   final DateTime timeWindowStart;
   final DateTime timeWindowEnd;
   final double weightKg;
-  final int packageCount;
   final String? packageDescription;
   final String? notes;
   final String priority;
@@ -172,7 +171,6 @@ class OrderModel {
     required this.timeWindowStart,
     required this.timeWindowEnd,
     required this.weightKg,
-    this.packageCount = 1,
     this.packageDescription,
     this.notes,
     required this.priority,
@@ -256,10 +254,6 @@ class OrderModel {
           DateTime.tryParse(json['time_window_end'] as String? ?? '') ??
           DateTime.now().add(const Duration(hours: 4)),
       weightKg: (json['weight_kg'] as num?)?.toDouble() ?? 1.0,
-      packageCount:
-          (json['package_count'] as num?)?.toInt() ??
-          (json['packageCount'] as num?)?.toInt() ??
-          1,
       packageDescription: json['package_description'] as String?,
       notes: json['notes'] as String?,
       priority: json['priority'] as String? ?? 'NORMAL',
@@ -308,7 +302,6 @@ class OrderModel {
     'time_window_start': timeWindowStart.toUtc().toIso8601String(),
     'time_window_end': timeWindowEnd.toUtc().toIso8601String(),
     'weight_kg': weightKg,
-    'package_count': packageCount,
     'package_description': packageDescription,
     'notes': notes,
     'priority': priority,
@@ -343,7 +336,6 @@ class OrderModel {
     DateTime? timeWindowStart,
     DateTime? timeWindowEnd,
     double? weightKg,
-    int? packageCount,
     String? packageDescription,
     String? notes,
     String? priority,
@@ -377,7 +369,6 @@ class OrderModel {
       timeWindowStart: timeWindowStart ?? this.timeWindowStart,
       timeWindowEnd: timeWindowEnd ?? this.timeWindowEnd,
       weightKg: weightKg ?? this.weightKg,
-      packageCount: packageCount ?? this.packageCount,
       packageDescription: packageDescription ?? this.packageDescription,
       notes: notes ?? this.notes,
       priority: priority ?? this.priority,

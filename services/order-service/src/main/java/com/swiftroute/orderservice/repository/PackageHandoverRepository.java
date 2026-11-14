@@ -10,10 +10,11 @@ import org.springframework.data.repository.query.Param;
 import com.swiftroute.orderservice.entity.PackageHandover;
 
 public interface PackageHandoverRepository extends JpaRepository<PackageHandover, UUID> {
+    boolean existsByOrder_IdAndStatusIn(UUID orderId, List<String> statuses);
+
     @Query("""
-            select distinct h from PackageHandover h
-            left join fetch h.items i
-            left join fetch i.packageUnit p
+            select h from PackageHandover h
+            join fetch h.order
             where h.tenantId = :tenantId
               and (h.fromDriverId = :driverId or h.toDriverId = :driverId)
               and h.status in :statuses
@@ -22,5 +23,16 @@ public interface PackageHandoverRepository extends JpaRepository<PackageHandover
     List<PackageHandover> findDriverHandovers(
             @Param("tenantId") UUID tenantId,
             @Param("driverId") UUID driverId,
+            @Param("statuses") List<String> statuses);
+
+    @Query("""
+            select h from PackageHandover h
+            join fetch h.order
+            where h.tenantId = :tenantId
+              and h.status in :statuses
+            order by h.createdAt asc
+            """)
+    List<PackageHandover> findOperationalQueue(
+            @Param("tenantId") UUID tenantId,
             @Param("statuses") List<String> statuses);
 }

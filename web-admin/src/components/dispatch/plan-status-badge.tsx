@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { PlanStatus } from '@/domain/entities/routing.entity';
 
 interface PlanStatusBadgeProps {
@@ -31,11 +33,12 @@ const STATUS_META: Record<PlanStatus, { label: string; className: string }> = {
 };
 
 export function PlanStatusBadge({ status, acknowledgedAt }: PlanStatusBadgeProps) {
+  const { t } = useLocale();
   const meta = STATUS_META[status] || STATUS_META.DRAFT;
   const label =
     status === 'DISPATCHED' && acknowledgedAt
-      ? 'Tài xế đã nhận tuyến'
-      : meta.label;
+      ? t("Tài xế đã nhận tuyến")
+      : t(meta.label);
 
   return (
     <span

@@ -1,5 +1,7 @@
 package com.swiftroute.driverservice.controller;
 
+import org.springframework.web.bind.annotation.RequestParam;
+import com.swiftroute.driverservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -20,17 +22,28 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/settlements")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER')")
+@PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER','VIEWER')")
 public class SettlementController {
     private final DriverEarningService service;
 
+    @GetMapping("/page")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER','VIEWER')")
+    public ApiResponse<PageResponse<DriverSettlementResponse>> settlementPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        return ApiResponse.success(service.settlementPage(requireTenantId(tenantId), page, size));
+    }
+
     @GetMapping
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER','VIEWER')")
     public ResponseEntity<ApiResponse<List<DriverSettlementResponse>>> list(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
         return ResponseEntity.ok(ApiResponse.success(service.settlements(requireTenantId(tenantId))));
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OPERATOR','OWNER')")
     public ResponseEntity<ApiResponse<DriverSettlementResponse>> create(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @Valid @RequestBody CreateSettlementRequest request) {
@@ -38,6 +51,7 @@ public class SettlementController {
     }
 
     @PostMapping("/{settlementId}/approve")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OWNER')")
     public ResponseEntity<ApiResponse<DriverSettlementResponse>> approve(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             Authentication authentication,
@@ -47,6 +61,7 @@ public class SettlementController {
     }
 
     @PostMapping("/{settlementId}/mark-paid")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN','TENANT_ADMIN','OWNER')")
     public ResponseEntity<ApiResponse<DriverSettlementResponse>> markPaid(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             Authentication authentication,

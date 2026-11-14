@@ -77,7 +77,7 @@ class _CodListState extends ConsumerState<_CodList> {
   final Set<String> _selectedIds = {};
   bool _submitting = false;
 
-  Future<void> _submitBatch(DriverCodCustodyModel custody) async {
+  Future<void> _submitReceipt(DriverCodCustodyModel custody) async {
     final selected = custody.eligibleCollections
         .where((item) => _selectedIds.contains(item.id))
         .toList();
@@ -93,7 +93,7 @@ class _CodListState extends ConsumerState<_CodList> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Kê khai lô bàn giao COD'),
+        title: const Text('Tạo phiếu nộp COD'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -127,7 +127,7 @@ class _CodListState extends ConsumerState<_CodList> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Gửi bàn giao'),
+            child: const Text('Gửi phiếu'),
           ),
         ],
       ),
@@ -163,7 +163,7 @@ class _CodListState extends ConsumerState<_CodList> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: AppColors.success,
-            content: Text('Đã gửi lô COD. Quầy sẽ kiểm đếm độc lập.'),
+            content: Text('Đã gửi phiếu nộp COD. Quầy sẽ kiểm đếm độc lập.'),
           ),
         );
       }
@@ -171,7 +171,7 @@ class _CodListState extends ConsumerState<_CodList> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Không gửi được lô COD. Vui lòng thử lại.'),
+            content: Text('Không gửi được phiếu nộp COD. Vui lòng thử lại.'),
           ),
         );
       }
@@ -280,7 +280,7 @@ class _CodListState extends ConsumerState<_CodList> {
               if (collections.isEmpty)
                 const EmptyStateCard(
                   icon: Icons.task_alt_rounded,
-                  title: 'Không có COD chờ bàn giao',
+                  title: 'Không có COD chờ lập phiếu',
                   message:
                       'Tiền thu hộ sẽ xuất hiện sau mỗi đơn giao thành công.',
                 )
@@ -346,7 +346,7 @@ class _CodListState extends ConsumerState<_CodList> {
                   child: FilledButton.icon(
                     onPressed: _selectedIds.isEmpty || _submitting
                         ? null
-                        : () => _submitBatch(custody),
+                        : () => _submitReceipt(custody),
                     icon: _submitting
                         ? const SizedBox.square(
                             dimension: 18,
@@ -358,8 +358,8 @@ class _CodListState extends ConsumerState<_CodList> {
                         : const Icon(Icons.outbox_rounded),
                     label: Text(
                       _selectedIds.isEmpty
-                          ? 'Chọn khoản COD để bàn giao'
-                          : 'Bàn giao ${_selectedIds.length} khoản · ${AppFormatters.currency(selectedTotal)}',
+                          ? 'Chọn khoản COD để lập phiếu'
+                          : 'Lập phiếu ${_selectedIds.length} khoản · ${AppFormatters.currency(selectedTotal)}',
                     ),
                   ),
                 ),
@@ -367,7 +367,7 @@ class _CodListState extends ConsumerState<_CodList> {
               if (custody.recentHandovers.isNotEmpty) ...[
                 const SizedBox(height: 24),
                 const Text(
-                  'Lịch sử bàn giao gần đây',
+                  'Phiếu nộp COD gần đây',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
@@ -375,14 +375,14 @@ class _CodListState extends ConsumerState<_CodList> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
-                      backgroundColor: handover.status == 'VERIFIED'
+                      backgroundColor: handover.status == 'SETTLED'
                           ? AppColors.successSoft
                           : AppColors.primarySoft,
                       child: Icon(
-                        handover.status == 'VERIFIED'
+                        handover.status == 'SETTLED'
                             ? Icons.verified_rounded
                             : Icons.hourglass_top_rounded,
-                        color: handover.status == 'VERIFIED'
+                        color: handover.status == 'SETTLED'
                             ? AppColors.success
                             : AppColors.primary,
                       ),
@@ -394,9 +394,11 @@ class _CodListState extends ConsumerState<_CodList> {
                     subtitle: Text(
                       '${handover.lines.length} đơn · ${handover.status == 'SUBMITTED'
                           ? 'Quầy đang kiểm đếm'
-                          : handover.status == 'VERIFIED'
-                          ? 'Đã khớp sổ'
-                          : 'Có chênh lệch'}',
+                          : handover.status == 'SETTLED'
+                          ? 'Đã quyết toán đủ'
+                          : handover.status == 'SETTLED_WITH_VARIANCE'
+                          ? 'Đã quyết toán có chênh lệch'
+                          : 'Cần kiểm tra'}',
                     ),
                   ),
               ],
@@ -490,9 +492,7 @@ class _PackageItem extends ConsumerWidget {
     final me = ref.watch(driverProvider).valueOrNull?.userId;
     final outgoing = me == handover.fromDriverId;
     final canConfirm =
-        (outgoing && handover.status == 'REQUESTED') ||
-        (!outgoing && handover.status == 'SENDER_CONFIRMED');
-    final action = outgoing ? 'sender-confirm' : 'receiver-confirm';
+        me == handover.toDriverId && handover.status == 'ASSIGNED';
 
     return Card(
       child: Padding(
@@ -519,16 +519,11 @@ class _PackageItem extends ConsumerWidget {
                     ),
                   ),
                 ),
-                StatusPill(
-                  label: '${handover.packageCodes.length} kiện',
-                  foreground: AppColors.primaryDark,
-                  background: AppColors.primarySoft,
-                ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
-              handover.packageCodes.join(' · '),
+              handover.orderCode,
               style: AppTheme.numStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -542,16 +537,19 @@ class _PackageItem extends ConsumerWidget {
             const SizedBox(height: 12),
             if (canConfirm)
               SlideToConfirmButton(
-                label: outgoing
-                    ? 'Vuốt xác nhận đã giao kiện'
-                    : 'Vuốt xác nhận đã nhận kiện',
+                label: 'Vuốt xác nhận đã nhận đơn',
                 icon: Icons.verified_rounded,
-                onConfirmed: () => _act(context, ref, action),
+                onConfirmed: () => _act(context, ref, 'receiver-confirm'),
               )
             else
-              const Text(
-                'Đang chờ tài xế bên kia xác nhận.',
-                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              Text(
+                handover.status == 'REQUESTED'
+                    ? 'Đang chờ điều phối chọn tài xế nhận.'
+                    : 'Đang chờ tài xế nhận xác nhận.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
               ),
           ],
         ),

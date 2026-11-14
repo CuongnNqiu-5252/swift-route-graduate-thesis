@@ -85,14 +85,16 @@ def _to_ordered_stop_proto(stop: OrderedStop) -> routing_pb2.OrderedStopProto:
 
 def _verify_internal_auth(context: grpc.ServicerContext) -> bool:
     """Checks x-internal-key metadata when TENANT_INTERNAL_KEY is configured."""
-    expected_key = os.getenv("TENANT_INTERNAL_KEY", "")
-    if not expected_key:
-        return True
+    expected_key = os.getenv("TENANT_INTERNAL_KEY", "").strip()
     metadata = dict(context.invocation_metadata())
     provided_key = metadata.get("x-internal-key")
-    # Allow internal calls if key matches or if not enforced in dev
-    if provided_key is not None and provided_key != expected_key:
-        context.abort(grpc.StatusCode.UNAUTHENTICATED, "Invalid internal key")
+    if provided_key is not None:
+        if not expected_key or provided_key != expected_key:
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, "Invalid internal key")
+            return False
+        return True
+    if expected_key:
+        context.abort(grpc.StatusCode.UNAUTHENTICATED, "Internal key required")
         return False
     return True
 

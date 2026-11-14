@@ -46,6 +46,12 @@ export const MEMBER_ROLE_LABEL: Record<TenantMembershipRole, string> = {
   VIEWER: 'Người xem',
 };
 
+export function accountRoleLabel(role?: string | null): string {
+  if (role === 'SYSTEM_ADMIN') return 'Quản trị viên hệ thống';
+  if (role === 'USER') return 'Người dùng';
+  return MEMBER_ROLE_LABEL[role as TenantMembershipRole] ?? 'Vai trò chưa xác định';
+}
+
 export const MEMBER_STATUS_LABEL: Record<TenantMembershipStatus, string> = {
   ACTIVE: 'Đang hoạt động',
   PENDING: 'Chờ kích hoạt',

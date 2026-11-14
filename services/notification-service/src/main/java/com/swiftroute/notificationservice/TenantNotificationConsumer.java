@@ -24,6 +24,12 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @Slf4j
 public class TenantNotificationConsumer {
+    private static final Set<String> SENSITIVE_AUTH_EVENTS = Set.of(
+            "user.email_verification.v1",
+            "user.password_reset_requested.v1",
+            "tenant.driver_invited.v1"
+    );
+
     private final JdbcTemplate jdbc;
     private final NotificationSseService sseService;
     private final EmailNotificationSender emailSender;
@@ -84,8 +90,8 @@ public class TenantNotificationConsumer {
             default -> "Trạng thái: " + type + (p.hasNonNull("reason") ? " - Lý do: " + p.path("reason").asText() : "");
         };
 
-        log.info("Recorded in-app tenant notification [{}]: {} for user/tenant {} | Content: {}",
-                type, title, user != null && !user.isBlank() ? user : tenant, body);
+        log.info("Recorded in-app tenant notification [{}]: {} for user/tenant {}",
+                type, title, user != null && !user.isBlank() ? user : tenant);
 
         UUID recipientId = (user != null && !user.isBlank()) ? UUID.fromString(user) : tenant;
         if (recipientId == null) {
@@ -99,14 +105,12 @@ public class TenantNotificationConsumer {
                 """,
                 eventId, tenant, recipientId, type, title, body);
 
-        if (type.equals("user.email_verification.v1")
-                || type.equals("user.password_reset_requested.v1")
-                || type.equals("tenant.driver_invited.v1")) {
+        if (SENSITIVE_AUTH_EVENTS.contains(type)) {
             emailSender.send(p.path("email").asText(), title, body);
         }
 
-        // Broadcast over SSE to connected tenant operator sessions
-        if (sseService != null && tenant != null) {
+        // Broadcast over SSE to connected tenant operator sessions (skip sensitive token/invitation URLs)
+        if (sseService != null && tenant != null && !SENSITIVE_AUTH_EVENTS.contains(type)) {
             Map<String, Object> alertDto = new HashMap<>();
             alertDto.put("id", eventId.toString());
             alertDto.put("title", title);

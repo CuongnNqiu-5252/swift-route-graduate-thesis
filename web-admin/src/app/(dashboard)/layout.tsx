@@ -1,5 +1,7 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/application/contexts/auth-context';
@@ -14,6 +16,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const { t } = useLocale();
   const { user, token, isLoading, refreshProfile, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -33,7 +36,7 @@ export default function DashboardLayout({
       <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center gap-3">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-          <p className="text-sm font-medium text-gray-500">Đang khởi tạo phiên làm việc...</p>
+          <p className="text-sm font-medium text-gray-500">{t("Đang khởi tạo phiên làm việc...")}</p>
         </div>
       </div>
     );
@@ -42,9 +45,9 @@ export default function DashboardLayout({
   if (token && !user && !isLoading) {
     return (
       <div className="mx-auto mt-20 max-w-lg space-y-4 p-8">
-        <p role="alert">Chưa thể xác minh tài khoản. Vui lòng thử lại.</p>
-        <button onClick={() => refreshProfile()} className="rounded border px-4 py-2">Tải lại thông tin</button>
-        <button onClick={logout} className="ml-3 rounded border px-4 py-2">Đăng nhập lại</button>
+        <p role="alert">{t("Chưa thể xác minh tài khoản. Vui lòng thử lại.")}</p>
+        <button onClick={() => refreshProfile()} className="rounded border px-4 py-2">{t("Tải lại thông tin")}</button>
+        <button onClick={logout} className="ml-3 rounded border px-4 py-2">{t("Đăng nhập lại")}</button>
       </div>
     );
   }

@@ -4,6 +4,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.swiftroute.authservice.config.JwtConfig;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
@@ -28,6 +29,7 @@ public class AuthserviceImpl implements AuthService {
 
     // SỬA Ở ĐÂY: Dùng JwtService của bạn thay vì TokenService của Spring
     private final JwtService jwtService;
+    private final JwtConfig jwtConfig;
 
     @org.springframework.beans.factory.annotation.Autowired
     private EmailVerificationService emailVerificationService;
@@ -67,9 +69,12 @@ public class AuthserviceImpl implements AuthService {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        // 4. Tạo token (Access Token hạn 15 phút, Refresh Token hạn 7 ngày) & user
+        // 4. Tạo token (Access Token hạn theo cấu hình, mặc định 15 phút, Refresh Token hạn 7 ngày) & user
         // profile
-        return buildAuthResponse(user, 15, httpRequest);
+        long ttlMinutes = (jwtConfig != null && jwtConfig.getAccessTokenExpiryMinutes() > 0)
+                ? jwtConfig.getAccessTokenExpiryMinutes()
+                : 15;
+        return buildAuthResponse(user, ttlMinutes, httpRequest);
     }
 
     @Override
@@ -77,34 +82,70 @@ public class AuthserviceImpl implements AuthService {
     public LoginResponseDTO refreshAccessToken(String refreshToken, HttpServletRequest httpRequest) {
         RefreshToken validatedOldToken = jwtService.validateAndRotate(refreshToken, httpRequest);
 
-        // Use .orElseThrow() to unwrap the Optional into a User, and throw the
-        // exception if empty
         User user = userRepository.findById(validatedOldToken.getUser().getId())
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
 
-        return buildAuthResponse(user, 60, httpRequest);
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
+        }
+
+        long ttlMinutes = (jwtConfig != null && jwtConfig.getAccessTokenExpiryMinutes() > 0)
+                ? jwtConfig.getAccessTokenExpiryMinutes()
+                : 15;
+
+        return buildAuthResponse(user, ttlMinutes, httpRequest);
+    }
+
+    private java.util.UUID extractRequestedTenantId(HttpServletRequest request) {
+        if (request == null) return null;
+        String header = request.getHeader("X-Tenant-Id");
+        if (header != null && !header.isBlank()) {
+            try { return java.util.UUID.fromString(header.trim()); } catch (IllegalArgumentException ignored) {}
+        }
+        String param = request.getParameter("tenantId");
+        if (param == null || param.isBlank()) param = request.getParameter("tenant_id");
+        if (param != null && !param.isBlank()) {
+            try { return java.util.UUID.fromString(param.trim()); } catch (IllegalArgumentException ignored) {}
+        }
+        String authHeader = request.getHeader(org.springframework.http.HttpHeaders.AUTHORIZATION);
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7).trim();
+            String claim = jwtService.extractTenantId(token);
+            if (claim != null && !claim.isBlank()) {
+                try { return java.util.UUID.fromString(claim.trim()); } catch (IllegalArgumentException ignored) {}
+            }
+        }
+        return null;
     }
 
     /**
      * Issues access/refresh tokens and populates the user profile snapshot
-     * from the user's primary active tenant membership (if any).
+     * from the user's active tenant membership (retaining requested active tenant session if matched).
      */
     private LoginResponseDTO buildAuthResponse(User user, long ttlMinutes, HttpServletRequest httpRequest) {
         java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
                 .findByUser_IdAndStatus(user.getId(),
                         com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
 
-        com.swiftroute.authservice.entity.TenantMembership primary = activeMemberships.isEmpty()
-                ? null
-                : activeMemberships.get(0);
+        java.util.UUID requestedTenantId = extractRequestedTenantId(httpRequest);
+        com.swiftroute.authservice.entity.TenantMembership selectedMembership = null;
+        if (requestedTenantId != null) {
+            selectedMembership = activeMemberships.stream()
+                    .filter(m -> m.getTenantId().equals(requestedTenantId))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (selectedMembership == null && !activeMemberships.isEmpty()) {
+            selectedMembership = activeMemberships.get(0);
+        }
 
         String accessToken;
         String effectiveRole;
         java.util.UUID tenantId = null;
 
-        if (primary != null) {
-            effectiveRole = primary.getMembershipRole().name();
-            tenantId = primary.getTenantId();
+        if (selectedMembership != null) {
+            effectiveRole = selectedMembership.getMembershipRole().name();
+            tenantId = selectedMembership.getTenantId();
             accessToken = jwtService.generateTenantAccessToken(user, tenantId, effectiveRole, ttlMinutes);
         } else {
             effectiveRole = user.getRole().name();

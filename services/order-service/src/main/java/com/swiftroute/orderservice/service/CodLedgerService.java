@@ -1,5 +1,7 @@
 package com.swiftroute.orderservice.service;
 
+import com.swiftroute.orderservice.dto.response.PageRequests;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.HashSet;
@@ -47,6 +49,8 @@ public class CodLedgerService {
     private static final Set<String> OPERATOR_ROLES = Set.of(
             "SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "CASHIER",
             "WAREHOUSE_STAFF", "TENANT_OWNER", "MANAGER", "STAFF");
+    private static final Set<String> VARIANCE_RESOLUTIONS = Set.of(
+            "DRIVER_RESPONSIBLE", "BUSINESS_ADJUSTMENT", "OTHER");
 
     private final OrderRepository orders;
     private final CodHandoverBatchRepository handovers;
@@ -288,14 +292,16 @@ public class CodLedgerService {
         BigDecimal counted = money(request.countedTotal());
         BigDecimal difference = counted.subtract(batch.getLedgerTotal());
         boolean matched = difference.signum() == 0;
-        if (!matched && isBlank(request.notes())) {
+        String varianceResolution = normalize(request.varianceResolution());
+        if (!matched && (isBlank(request.notes()) || !VARIANCE_RESOLUTIONS.contains(varianceResolution))) {
             throw new AppException(ErrorCode.COD_REASON_REQUIRED);
         }
 
         Instant now = Instant.now();
-        batch.setStatus(matched ? "VERIFIED" : "DISCREPANCY");
+        batch.setStatus(matched ? "SETTLED" : "SETTLED_WITH_VARIANCE");
         batch.setCountedTotal(counted);
         batch.setDiscrepancyAmount(difference);
+        batch.setVarianceResolution(matched ? null : varianceResolution);
         batch.setVerifiedBy(cashierId);
         batch.setVerifiedAt(now);
         batch.setVerificationOperationId(request.operationId());
@@ -305,18 +311,18 @@ public class CodLedgerService {
         }
         handovers.save(batch);
 
-        if (matched) {
-            // Only finalize order COD settlement when counted cash matches the ledger total
-            List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
-            for (Order o : batchOrders) {
-                o.setCodStatus("HANDED_OVER");
-                o.setPaymentStatus("PAID");
-                o.setUpdatedAt(now);
-                orders.save(o);
-            }
+        // The cashier/manager made the final business decision in this request.
+        // A variance is therefore settled explicitly instead of opening a vague
+        // intermediate queue with no concrete next action.
+        List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
+        for (Order o : batchOrders) {
+            o.setCodStatus("HANDED_OVER");
+            o.setPaymentStatus("PAID");
+            o.setUpdatedAt(now);
+            orders.save(o);
         }
 
-        emitCodEvent(matched ? "cod.handover_verified" : "cod.handover_discrepancy", batch.getId(), Map.of(
+        emitCodEvent(matched ? "cod.handover_settled" : "cod.handover_settled_with_variance", batch.getId(), Map.of(
                 "tenant_id", tenantId.toString(),
                 "driver_id", batch.getDriverId().toString(),
                 "handover_id", batch.getId().toString(),
@@ -329,6 +335,15 @@ public class CodLedgerService {
         log.info("COD handover {}: batch={}, cashier={}, counted={}, diff={}",
                 batch.getStatus(), batch.getId(), cashierId, counted, difference);
         return handoverResponse(batch);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<CodDisputeResponse> disputePage(UUID tenantId, String role, String status, int page, int size) {
+        requireOperator(role);
+        var pageable = PageRequests.newestFirst(page, size, "submittedAt");
+        String targetStatus = isBlank(status) ? "DISCREPANCY" : normalize(status);
+        return PageResponse.fromPage(handovers.findByTenantIdAndStatus(tenantId, targetStatus, pageable)
+                .map(this::disputeResponse));
     }
 
     @Transactional(readOnly = true)
@@ -363,7 +378,8 @@ public class CodLedgerService {
         String combinedNotes = isBlank(batch.getNotes())
                 ? resolutionNotes.trim()
                 : batch.getNotes() + " | Resolved: " + resolutionNotes.trim();
-        batch.setStatus("RESOLVED");
+        batch.setStatus("SETTLED_WITH_VARIANCE");
+        batch.setVarianceResolution("OTHER");
         batch.setNotes(combinedNotes.length() > 1000 ? combinedNotes.substring(0, 1000) : combinedNotes);
         batch.setVerifiedBy(actorId);
         batch.setVerifiedAt(now);
@@ -388,6 +404,15 @@ public class CodLedgerService {
 
         log.info("COD discrepancy resolved: batch={}, actor={}", batch.getId(), actorId);
         return handoverResponse(batch);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<CodHandoverResponse> handoverPage(UUID tenantId, String role, String status, int page, int size) {
+        requireOperator(role);
+        var pageable = PageRequests.newestFirst(page, size, "submittedAt");
+        var rows = isBlank(status) ? handovers.findByTenantId(tenantId, pageable)
+                : handovers.findByTenantIdAndStatus(tenantId, normalize(status), pageable);
+        return PageResponse.fromPage(rows.map(this::handoverResponse));
     }
 
     @Transactional(readOnly = true)
@@ -464,11 +489,11 @@ public class CodLedgerService {
                 batch.getStatus(),
                 batch.getNotes(),
                 null,
-                "RESOLVED".equals(batch.getStatus()) ? "MANUAL_RECONCILED" : null,
+                isVarianceSettled(batch) ? batch.getVarianceResolution() : null,
                 difference.abs(),
-                "RESOLVED".equals(batch.getStatus()) ? batch.getNotes() : null,
-                "RESOLVED".equals(batch.getStatus()) ? batch.getVerifiedBy() : null,
-                "RESOLVED".equals(batch.getStatus()) ? batch.getVerifiedAt() : null,
+                isVarianceSettled(batch) ? batch.getNotes() : null,
+                isVarianceSettled(batch) ? batch.getVerifiedBy() : null,
+                isVarianceSettled(batch) ? batch.getVerifiedAt() : null,
                 batch.getVerifiedAt() != null ? batch.getVerifiedAt() : batch.getSubmittedAt());
     }
 
@@ -513,11 +538,20 @@ public class CodLedgerService {
                 handover.getDeclaredTotal(),
                 handover.getCountedTotal(),
                 handover.getDiscrepancyAmount(),
+                handover.getVarianceResolution(),
                 handover.getNotes(),
                 handover.getSubmittedAt(),
                 handover.getVerifiedBy(),
                 handover.getVerifiedAt(),
                 lines);
+    }
+
+    private boolean isVarianceSettled(CodHandoverBatch batch) {
+        return "SETTLED_WITH_VARIANCE".equals(batch.getStatus()) || "RESOLVED".equals(batch.getStatus());
+    }
+
+    private String normalize(String value) {
+        return value == null ? null : value.trim().toUpperCase(Locale.ROOT);
     }
 
     private Order ownedOrder(UUID orderId, UUID tenantId) {

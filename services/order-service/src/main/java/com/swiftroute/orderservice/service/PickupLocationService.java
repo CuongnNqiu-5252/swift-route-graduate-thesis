@@ -1,5 +1,7 @@
 package com.swiftroute.orderservice.service;
 
+import com.swiftroute.orderservice.dto.response.PageRequests;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +29,12 @@ public class PickupLocationService {
 
     private final PickupLocationRepository pickupLocationRepository;
     private final TenantRepository tenantRepository;
+
+    @Transactional(readOnly = true)
+    public PageResponse<PickupLocationResponse> getPickupLocationPage(UUID tenantId, PickupLocationStatus status, int page, int size) {
+        return PageResponse.fromPage(pickupLocationRepository.findPage(tenantId, status,
+                PageRequests.newestFirst(page, size, "createdAt")).map(PickupLocationResponse::fromEntity));
+    }
 
     @Transactional(readOnly = true)
     public List<PickupLocationResponse> getPickupLocations(UUID tenantId, PickupLocationStatus status) {

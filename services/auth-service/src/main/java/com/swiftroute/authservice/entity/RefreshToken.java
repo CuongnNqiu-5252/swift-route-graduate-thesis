@@ -48,4 +48,6 @@ public class RefreshToken {
     private String deviceInfo;
     @Column(name = "ip_address", length = 45)
     private String ipAddress;
+    @Column(name = "active_tenant_id")
+    private UUID activeTenantId;
 }

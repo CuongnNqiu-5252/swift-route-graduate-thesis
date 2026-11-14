@@ -9,7 +9,15 @@ import jakarta.validation.constraints.NotNull;
 public record InviteMemberRequest(
         @NotBlank @Email String email,
         @NotNull TenantMembershipRole role,
-        java.util.UUID driverId) {
-    public InviteMemberRequest(String email, TenantMembershipRole role) { this(email, role, null); }
+        java.util.UUID driverId,
+        java.util.List<String> grantedPermissions,
+        java.util.List<String> revokedPermissions) {
+    public InviteMemberRequest(String email, TenantMembershipRole role) {
+        this(email, role, null, null, null);
+    }
+
+    public InviteMemberRequest(String email, TenantMembershipRole role, java.util.UUID driverId) {
+        this(email, role, driverId, null, null);
+    }
 }
 
