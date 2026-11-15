@@ -2,8 +2,9 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useOrderPage } from '@/application/hooks/use-order-page';
 import {
   orderRepository,
@@ -37,6 +38,8 @@ import { OrderCreatePanel } from '@/components/orders/order-create-panel';
 import OrderTrackingMap from '@/components/orders/order-tracking-map';
 import { useOrderLiveTracking } from '@/application/hooks/use-order-live-tracking';
 import { useDrivers } from '@/application/hooks/use-drivers';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
 
 const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
   { label: 'Tất cả' },
@@ -49,9 +52,32 @@ const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
   { label: 'Đã hủy', value: 'CANCELLED' },
 ];
 
+const VALID_TAB_STATUSES = new Set<OrderStatus>(
+  STATUS_TABS.map((tab) => tab.value).filter((value): value is OrderStatus => Boolean(value)),
+);
+
+function parseOrderStatusParam(value: string | null): OrderStatus | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toUpperCase();
+  const mapped = (normalized === 'PAID' ? 'READY_FOR_DISPATCH' : normalized) as OrderStatus;
+  return VALID_TAB_STATUSES.has(mapped) ? mapped : undefined;
+}
+
 export default function OrdersPage() {
+  return (
+    <Suspense fallback={<div className="h-40 animate-pulse rounded-xl bg-slate-100" />}>
+      <OrdersWorkspace />
+    </Suspense>
+  );
+}
+
+function OrdersWorkspace() {
   const { t } = useLocale();
-  const [activeTab, setActiveTab] = useState<OrderStatus | undefined>(undefined);
+  const { hasPermission } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeTab = parseOrderStatusParam(searchParams.get('status'));
   const { drivers } = useDrivers();
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState('');
@@ -135,6 +161,22 @@ export default function OrdersPage() {
     toast.success(t("Đã sao chép mã đơn"));
   };
 
+  const selectTab = (nextStatus?: OrderStatus) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextStatus) {
+      params.set('status', nextStatus);
+    } else {
+      params.delete('status');
+    }
+    const nextQuery = params.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+    setPage(1);
+  };
+
+  if (!hasPermission('order:read')) {
+    return <AccessDeniedNotice requiredPermission="order:read" />;
+  }
+
   return (
     <div className="space-y-4">
       {/* Compact Header */}
@@ -146,18 +188,22 @@ export default function OrdersPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => setShowCreate((value) => !value)}>
-            <Plus size={15} />
-            {showCreate ? t("Đóng tạo đơn") : t("Tạo đơn")}
-          </Button>
+          <PermissionGuard permission="order:create">
+            <Button size="sm" onClick={() => setShowCreate((value) => !value)}>
+              <Plus size={15} />
+              {showCreate ? t("Đóng tạo đơn") : t("Tạo đơn")}
+            </Button>
+          </PermissionGuard>
           <Button variant="outline" size="sm" onClick={() => refetch()} isLoading={isLoading}>
             <RefreshCw size={14} />{" "}{t("Làm mới")}
           </Button>
-          <Link href="/dispatch">
-            <Button size="sm" variant="outline">
-              <Route size={15} />{" "}{t("Điều phối")}
-            </Button>
-          </Link>
+          <PermissionGuard permission={['dispatch:read', 'dispatch:execute']}>
+            <Link href="/dispatch">
+              <Button size="sm" variant="outline">
+                <Route size={15} />{" "}{t("Điều phối")}
+              </Button>
+            </Link>
+          </PermissionGuard>
         </div>
       </div>
 
@@ -183,8 +229,7 @@ export default function OrdersPage() {
               key={t(tab.label)}
               type="button"
               onClick={() => {
-                setActiveTab(tab.value);
-                setPage(1);
+                selectTab(tab.value);
               }}
               className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${
                 isActive
@@ -301,7 +346,7 @@ export default function OrdersPage() {
               type="button"
               onClick={() => {
                 setQuery('');
-                setActiveTab(undefined);
+                selectTab(undefined);
                 setWarehouseFilter('');
                 setSortBy('created_at');
                 setSortDir('desc');
@@ -350,7 +395,7 @@ export default function OrdersPage() {
                 drivers={drivers}
                 selectedId={selected?.id}
                 onViewRoute={(order) => handleToggleRoute(order.id)}
-                onCancelOrder={handleCancelOrder}
+                onCancelOrder={hasPermission('order:cancel') ? handleCancelOrder : undefined}
                 sortBy={sortBy}
                 sortDir={sortDir}
                 onSortChange={(nextField, nextDir) => {

@@ -150,14 +150,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       final user = await _loginUseCase.execute(email.trim(), password);
-      if (user.role != 'DRIVER') {
+      if (user.role != 'DRIVER' || !user.hasPermission('driver:self')) {
         await _logoutUseCase.execute();
         state = state.copyWith(
           isLoading: false,
           user: null,
           isAuthenticated: false,
-          errorMessage:
-              'Tài khoản chưa được liên kết với hồ sơ tài xế. Hãy kiểm tra lời mời từ doanh nghiệp.',
+          errorMessage: user.role != 'DRIVER'
+              ? 'Tài khoản chưa được liên kết với hồ sơ tài xế. Hãy kiểm tra lời mời từ doanh nghiệp.'
+              : 'Tài khoản tài xế hiện không có quyền tác nghiệp (driver:self). Vui lòng liên hệ quản lý doanh nghiệp.',
         );
         return false;
       }

@@ -61,6 +61,17 @@ public class TenantIdentityClient {
         if (tenantRole != null) {
             result.put("membership_role", tenantRole);
         }
+        try {
+            UUID userId = UUID.fromString(claims.getSubject().trim());
+            UUID tId = expectedTenantId != null
+                    ? expectedTenantId
+                    : (tokenTenantId != null && !tokenTenantId.isBlank() ? UUID.fromString(tokenTenantId.trim()) : null);
+            Set<String> perms = TenantPermissionRegistry.extractExplicitPermissions(claims, tId, userId);
+            if (perms != null) {
+                result.put("permissions", List.copyOf(perms));
+            }
+        } catch (Exception ignored) {
+        }
         return result;
     }
 

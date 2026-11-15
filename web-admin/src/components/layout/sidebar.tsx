@@ -1,34 +1,46 @@
 'use client';
 
 import { useLocale } from '@/i18n/provider';
+import { useAuth } from '@/application/contexts/auth-context';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AlertTriangle, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Menu, PackageSearch, Route, Settings, Truck, UserRound, Users, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Menu, PackageSearch, Route, Settings, Truck, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
-const navItems = [
+interface NavItemConfig {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  requiredPermissions?: string[];
+}
+
+const navItems: NavItemConfig[] = [
   { href: '/', label: 'Tổng quan', icon: LayoutDashboard },
-  { href: '/orders', label: 'Đơn hàng', icon: PackageSearch },
-  { href: '/dispatch', label: 'Điều phối', icon: Route },
-  { href: '/operations', label: 'Sự cố & COD', icon: AlertTriangle },
-  { href: '/drivers', label: 'Tài xế', icon: Users },
-  { href: '/locations', label: 'Điểm lấy hàng', icon: MapPin },
-  { href: '/members', label: 'Nhân sự', icon: Users },
+  { href: '/orders', label: 'Đơn hàng', icon: PackageSearch, requiredPermissions: ['order:read'] },
+  { href: '/dispatch', label: 'Điều phối', icon: Route, requiredPermissions: ['dispatch:read', 'dispatch:execute'] },
+  { href: '/operations', label: 'Sự cố & COD', icon: AlertTriangle, requiredPermissions: ['sla:read', 'order:read'] },
+  { href: '/drivers', label: 'Tài xế', icon: Users, requiredPermissions: ['driver:read', 'vehicle:read'] },
+  { href: '/locations', label: 'Điểm lấy hàng', icon: MapPin, requiredPermissions: ['hub:read'] },
+  { href: '/members', label: 'Nhân sự', icon: Users, requiredPermissions: ['member:read'] },
   { href: '/organizations', label: 'Tổ chức', icon: Users },
-  { href: '/onboarding', label: 'Thiết lập doanh nghiệp', icon: Settings },
-  { href: '/settings', label: 'Cài đặt', icon: Settings },
+  { href: '/onboarding', label: 'Thiết lập doanh nghiệp', icon: Settings, requiredPermissions: ['tenant:settings:manage'] },
+  { href: '/settings', label: 'Cài đặt', icon: Settings, requiredPermissions: ['tenant:settings:read'] },
   { href: '/profile', label: 'Hồ sơ cá nhân', icon: UserRound },
 ];
 
 export function Sidebar() {
   const { t } = useLocale();
+  const { hasPermission } = useAuth();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   function toggleCollapsed(){ setCollapsed(value=>{ const next=!value; localStorage.setItem('sidebar-collapsed',String(next)); return next; }); }
-  const items = navItems.map((item) => ({ ...item, label: t(item.label) }));
+  const visibleItems = navItems.filter(
+    (item) => !item.requiredPermissions || hasPermission(item.requiredPermissions)
+  );
+  const items = visibleItems.map((item) => ({ ...item, label: t(item.label) }));
   const mobileItems = items.slice(0, 5);
   return (
     <aside className={cn('fixed inset-x-0 bottom-0 z-40 flex h-16 flex-row border-t border-slate-200 bg-white transition-[width] lg:static lg:h-dvh lg:shrink-0 lg:flex-col lg:border-0 lg:bg-[#eef1f4]',collapsed?'lg:w-20':'lg:w-60')}>

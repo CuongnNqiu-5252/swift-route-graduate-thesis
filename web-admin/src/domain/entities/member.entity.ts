@@ -12,6 +12,24 @@ export interface TenantMember {
   status: TenantMembershipStatus;
   created_at: string;
   updated_at: string;
+  granted_permissions: string[];
+  revoked_permissions: string[];
+  effective_permissions: string[];
+  permissions_version: number;
+}
+
+export interface PermissionCatalogItem {
+  code: string;
+  module: string;
+  display_name: string;
+  description: string;
+  driver_only: boolean;
+}
+
+export interface PermissionCatalog {
+  permissions: PermissionCatalogItem[];
+  system_role_defaults: Record<string, string[]>;
+  tenant_role_templates: Record<string, string[]>;
 }
 
 export interface TenantInvitation {
@@ -44,6 +62,21 @@ export const MEMBER_ROLE_LABEL: Record<TenantMembershipRole, string> = {
   OPERATOR: 'Nhân viên vận hành',
   DRIVER: 'Tài xế',
   VIEWER: 'Người xem',
+};
+
+export const PERMISSION_MODULE_LABEL: Record<string, string> = {
+  orders: 'Đơn hàng',
+  dispatch: 'Điều phối & Lộ trình',
+  fleet: 'Tài xế & Phương tiện',
+  warehouses: 'Kho & Điểm lấy hàng',
+  analytics: 'Báo cáo & Phân tích',
+  sla: 'Cảnh báo & SLA',
+  members: 'Nhân sự & Phân quyền',
+  settings: 'Cấu hình doanh nghiệp',
+  billing: 'Gói cước & Hóa đơn',
+  integrations: 'API & Webhook',
+  notifications: 'Thông báo',
+  support: 'Hỗ trợ & Trợ lý AI',
 };
 
 export function accountRoleLabel(role?: string | null): string {

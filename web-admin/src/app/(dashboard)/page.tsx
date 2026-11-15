@@ -11,10 +11,10 @@ import { useLocale } from '@/i18n/provider';
 import type { OperationsQueue } from '@/infrastructure/repositories/order.repository';
 
 const groups = [
-  { key: 'ready_for_dispatch', label: 'Chờ điều phối' },
-  { key: 'active', label: 'Đang thực hiện' },
-  { key: 'intervention', label: 'Cần can thiệp' },
-] as const satisfies readonly { key: keyof OperationsQueue; label: string }[];
+  { key: 'ready_for_dispatch', label: 'Chờ điều phối', href: '/orders?status=READY_FOR_DISPATCH' },
+  { key: 'active', label: 'Đang thực hiện', href: '/orders' },
+  { key: 'intervention', label: 'Cần can thiệp', href: '/orders?status=FAILED' },
+] as const satisfies readonly { key: keyof OperationsQueue; label: string; href: string }[];
 
 export default function DashboardOverviewPage() {
   const { user } = useAuth();
@@ -23,7 +23,7 @@ export default function DashboardOverviewPage() {
   const { drivers, isLoading: driversLoading, error: driversError, refetch: refetchDrivers } = useDrivers();
 
   const number = new Intl.NumberFormat(intlLocale);
-  const chartData = groups.map(({ key, label }) => ({ label: t(label), count: queue[key].length }));
+  const chartData = groups.map(({ key, label, href }) => ({ label: t(label), count: queue[key].length, href }));
   const canLoadQueue = Boolean(user?.tenantId);
   const showQueue = canLoadQueue && !error && hasLoaded;
 
@@ -53,14 +53,22 @@ export default function DashboardOverviewPage() {
               <p className="mt-5 text-sm text-rose-700" role="alert">{t('Không thể tải hàng đợi vận hành')}</p>
             ) : showQueue ? (
               <>
-                <dl className="mt-4 grid grid-cols-3 gap-2 border-b border-slate-200 pb-4 sm:gap-4">
-                  {chartData.map(({ label, count }) => (
-                    <div key={label} className="min-w-0">
-                      <dt className="text-xs font-medium text-slate-600 sm:text-sm">{label}</dt>
-                      <dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{number.format(count)}</dd>
-                    </div>
+                <ul className="mt-4 grid grid-cols-3 gap-2 border-b border-slate-200 pb-4 sm:gap-4">
+                  {chartData.map(({ label, count, href }) => (
+                    <li key={label} className="min-w-0">
+                      <Link
+                        href={href}
+                        className="group block rounded-lg p-2 -m-2 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                      >
+                        <p className="flex items-center gap-1 text-xs font-medium text-slate-600 group-hover:text-blue-700 sm:text-sm">
+                          <span>{label}</span>
+                          <ArrowRight size={13} className="opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+                        </p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{number.format(count)}</p>
+                      </Link>
+                    </li>
                   ))}
-                </dl>
+                </ul>
                 {chartData.some(({ count }) => count > 0) && (
                   <div className="mt-4 h-56 min-w-0">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 320, height: 208 }}>

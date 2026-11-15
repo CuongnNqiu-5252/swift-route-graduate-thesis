@@ -28,6 +28,9 @@ public class TenantIdentityService {
     private final JwtService jwt;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TenantPermissionService tenantPermissionService;
+
     @Transactional(readOnly = true)
     public Map<String, Object> context(UUID userId, UUID tenantId) {
         User user = users.findById(userId).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
@@ -43,8 +46,13 @@ public class TenantIdentityService {
             boolean admin = Role.SYSTEM_ADMIN == user.getRole();
             if (!admin && (m == null || m.getStatus() != TenantMembershipStatus.ACTIVE))
                 throw new AppException(ErrorCode.ACCESS_DENIED);
-            result.put("membership_role", m != null ? m.getMembershipRole().name() : "SYSTEM_ADMIN");
+            String membershipRole = m != null ? m.getMembershipRole().name() : "SYSTEM_ADMIN";
+            List<String> permissions = resolvePermissions(user.getRole(), m, membershipRole);
+            Long permVer = (m != null && m.getPermissionsVersion() != null) ? m.getPermissionsVersion() : 1L;
+            result.put("membership_role", membershipRole);
             result.put("tenant_id", tenantId);
+            result.put("permissions", permissions);
+            result.put("permissions_version", permVer);
         }
         return result;
     }
@@ -52,8 +60,16 @@ public class TenantIdentityService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> list(UUID userId) {
         return memberships.findByUser_IdAndStatus(userId, TenantMembershipStatus.ACTIVE).stream()
-                .map(m -> Map.<String, Object>of("tenant_id", m.getTenantId(), "role", m.getMembershipRole().name(),
-                        "status", m.getStatus().name()))
+                .map(m -> {
+                    List<String> perms = resolvePermissions(Role.USER, m, m.getMembershipRole().name());
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("tenant_id", m.getTenantId());
+                    item.put("role", m.getMembershipRole().name());
+                    item.put("status", m.getStatus().name());
+                    item.put("permissions", perms);
+                    item.put("permissions_version", m.getPermissionsVersion() != null ? m.getPermissionsVersion() : 1L);
+                    return item;
+                })
                 .toList();
     }
 
@@ -63,7 +79,26 @@ public class TenantIdentityService {
         User user = users.findById(userId).orElseThrow();
         TenantMembership m = memberships.findByTenantIdAndUser_Id(tenantId, userId).orElse(null);
         String role = m != null ? m.getMembershipRole().name() : null;
-        return Map.of("access_token", jwt.generateTenantAccessToken(user, tenantId, role, 15), "tenant_id", tenantId);
+        List<String> permissions = resolvePermissions(user.getRole(), m, role);
+        Long permVer = (m != null && m.getPermissionsVersion() != null) ? m.getPermissionsVersion() : 1L;
+        String token = (tenantPermissionService != null)
+                ? jwt.generateTenantAccessToken(user, tenantId, role, permissions, permVer, 15)
+                : jwt.generateTenantAccessToken(user, tenantId, role, 15);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("access_token", token);
+        response.put("tenant_id", tenantId);
+        response.put("role", role != null ? role : user.getRole().name());
+        response.put("permissions", permissions);
+        response.put("permissions_version", permVer);
+        return response;
+    }
+
+    private List<String> resolvePermissions(Role systemRole, TenantMembership membership, String fallbackRoleName) {
+        if (tenantPermissionService != null) {
+            return tenantPermissionService.resolveEffectivePermissions(systemRole, membership);
+        }
+        return com.swiftroute.authservice.entity.enums.TenantPermission
+                .defaultPermissionsForRoleName(fallbackRoleName, systemRole);
     }
 
     @Transactional

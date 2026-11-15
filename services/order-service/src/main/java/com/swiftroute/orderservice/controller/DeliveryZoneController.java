@@ -52,7 +52,8 @@ public class DeliveryZoneController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "tenant:settings:manage", java.util.Set.of("OWNER", "TENANT_ADMIN"));
         UUID actorId = tenantContextValidator.extractUserId(authHeader).orElse(tenant.getOwnerUserId());
         return ResponseEntity.ok(ApiResponse.success(deliveryZoneService.upsertZone(tenant, request, actorId)));
     }

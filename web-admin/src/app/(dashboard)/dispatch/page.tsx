@@ -23,9 +23,12 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import { useDispatchIncidents } from '@/application/hooks/use-dispatch-incidents';
 import { operationsRepository } from '@/infrastructure/repositories/operations.repository';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice } from '@/components/auth/permission-guard';
 
 export default function DispatchPage() {
   const { t, intlLocale } = useLocale();
+  const { hasPermission } = useAuth();
   const { orders, isLoading: isLoadingOrders, refetch: refetchOrders } = useOrders();
   const { drivers, isLoading: isLoadingDrivers } = useDrivers();
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
@@ -86,16 +89,9 @@ export default function DispatchPage() {
 
   useEffect(() => {
     const refresh = () => { void loadPlans(); };
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
-    };
     window.addEventListener('swiftroute:realtime-update', refresh);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-    const interval = window.setInterval(refreshWhenVisible, 30000);
     return () => {
       window.removeEventListener('swiftroute:realtime-update', refresh);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-      window.clearInterval(interval);
     };
   }, [loadPlans]);
 
@@ -597,6 +593,10 @@ export default function DispatchPage() {
     routeWaypoints.length >= 2 &&
     (trackedDriverId || (selectedPlan && selectedPlan.plan_status === 'DISPATCHED') || activeTrackedOrderId),
   );
+
+  if (!hasPermission(['dispatch:read', 'dispatch:execute'])) {
+    return <AccessDeniedNotice requiredPermission="dispatch:read" />;
+  }
 
   return (
     <div className="space-y-4">

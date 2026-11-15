@@ -78,6 +78,7 @@ class AuthRepositoryImpl implements AuthRepository {
         final meResponse = await _dio.get('/auth/me');
         final meData = meResponse.data['data'] as Map<String, dynamic>;
         final tokenUser = _decodeUserFromToken(loginResponse.accessToken);
+        final mePermissions = UserModel.parsePermissions(meData['permissions']);
         return UserModel(
           id: meData['id'] as String? ?? '',
           email: meData['email'] as String? ?? identifier,
@@ -85,6 +86,10 @@ class AuthRepositoryImpl implements AuthRepository {
           // The signed access token carries the active tenant membership role.
           // account_role from /auth/me is platform-scoped and must not drive the Driver app.
           role: tokenUser.role,
+          permissions: mePermissions.isNotEmpty
+              ? mePermissions
+              : tokenUser.permissions,
+          permissionsVersion: tokenUser.permissionsVersion,
         );
       } catch (_) {
         // Fallback: decode user info from the access token payload (JWT)
@@ -115,11 +120,16 @@ class AuthRepositoryImpl implements AuthRepository {
       final role = (rawRole is List)
           ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'USER')
           : rawRole.toString();
+      final permissions = UserModel.parsePermissions(claims['permissions']);
+      final permissionsVersion =
+          (claims['perm_ver'] as num?)?.toInt() ?? 1;
       return UserModel(
         id: (claims['sub'] ?? '') as String,
         email: (claims['email'] ?? '') as String,
         name: (claims['name'] ?? claims['full_name'] ?? '') as String,
         role: role.toUpperCase(),
+        permissions: permissions,
+        permissionsVersion: permissionsVersion,
       );
     } catch (_) {
       // Fallback: return placeholder until /auth/me is called
@@ -157,11 +167,16 @@ class AuthRepositoryImpl implements AuthRepository {
         final data = response.data['data'] as Map<String, dynamic>;
         final effectiveToken = await _tokenStorage.getAccessToken() ?? token;
         final tokenUser = _decodeUserFromToken(effectiveToken);
+        final mePermissions = UserModel.parsePermissions(data['permissions']);
         return UserModel(
           id: data['id'] as String? ?? '',
           email: data['email'] as String? ?? '',
           name: data['full_name'] as String? ?? '',
           role: tokenUser.role,
+          permissions: mePermissions.isNotEmpty
+              ? mePermissions
+              : tokenUser.permissions,
+          permissionsVersion: tokenUser.permissionsVersion,
         );
       } catch (_) {
         return _decodeUserFromToken(token);

@@ -44,16 +44,8 @@ export function useOperationsQueue() {
     };
     window.addEventListener('swiftroute:realtime-update', handleRealtimeUpdate);
 
-    // Fallback periodic sync every 30 seconds when tab is active
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void refetch();
-      }
-    }, 30000);
-
     return () => {
       window.removeEventListener('swiftroute:realtime-update', handleRealtimeUpdate);
-      window.clearInterval(interval);
     };
   }, [refetch]);
 

@@ -130,6 +130,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                                 headers.remove("X-System-Role");
                                 headers.remove("X-Tenant-Id");
                                 headers.remove("X-Tenant-Role");
+                                headers.remove("X-Tenant-Permissions");
                                 headers.set("X-User-Id", claims.userId());
 
                                 if (claims.systemRole() != null && !claims.systemRole().isBlank()) {
@@ -140,6 +141,9 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                                 }
                                 if (finalTenantId != null) {
                                     headers.set("X-Tenant-Id", finalTenantId);
+                                }
+                                if (claims.permissions() != null && !claims.permissions().isEmpty()) {
+                                    headers.set("X-Tenant-Permissions", String.join(",", claims.permissions()));
                                 }
                             })
                             .build();

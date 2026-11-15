@@ -84,7 +84,8 @@ public class PickupLocationController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "hub:manage", java.util.Set.of("OWNER", "TENANT_ADMIN", "OPERATOR"));
         PickupLocationResponse response = pickupLocationService.createPickupLocation(tenant.getId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
@@ -97,7 +98,8 @@ public class PickupLocationController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "hub:manage", java.util.Set.of("OWNER", "TENANT_ADMIN", "OPERATOR"));
         PickupLocationResponse response = pickupLocationService.updatePickupLocation(tenant.getId(), id, request);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -109,7 +111,8 @@ public class PickupLocationController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "hub:manage", java.util.Set.of("OWNER", "TENANT_ADMIN", "OPERATOR"));
         PickupLocationResponse response = pickupLocationService.setDefaultLocation(tenant.getId(), id);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -121,7 +124,8 @@ public class PickupLocationController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "hub:manage", java.util.Set.of("OWNER", "TENANT_ADMIN", "OPERATOR"));
         pickupLocationService.deletePickupLocation(tenant.getId(), id);
         return ResponseEntity.ok(ApiResponse.success(null));
     }

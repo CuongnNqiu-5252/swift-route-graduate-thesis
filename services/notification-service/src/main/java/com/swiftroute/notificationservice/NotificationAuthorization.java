@@ -1,9 +1,14 @@
 package com.swiftroute.notificationservice;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.SecretKey;
 
@@ -28,6 +33,48 @@ public class NotificationAuthorization {
 
     private static final Set<String> OPERATOR_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR", "VIEWER");
     private static final Set<String> MEMBER_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR", "DRIVER");
+    private static final Map<String, LivePermissionSnapshot> LIVE_CACHE = new ConcurrentHashMap<>();
+
+    public record LivePermissionSnapshot(
+            String membershipRole,
+            String status,
+            Set<String> permissions,
+            long permissionsVersion) {
+    }
+
+    public static void recordLiveSnapshot(
+            UUID tenantId,
+            UUID userId,
+            String membershipRole,
+            String status,
+            Set<String> permissions,
+            long permissionsVersion) {
+        if (tenantId == null || userId == null) {
+            return;
+        }
+        String key = tenantId.toString() + ":" + userId.toString();
+        LIVE_CACHE.compute(key, (k, existing) -> {
+            if (existing != null && existing.permissionsVersion() > permissionsVersion) {
+                return existing;
+            }
+            return new LivePermissionSnapshot(
+                    membershipRole != null ? membershipRole.toUpperCase(Locale.ROOT) : "OPERATOR",
+                    status != null ? status.toUpperCase(Locale.ROOT) : "ACTIVE",
+                    permissions != null ? Set.copyOf(permissions) : Set.of(),
+                    permissionsVersion);
+        });
+    }
+
+    public static LivePermissionSnapshot getLiveSnapshot(UUID tenantId, UUID userId) {
+        if (tenantId == null || userId == null) {
+            return null;
+        }
+        return LIVE_CACHE.get(tenantId.toString() + ":" + userId.toString());
+    }
+
+    public static void clearCache() {
+        LIVE_CACHE.clear();
+    }
 
     private final JwtParser jwtParser;
 
@@ -100,11 +147,51 @@ public class NotificationAuthorization {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Tenant-scoped token required");
         }
 
-        if (!allowedTenantRoles.contains(tokenTenantRole.toUpperCase(Locale.ROOT))) {
+        String effectiveRole = tokenTenantRole.toUpperCase(Locale.ROOT);
+        Number tokenVerNum = claims.get("perm_ver", Number.class);
+        long tokenVer = tokenVerNum != null ? tokenVerNum.longValue() : 1L;
+        LivePermissionSnapshot live = getLiveSnapshot(jwtTenantId, userId);
+        if (live != null && live.permissionsVersion() > tokenVer) {
+            if (!"ACTIVE".equalsIgnoreCase(live.status())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Membership is not active");
+            }
+            effectiveRole = live.membershipRole();
+        }
+
+        Set<String> explicitPermissions = extractExplicitPermissions(claims, jwtTenantId, userId, tokenVer, live);
+        if (explicitPermissions != null && !"OWNER".equalsIgnoreCase(effectiveRole)) {
+            if (!explicitPermissions.contains("notification:read")) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+            }
+        }
+
+        if (!allowedTenantRoles.contains(effectiveRole)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
 
         return new AuthorizedContext(userId, jwtTenantId);
+    }
+
+    private Set<String> extractExplicitPermissions(
+            Claims claims,
+            UUID tenantId,
+            UUID userId,
+            long tokenVer,
+            LivePermissionSnapshot live) {
+        if (live != null && live.permissionsVersion() > tokenVer) {
+            return live.permissions();
+        }
+        Object raw = claims.get("permissions");
+        if (raw instanceof List<?> list) {
+            Set<String> set = new LinkedHashSet<>();
+            for (Object item : list) {
+                if (item instanceof String s && !s.isBlank()) {
+                    set.add(s.trim().toLowerCase(Locale.ROOT));
+                }
+            }
+            return Collections.unmodifiableSet(set);
+        }
+        return null;
     }
 
     private UUID parseOptionalTenantId(String tokenTenantId) {

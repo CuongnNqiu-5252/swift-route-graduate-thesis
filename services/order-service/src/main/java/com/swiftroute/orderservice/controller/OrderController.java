@@ -65,8 +65,10 @@ public class OrderController {
             @RequestAttribute("authorizedUserId") UUID operatorId,
             @RequestAttribute("effectiveRole") String role,
             @Valid @RequestBody ManualAssignmentRequest request) {
-        if (!java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR")
-                .contains(role))
+        if (!com.swiftroute.orderservice.security.TenantRequestInterceptor.isAuthorizedForPermission(
+                role,
+                "dispatch:execute",
+                java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR", "DRIVER")))
             throw new AppException(ErrorCode.ACCESS_DENIED);
         orchestration.assignManualBatch(requireTenantId(tenantId), operatorId, request);
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -142,7 +144,10 @@ public class OrderController {
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestAttribute(name = "effectiveRole", required = false) String effectiveRole) {
 
-        if ("DRIVER".equalsIgnoreCase(effectiveRole)) {
+        if (!com.swiftroute.orderservice.security.TenantRequestInterceptor.isAuthorizedForPermission(
+                effectiveRole,
+                "order:create",
+                java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR", "USER"))) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
@@ -197,7 +202,10 @@ public class OrderController {
             @RequestBody(required = false) CancelOrderRequest request,
             @RequestAttribute("authorizedUserId") UUID userId,
             @RequestAttribute("effectiveRole") String userRole) {
-        if ("DRIVER".equalsIgnoreCase(userRole)) {
+        if (!com.swiftroute.orderservice.security.TenantRequestInterceptor.isAuthorizedForPermission(
+                userRole,
+                "order:cancel",
+                java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR", "USER"))) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
         OrderResponse response = orderService.cancelOrder(orderId,

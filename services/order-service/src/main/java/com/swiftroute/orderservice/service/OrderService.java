@@ -300,10 +300,10 @@ public class OrderService {
     public OperationsQueueResponse getOperationsQueue(UUID tenantId, UUID requesterId, String requesterRole) {
         assertTenantOperationsAccess(tenantId, requesterId, requesterRole);
 
+        // Cancelled orders are terminal and separated in Orders; only FAILED orders require intervention.
         List<Order> orders = orderRepository.findAllByTenantIdAndStatusInOrderByUpdatedAtDesc(
                 tenantId,
-                List.of(OrderStatus.PAID, OrderStatus.PLANNED, OrderStatus.IN_TRANSIT,
-                        OrderStatus.FAILED, OrderStatus.CANCELLED));
+                List.of(OrderStatus.PAID, OrderStatus.PLANNED, OrderStatus.IN_TRANSIT, OrderStatus.FAILED));
 
         return new OperationsQueueResponse(
                 orders.stream().filter(order -> order.getStatus() == OrderStatus.PAID).map(OrderResponse::fromEntity)
@@ -312,8 +312,7 @@ public class OrderService {
                         .filter(order -> order.getStatus() == OrderStatus.PLANNED
                                 || order.getStatus() == OrderStatus.IN_TRANSIT)
                         .map(OrderResponse::fromEntity).toList(),
-                orders.stream().filter(
-                        order -> order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED)
+                orders.stream().filter(order -> order.getStatus() == OrderStatus.FAILED)
                         .map(OrderResponse::fromEntity).toList());
     }
 

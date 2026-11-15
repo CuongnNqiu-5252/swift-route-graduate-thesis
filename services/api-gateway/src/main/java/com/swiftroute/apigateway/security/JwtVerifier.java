@@ -45,11 +45,21 @@ public class JwtVerifier {
                     .parseSignedClaims(token)
                     .getPayload();
 
+            java.util.List<String> permissions = java.util.List.of();
+            Object rawPerms = claims.get("permissions");
+            if (rawPerms instanceof java.util.List<?> list) {
+                permissions = list.stream()
+                        .filter(String.class::isInstance)
+                        .map(String.class::cast)
+                        .toList();
+            }
+
             return new JwtClaims(
                     claims.getSubject(),
                     claims.get("system_role", String.class),
                     claims.get("tenant_id", String.class),
-                    claims.get("tenant_role", String.class)
+                    claims.get("tenant_role", String.class),
+                    permissions
             );
         }).subscribeOn(Schedulers.boundedElastic());
     }

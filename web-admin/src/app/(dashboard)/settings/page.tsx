@@ -12,6 +12,8 @@ import {
 } from '@/domain/entities/tenant-settings.entity';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import DeliveryZoneSection from '@/components/settings/delivery-zone-section';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -47,6 +49,7 @@ const SCHEDULED_HOURS = Array.from({ length: 24 }, (_, i) => {
 
 export default function SettingsPage() {
   const { t } = useLocale();
+  const { hasPermission } = useAuth();
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [selectedType, setSelectedType] = useState<BusinessType>('OTHER');
   const [timeWeight, setTimeWeight] = useState(0.5);
@@ -150,6 +153,10 @@ export default function SettingsPage() {
     }
   };
 
+  if (!hasPermission('tenant:settings:read')) {
+    return <AccessDeniedNotice requiredPermission="tenant:settings:read" />;
+  }
+
   if (isLoading || !settings) {
     return (
       <div className="flex h-96 items-center justify-center">
@@ -177,24 +184,26 @@ export default function SettingsPage() {
           </p>
         </div>
         {activeTab === 'general' && (
-          <div className="flex items-center gap-2.5">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={reloadSettings}
-              disabled={isSaving || isApplyingPreset}
-            >
-              <RotateCcw size={14} className="mr-1.5" />{" "}{t("Khôi phục")}
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              isLoading={isSaving}
-              className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-            >
-              <Save size={15} className="mr-1.5" />{" "}{t("Lưu cài đặt")}
-            </Button>
-          </div>
+          <PermissionGuard permission="tenant:settings:manage">
+            <div className="flex items-center gap-2.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={reloadSettings}
+                disabled={isSaving || isApplyingPreset}
+              >
+                <RotateCcw size={14} className="mr-1.5" />{" "}{t("Khôi phục")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSave}
+                isLoading={isSaving}
+                className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+              >
+                <Save size={15} className="mr-1.5" />{" "}{t("Lưu cài đặt")}
+              </Button>
+            </div>
+          </PermissionGuard>
         )}
       </div>
 
@@ -238,15 +247,17 @@ export default function SettingsPage() {
                 {t("Lựa chọn mô hình kinh doanh để hệ thống áp dụng bộ thông số thực tế được tối ưu trước")}
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleApplyPreset}
-              isLoading={isApplyingPreset}
-              className="border-blue-200 text-blue-700 hover:bg-blue-50"
-            >
-              <Sparkles size={14} className="mr-1.5 text-blue-600" />{" "}{t("Áp dụng hồ sơ đề xuất")}
-            </Button>
+            <PermissionGuard permission="tenant:settings:manage">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleApplyPreset}
+                isLoading={isApplyingPreset}
+                className="border-blue-200 text-blue-700 hover:bg-blue-50"
+              >
+                <Sparkles size={14} className="mr-1.5 text-blue-600" />{" "}{t("Áp dụng hồ sơ đề xuất")}
+              </Button>
+            </PermissionGuard>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">

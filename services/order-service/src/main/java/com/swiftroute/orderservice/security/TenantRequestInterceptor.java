@@ -125,12 +125,38 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        if (!"GET".equals(request.getMethod()) && "VIEWER".equalsIgnoreCase(tokenTenantRole)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
+        String effectiveTenantRole = tokenTenantRole.toUpperCase(Locale.ROOT);
+        Number tokenPermVerNum = claims.get("perm_ver", Number.class);
+        long tokenPermVer = tokenPermVerNum != null ? tokenPermVerNum.longValue() : 1L;
+        TenantPermissionRegistry.LivePermissionSnapshot liveSnapshot = TenantPermissionRegistry
+                .getLiveSnapshot(jwtTenantId, userId);
+        if (liveSnapshot != null && liveSnapshot.permissionsVersion() > tokenPermVer) {
+            if (!"ACTIVE".equalsIgnoreCase(liveSnapshot.status())) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+            effectiveTenantRole = liveSnapshot.membershipRole();
+        }
+
+        java.util.Set<String> explicitPermissions = TenantPermissionRegistry
+                .extractExplicitPermissions(claims, jwtTenantId, userId);
+        if (explicitPermissions != null) {
+            request.setAttribute("authorizedPermissions", explicitPermissions);
+        }
+
+        if (!"OWNER".equalsIgnoreCase(effectiveTenantRole)) {
+            java.util.Set<String> requiredPerms = TenantPermissionRegistry
+                    .requiredPermissionsForEndpoint(request.getMethod(), path);
+            if (explicitPermissions != null && !requiredPerms.isEmpty()) {
+                if (java.util.Collections.disjoint(explicitPermissions, requiredPerms)) {
+                    throw new AppException(ErrorCode.ACCESS_DENIED);
+                }
+            } else if (!"GET".equals(request.getMethod()) && "VIEWER".equalsIgnoreCase(effectiveTenantRole)) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
         }
 
         request.setAttribute("authorizedTenantId", jwtTenantId);
-        request.setAttribute("effectiveRole", tokenTenantRole.toUpperCase(Locale.ROOT));
+        request.setAttribute("effectiveRole", effectiveTenantRole);
         return true;
     }
 
@@ -161,5 +187,25 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
             if (current != null && !current.equals(tenantId))
                 throw new AppException(ErrorCode.ACCESS_DENIED);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static boolean isAuthorizedForPermission(
+            String effectiveRole,
+            String requiredPermission,
+            java.util.Set<String> fallbackAllowedRoles) {
+        if ("SYSTEM_ADMIN".equalsIgnoreCase(effectiveRole) || "OWNER".equalsIgnoreCase(effectiveRole)) {
+            return true;
+        }
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes servlet) {
+            Object rawPerms = servlet.getRequest().getAttribute("authorizedPermissions");
+            if (rawPerms instanceof java.util.Set<?> permSet) {
+                return permSet.contains(requiredPermission);
+            }
+        }
+        return effectiveRole != null
+                && fallbackAllowedRoles != null
+                && fallbackAllowedRoles.contains(effectiveRole.toUpperCase(Locale.ROOT));
     }
 }

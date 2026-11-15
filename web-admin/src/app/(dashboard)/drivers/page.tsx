@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { AddDriverMode, DriverProfilesPanel } from '@/components/drivers/driver-profiles-panel';
 import { DriverSettlementsPanel } from '@/components/drivers/driver-settlements-panel';
 import { DriverEarningPolicyPanel } from '@/components/drivers/driver-earning-policy-panel';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
 
 type DriversTab = 'profiles' | 'settlements' | 'policy';
 
@@ -41,6 +43,7 @@ function DriversPageFallback() {
 
 function DriversWorkspace() {
   const { t } = useLocale();
+  const { hasPermission } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -162,6 +165,10 @@ function DriversWorkspace() {
     { key: 'policy', label: t('Chính sách thu nhập') },
   ];
 
+  if (!hasPermission(['driver:read', 'vehicle:read'])) {
+    return <AccessDeniedNotice requiredPermission="driver:read" />;
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -181,10 +188,12 @@ function DriversWorkspace() {
             {t('Làm mới')}
           </Button>
           {activeTab === 'profiles' && (
-            <Button onClick={() => setMode('choose')}>
-              <UserPlus size={16} />
-              {t('Thêm tài xế')}
-            </Button>
+            <PermissionGuard permission="driver:manage">
+              <Button onClick={() => setMode('choose')}>
+                <UserPlus size={16} />
+                {t('Thêm tài xế')}
+              </Button>
+            </PermissionGuard>
           )}
         </div>
       </header>

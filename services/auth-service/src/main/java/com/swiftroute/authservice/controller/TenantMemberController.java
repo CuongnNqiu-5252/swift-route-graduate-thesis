@@ -12,16 +12,22 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.authservice.dto.request.InviteMemberRequest;
+import com.swiftroute.authservice.dto.request.UpdateMemberPermissionsRequest;
+import com.swiftroute.authservice.dto.request.UpdateMemberRoleRequest;
 import com.swiftroute.authservice.dto.request.UpdateMemberStatusRequest;
+import com.swiftroute.authservice.dto.request.UpdateRolePermissionsRequest;
 import com.swiftroute.authservice.dto.response.ApiResponse;
 import com.swiftroute.authservice.dto.response.InviteMemberResponse;
+import com.swiftroute.authservice.dto.response.PermissionCatalogResponse;
 import com.swiftroute.authservice.dto.response.TenantInvitationResponse;
 import com.swiftroute.authservice.dto.response.TenantMemberResponse;
+import com.swiftroute.authservice.entity.enums.TenantMembershipRole;
 import com.swiftroute.authservice.service.TenantEmployeeService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -107,6 +113,55 @@ public class TenantMemberController {
 
         UUID requesterId = resolveUserId(authentication);
         TenantMemberResponse response = tenantEmployeeService.updateMemberStatus(tenantId, membershipId, request, requesterId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Lấy danh mục quyền hạn và mẫu quyền theo vai trò của doanh nghiệp")
+    @GetMapping("/permissions-catalog")
+    public ResponseEntity<ApiResponse<PermissionCatalogResponse>> getPermissionsCatalog(
+            @PathVariable UUID tenantId,
+            Authentication authentication) {
+        UUID requesterId = resolveUserId(authentication);
+        PermissionCatalogResponse response = tenantEmployeeService.getPermissionsCatalog(tenantId, requesterId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Cập nhật mẫu quyền mặc định cho một vai trò trong doanh nghiệp (chỉ dành cho OWNER)")
+    @PutMapping("/role-permissions/{role}")
+    public ResponseEntity<ApiResponse<java.util.Map<String, List<String>>>> updateRolePermissionsTemplate(
+            @PathVariable UUID tenantId,
+            @PathVariable TenantMembershipRole role,
+            @Valid @RequestBody UpdateRolePermissionsRequest request,
+            Authentication authentication) {
+        UUID requesterId = resolveUserId(authentication);
+        java.util.Map<String, List<String>> response = tenantEmployeeService.updateRolePermissionsTemplate(
+                tenantId, role, request, requesterId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Thay đổi vai trò của một thành viên trong doanh nghiệp")
+    @PatchMapping("/{membershipId}/role")
+    public ResponseEntity<ApiResponse<TenantMemberResponse>> updateMemberRole(
+            @PathVariable UUID tenantId,
+            @PathVariable UUID membershipId,
+            @Valid @RequestBody UpdateMemberRoleRequest request,
+            Authentication authentication) {
+        UUID requesterId = resolveUserId(authentication);
+        TenantMemberResponse response = tenantEmployeeService.updateMemberRole(
+                tenantId, membershipId, request, requesterId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Tùy chỉnh quyền hạn chi tiết (cấp thêm / thu hồi quyền) cho từng thành viên trong doanh nghiệp")
+    @PutMapping("/{membershipId}/permissions")
+    public ResponseEntity<ApiResponse<TenantMemberResponse>> updateMemberPermissions(
+            @PathVariable UUID tenantId,
+            @PathVariable UUID membershipId,
+            @Valid @RequestBody UpdateMemberPermissionsRequest request,
+            Authentication authentication) {
+        UUID requesterId = resolveUserId(authentication);
+        TenantMemberResponse response = tenantEmployeeService.updateMemberPermissions(
+                tenantId, membershipId, request, requesterId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

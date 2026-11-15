@@ -26,7 +26,8 @@ class DriverMainScreen extends ConsumerStatefulWidget {
   ConsumerState<DriverMainScreen> createState() => _DriverMainScreenState();
 }
 
-class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
+class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
   Timer? _locationTimer;
   bool _locationRequestInFlight = false;
@@ -36,12 +37,21 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     Future.microtask(() async {
+      await ref.read(authProvider.notifier).getCurrentUser();
       await ref.read(driverProvider.notifier).refreshProfile();
       await ref.read(driverOrdersProvider.notifier).refreshOrders();
       await ref.read(offlineSyncProvider.notifier).synchronize();
       await _syncLocation();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      unawaited(ref.read(authProvider.notifier).getCurrentUser());
+    }
   }
 
   Future<void> _syncLocation() async {
@@ -126,6 +136,7 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _locationTimer?.cancel();
     super.dispose();
   }

@@ -32,7 +32,7 @@ public enum ErrorCode {
     INVITATION_NOT_FOUND(404, "Lời mời không tồn tại hoặc token không hợp lệ", HttpStatus.NOT_FOUND),
     INVITATION_EXPIRED(400, "Lời mời đã hết hạn", HttpStatus.BAD_REQUEST),
     INVITATION_ALREADY_PROCESSED(400, "Lời mời này đã được chấp nhận hoặc đã bị thu hồi", HttpStatus.BAD_REQUEST);
-
+    
     private final int code;
     private final String message;
     private final HttpStatus statusCode;

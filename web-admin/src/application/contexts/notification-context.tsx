@@ -27,7 +27,7 @@ const OPERATOR_NOTIFICATION_ROLES = new Set(['SYSTEM_ADMIN', 'OWNER', 'TENANT_AD
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { user, token } = useAuth();
+  const { user, token, hasPermission, applyLivePermissions, refreshProfile } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<DispatchAlertDto[]>([]);
   const [inbox, setInbox] = useState<InboxNotificationDto[]>([]);
@@ -37,6 +37,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const tenantId = user?.tenantId;
   const hasOperatorAccess =
+    hasPermission('notification:read') ||
     user?.systemRole?.toUpperCase() === 'SYSTEM_ADMIN' ||
     OPERATOR_NOTIFICATION_ROLES.has((user?.tenantRole || user?.role || '').toUpperCase());
   const mountedRef = useRef<boolean>(true);
@@ -93,6 +94,50 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       if (eventName === 'heartbeat' || eventName === 'ping') {
         setIsConnected(true);
+        return;
+      }
+
+      if (eventName === 'permissions-updated') {
+        try {
+          const payload = JSON.parse(dataStr) as {
+            tenant_id?: string;
+            user_id?: string;
+            membership_role?: string;
+            status?: string;
+            permissions?: string[];
+            permissions_version?: number;
+          };
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('swiftroute:permissions-updated', {
+                detail: payload,
+              })
+            );
+          }
+
+          if (payload.user_id && payload.user_id === user?.id && payload.tenant_id === tenantId) {
+            applyLivePermissions({
+              membershipRole: payload.membership_role,
+              status: payload.status,
+              permissions: payload.permissions,
+              permissionsVersion: payload.permissions_version,
+            });
+            void refreshProfile();
+
+            if (payload.status && payload.status.toUpperCase() !== 'ACTIVE') {
+              toast.warning('Quyền truy cập của bạn tại doanh nghiệp đã bị tạm khóa hoặc thu hồi.', {
+                duration: 6000,
+              });
+            } else {
+              toast.info('Quyền hạn của bạn trong doanh nghiệp vừa được cập nhật.', {
+                duration: 4500,
+              });
+            }
+          }
+        } catch {
+          // Ignore malformed permissions sync event
+        }
         return;
       }
 
@@ -266,7 +311,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       mountedRef.current = false;
       controller.abort();
     };
-  }, [tenantId, token, hasOperatorAccess, refresh, router]);
+  }, [tenantId, token, user?.id, hasOperatorAccess, refresh, applyLivePermissions, refreshProfile, router]);
 
   return (
     <NotificationContext.Provider

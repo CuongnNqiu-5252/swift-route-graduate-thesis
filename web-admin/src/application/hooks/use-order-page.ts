@@ -25,14 +25,9 @@ export function useOrderPage(filters: OrderPageFilters) {
   }, [filters, revision]);
 
   useEffect(() => {
-    const refreshVisible = () => {
-      if (document.visibilityState === 'visible') refetch();
-    };
     window.addEventListener('swiftroute:realtime-update', refetch);
-    const interval = window.setInterval(refreshVisible, 30000);
     return () => {
       window.removeEventListener('swiftroute:realtime-update', refetch);
-      window.clearInterval(interval);
     };
   }, [refetch]);
 

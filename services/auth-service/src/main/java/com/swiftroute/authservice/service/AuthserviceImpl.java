@@ -34,6 +34,9 @@ public class AuthserviceImpl implements AuthService {
     @org.springframework.beans.factory.annotation.Autowired
     private EmailVerificationService emailVerificationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private TenantPermissionService tenantPermissionService;
+
     @Override
     @Transactional
     public void register(RegisterRequestDTO request) {
@@ -93,7 +96,7 @@ public class AuthserviceImpl implements AuthService {
                 ? jwtConfig.getAccessTokenExpiryMinutes()
                 : 15;
 
-        return buildAuthResponse(user, ttlMinutes, httpRequest);
+        return buildAuthResponse(user, ttlMinutes, httpRequest, validatedOldToken.getActiveTenantId());
     }
 
     private java.util.UUID extractRequestedTenantId(HttpServletRequest request) {
@@ -123,15 +126,27 @@ public class AuthserviceImpl implements AuthService {
      * from the user's active tenant membership (retaining requested active tenant session if matched).
      */
     private LoginResponseDTO buildAuthResponse(User user, long ttlMinutes, HttpServletRequest httpRequest) {
+        return buildAuthResponse(user, ttlMinutes, httpRequest, null);
+    }
+
+    private LoginResponseDTO buildAuthResponse(
+            User user,
+            long ttlMinutes,
+            HttpServletRequest httpRequest,
+            java.util.UUID fallbackTenantId) {
         java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
                 .findByUser_IdAndStatus(user.getId(),
                         com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
 
         java.util.UUID requestedTenantId = extractRequestedTenantId(httpRequest);
+        if (requestedTenantId == null) {
+            requestedTenantId = fallbackTenantId;
+        }
         com.swiftroute.authservice.entity.TenantMembership selectedMembership = null;
         if (requestedTenantId != null) {
+            final java.util.UUID targetTenantId = requestedTenantId;
             selectedMembership = activeMemberships.stream()
-                    .filter(m -> m.getTenantId().equals(requestedTenantId))
+                    .filter(m -> m.getTenantId().equals(targetTenantId))
                     .findFirst()
                     .orElse(null);
         }
@@ -142,29 +157,56 @@ public class AuthserviceImpl implements AuthService {
         String accessToken;
         String effectiveRole;
         java.util.UUID tenantId = null;
+        java.util.List<String> effectivePermissions;
 
         if (selectedMembership != null) {
             effectiveRole = selectedMembership.getMembershipRole().name();
             tenantId = selectedMembership.getTenantId();
-            accessToken = jwtService.generateTenantAccessToken(user, tenantId, effectiveRole, ttlMinutes);
+            if (tenantPermissionService != null) {
+                effectivePermissions = tenantPermissionService.resolveEffectivePermissions(
+                        user.getRole(), selectedMembership);
+                accessToken = jwtService.generateTenantAccessToken(
+                        user,
+                        tenantId,
+                        effectiveRole,
+                        effectivePermissions,
+                        selectedMembership.getPermissionsVersion(),
+                        ttlMinutes);
+            } else {
+                effectivePermissions = com.swiftroute.authservice.entity.enums.TenantPermission
+                        .defaultPermissionsForRoleName(effectiveRole, user.getRole());
+                accessToken = jwtService.generateTenantAccessToken(user, tenantId, effectiveRole, ttlMinutes);
+            }
         } else {
             effectiveRole = user.getRole().name();
+            effectivePermissions = com.swiftroute.authservice.entity.enums.TenantPermission
+                    .defaultPermissionsForRoleName(effectiveRole, user.getRole());
             accessToken = jwtService.generateAccessToken(user, ttlMinutes);
         }
 
-        String refreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest);
+        String refreshToken = (tenantPermissionService != null && tenantId != null)
+                ? jwtService.generateAndStoreRefreshToken(user, httpRequest, tenantId)
+                : jwtService.generateAndStoreRefreshToken(user, httpRequest);
 
         return LoginResponseDTO.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
-                .user(toUserProfile(user, effectiveRole, tenantId))
+                .user(toUserProfile(user, effectiveRole, tenantId, effectivePermissions))
                 .build();
     }
 
-    private UserProfileResponseDTO toUserProfile(User user, String effectiveRole, java.util.UUID tenantId) {
+    private UserProfileResponseDTO toUserProfile(
+            User user,
+            String effectiveRole,
+            java.util.UUID tenantId,
+            java.util.List<String> effectivePermissions) {
         String resolvedRole = (effectiveRole == null || effectiveRole.isBlank())
                 ? user.getRole().name()
                 : effectiveRole;
+        java.util.List<String> perms = effectivePermissions != null
+                ? effectivePermissions
+                : com.swiftroute.authservice.entity.enums.TenantPermission
+                        .defaultPermissionsForRoleName(resolvedRole, user.getRole());
         return new UserProfileResponseDTO(
                 user.getId(),
                 user.getEmail(),
@@ -175,7 +217,8 @@ public class AuthserviceImpl implements AuthService {
                 tenantId,
                 user.getStatus(),
                 user.getCreatedAt(),
-                user.isEmailVerified());
+                user.isEmailVerified(),
+                perms);
     }
 
     @Override
@@ -189,12 +232,37 @@ public class AuthserviceImpl implements AuthService {
     public UserProfileResponseDTO getProfile(java.util.UUID userId, String effectiveRole) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new com.swiftroute.authservice.exception.AppException(ErrorCode.USER_NOT_FOUND));
-        java.util.UUID tenantId = tenantMembershipRepository
+        java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
                 .findByUser_IdAndStatus(userId,
-                        com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE)
-                .stream().findFirst().map(com.swiftroute.authservice.entity.TenantMembership::getTenantId)
-                .orElse(null);
-        return toUserProfile(user, effectiveRole, tenantId);
+                        com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
+        java.util.UUID requestedTenantId = resolveCurrentRequestTenantId();
+        com.swiftroute.authservice.entity.TenantMembership activeMembership = null;
+        if (requestedTenantId != null) {
+            activeMembership = activeMemberships.stream()
+                    .filter(m -> m.getTenantId().equals(requestedTenantId))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (activeMembership == null && !activeMemberships.isEmpty()) {
+            activeMembership = activeMemberships.get(0);
+        }
+        java.util.UUID tenantId = activeMembership != null ? activeMembership.getTenantId() : null;
+        String liveRole = (activeMembership != null && user.getRole() != com.swiftroute.authservice.entity.enums.Role.SYSTEM_ADMIN)
+                ? activeMembership.getMembershipRole().name()
+                : effectiveRole;
+        java.util.List<String> effectivePermissions = (tenantPermissionService != null && activeMembership != null)
+                ? tenantPermissionService.resolveEffectivePermissions(user.getRole(), activeMembership)
+                : com.swiftroute.authservice.entity.enums.TenantPermission
+                        .defaultPermissionsForRoleName(liveRole, user.getRole());
+        return toUserProfile(user, liveRole, tenantId, effectivePermissions);
+    }
+
+    private java.util.UUID resolveCurrentRequestTenantId() {
+        var attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes servletAttrs) {
+            return extractRequestedTenantId(servletAttrs.getRequest());
+        }
+        return null;
     }
 
     @Override

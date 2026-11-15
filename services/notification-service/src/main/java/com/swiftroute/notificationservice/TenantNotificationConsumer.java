@@ -47,6 +47,10 @@ public class TenantNotificationConsumer {
     public void receive(Message message) throws Exception {
         var p = json.readTree(message.getBody());
         String type = p.path("eventType").asText(p.path("event_type").asText());
+        if ("tenant.member_permissions_updated.v1".equals(type)) {
+            handleMemberPermissionsUpdated(p);
+            return;
+        }
         if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "user.password_reset_requested.v1", "tenant.created.v1",
                 "tenant.verification_submitted.v1", "tenant.verification_changes_requested.v1", "tenant.approved.v1",
                 "tenant.rejected.v1", "tenant.suspended.v1").contains(type)) {
@@ -119,6 +123,44 @@ public class TenantNotificationConsumer {
             alertDto.put("template_code", type);
             alertDto.put("created_at", Instant.now().toString());
             sseService.broadcast(tenant, "operational-alert", alertDto);
+        }
+    }
+
+    private void handleMemberPermissionsUpdated(com.fasterxml.jackson.databind.JsonNode p) {
+        try {
+            String tenantStr = p.path("tenantId").asText(p.path("tenant_id").asText(""));
+            String userStr = p.path("userId").asText(p.path("user_id").asText(""));
+            if (tenantStr.isBlank() || userStr.isBlank()) {
+                return;
+            }
+            UUID tenantId = UUID.fromString(tenantStr.trim());
+            UUID userId = UUID.fromString(userStr.trim());
+            String role = p.path("membershipRole").asText(p.path("membership_role").asText("OPERATOR"));
+            String status = p.path("status").asText("ACTIVE");
+            long version = p.path("permissionsVersion").asLong(p.path("permissions_version").asLong(1L));
+
+            java.util.Set<String> perms = new java.util.LinkedHashSet<>();
+            var permsNode = p.get("permissions");
+            if (permsNode != null && permsNode.isArray()) {
+                for (var item : permsNode) {
+                    if (item.isTextual() && !item.asText().isBlank()) {
+                        perms.add(item.asText().trim().toLowerCase(java.util.Locale.ROOT));
+                    }
+                }
+            }
+            NotificationAuthorization.recordLiveSnapshot(tenantId, userId, role, status, perms, version);
+            if (sseService != null) {
+                Map<String, Object> syncEvent = new HashMap<>();
+                syncEvent.put("tenant_id", tenantId.toString());
+                syncEvent.put("user_id", userId.toString());
+                syncEvent.put("membership_role", role);
+                syncEvent.put("status", status);
+                syncEvent.put("permissions", java.util.List.copyOf(perms));
+                syncEvent.put("permissions_version", version);
+                sseService.broadcast(tenantId, "permissions-updated", syncEvent);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to process member permissions update in notification-service: {}", ex.getMessage());
         }
     }
 }

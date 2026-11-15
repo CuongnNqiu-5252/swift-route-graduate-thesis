@@ -92,7 +92,19 @@ class UserModel extends User {
     required super.name,
     required super.role,
     super.avatar,
+    super.permissions = const [],
+    super.permissionsVersion = 1,
   });
+
+  static List<String> parsePermissions(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<String>()
+        .map((e) => e.trim().toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+  }
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
@@ -103,6 +115,13 @@ class UserModel extends User {
               as String,
       role: (json['role'] ?? 'USER') as String,
       avatar: (json['avatar'] ?? json['avatar_url']) as String?,
+      permissions: parsePermissions(json['permissions']),
+      permissionsVersion:
+          (json['permissions_version'] ??
+                  json['perm_ver'] ??
+                  json['permissionsVersion'] as num?)
+              ?.toInt() ??
+          1,
     );
   }
 
@@ -112,5 +131,7 @@ class UserModel extends User {
     'name': name,
     'role': role,
     'avatar': avatar,
+    'permissions': permissions,
+    'permissions_version': permissionsVersion,
   };
 }

@@ -154,15 +154,54 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String role = admin ? "SYSTEM_ADMIN" : tokenTenantRole.toUpperCase(Locale.ROOT);
-        if (!admin && "VIEWER".equals(role) && !"GET".equals(request.getMethod())) {
-            response.sendError(HttpServletResponse.SC_FORBIDDEN);
-            return;
+        if (!admin) {
+            Number tokenVerNum = claims.get("perm_ver", Number.class);
+            long tokenVer = tokenVerNum != null ? tokenVerNum.longValue() : 1L;
+            TenantPermissionRegistry.LivePermissionSnapshot liveSnapshot = TenantPermissionRegistry
+                    .getLiveSnapshot(authorizedTenantId, parsedUserId);
+            if (liveSnapshot != null && liveSnapshot.permissionsVersion() > tokenVer) {
+                if (!"ACTIVE".equalsIgnoreCase(liveSnapshot.status())) {
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    return;
+                }
+                role = liveSnapshot.membershipRole();
+            }
+        }
+
+        java.util.Set<String> explicitPermissions = TenantPermissionRegistry
+                .extractExplicitPermissions(claims, authorizedTenantId, parsedUserId);
+        if (explicitPermissions != null) {
+            request.setAttribute("authorizedPermissions", explicitPermissions);
+        }
+
+        if (!admin && !"OWNER".equals(role)) {
+            java.util.Set<String> requiredPerms = TenantPermissionRegistry
+                    .requiredPermissionsForEndpoint(request.getMethod(), path);
+            if (explicitPermissions != null && !requiredPerms.isEmpty()) {
+                if (java.util.Collections.disjoint(explicitPermissions, requiredPerms)) {
+                    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                    return;
+                }
+            } else if ("VIEWER".equals(role) && !"GET".equals(request.getMethod())) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
         }
 
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
         authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
         if (admin && tokenTenantRole != null && !tokenTenantRole.isBlank()) {
             authorities.add(new SimpleGrantedAuthority("ROLE_" + tokenTenantRole.toUpperCase(Locale.ROOT)));
+        }
+        if (explicitPermissions != null && !admin && !"OWNER".equals(role) && !"TENANT_ADMIN".equals(role)) {
+            boolean grantedReview = path.endsWith("/review") && explicitPermissions.contains("driver:manage");
+            boolean grantedBillingAdmin = (path.endsWith("/policy")
+                    || path.endsWith("/approve")
+                    || path.endsWith("/mark-paid"))
+                    && explicitPermissions.contains("billing:manage");
+            if (grantedReview || grantedBillingAdmin) {
+                authorities.add(new SimpleGrantedAuthority("ROLE_TENANT_ADMIN"));
+            }
         }
 
         request.setAttribute("authorizedUserId", parsedUserId);

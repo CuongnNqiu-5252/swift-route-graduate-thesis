@@ -27,11 +27,14 @@ import {
 import { toast } from 'sonner';
 import LocationMapPicker from '@/components/locations/location-map-picker';
 import PickupLocationsMap from '@/components/locations/pickup-locations-map';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice } from '@/components/auth/permission-guard';
 
 const messageFrom = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
 
 export default function PickupLocationsPage() {
   const { t } = useLocale();
+  const { hasPermission } = useAuth();
   const [locations, setLocations] = useState<PickupLocation[]>([]);
   const [statusFilter, setStatusFilter] = useState<PickupLocationStatus | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
@@ -175,6 +178,12 @@ export default function PickupLocationsPage() {
     }
   };
 
+  if (!hasPermission('hub:read')) {
+    return <AccessDeniedNotice requiredPermission="hub:read" />;
+  }
+
+  const canManageLocations = hasPermission('hub:manage');
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -193,10 +202,12 @@ export default function PickupLocationsPage() {
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             {t("Làm mới")}
           </Button>
-          <Button onClick={openCreateModal} className="gap-2 bg-blue-600 hover:bg-blue-700">
-            <Plus className="h-4 w-4" />
-            {t("Thêm điểm lấy hàng")}
-          </Button>
+          {canManageLocations && (
+            <Button onClick={openCreateModal} className="gap-2 bg-blue-600 hover:bg-blue-700">
+              <Plus className="h-4 w-4" />
+              {t("Thêm điểm lấy hàng")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -340,6 +351,7 @@ export default function PickupLocationsPage() {
                       </td>
 
                       <td className="px-6 py-4 text-right">
+                        {canManageLocations && (
                         <div className="flex items-center justify-end gap-2">
                           {!loc.is_default && loc.status === 'ACTIVE' && (
                             <Button
@@ -373,6 +385,7 @@ export default function PickupLocationsPage() {
                             </Button>
                           )}
                         </div>
+                        )}
                       </td>
                     </tr>
                   ))

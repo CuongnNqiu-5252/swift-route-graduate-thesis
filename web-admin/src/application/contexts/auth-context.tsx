@@ -10,6 +10,8 @@ export interface AuthUser {
   systemRole?: string;
   accountRole?: string;
   tenantRole?: string | null;
+  permissions: string[];
+  permissionsVersion?: number;
   name?: string;
   phone?: string;
   tenantId?: string | null;
@@ -18,12 +20,22 @@ export interface AuthUser {
   createdAt?: string;
 }
 
+export interface LivePermissionSyncPayload {
+  membershipRole?: string;
+  permissions?: string[];
+  permissionsVersion?: number;
+  status?: string;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   refreshProfile: () => Promise<AuthUser | null>;
+  hasPermission: (permission: string | string[]) => boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
+  applyLivePermissions: (payload: LivePermissionSyncPayload) => void;
   isLoading: boolean;
 }
 
@@ -31,6 +43,19 @@ interface JwtClaimsPayload {
   system_role?: string;
   tenant_id?: string | null;
   tenant_role?: string | null;
+  permissions?: string[];
+  perm_ver?: number;
+}
+
+function normalizePermissions(raw?: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
+    new Set(
+      raw
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => item.trim().toLowerCase())
+    )
+  );
 }
 
 function decodeJwtClaims(jwt: string | null): JwtClaimsPayload {
@@ -78,6 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emailVerified?: boolean;
         created_at?: string;
         createdAt?: string;
+        permissions?: string[];
       }>('/auth/me');
 
       const data = response.data;
@@ -90,8 +116,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (resolvedTenantId && !localStorage.getItem('tenant_id')) {
         localStorage.setItem('tenant_id', resolvedTenantId);
       }
-      const systemRole = claims.system_role || data.account_role || data.accountRole;
-      const tenantRole = claims.tenant_role ?? null;
+      const systemRole = (claims.system_role || data.account_role || data.accountRole)?.toUpperCase();
+      const tenantRole = (
+        data.role && data.role !== systemRole
+          ? data.role
+          : (claims.tenant_role ?? null)
+      )?.toUpperCase() ?? null;
+      const effectivePerms = normalizePermissions(data.permissions ?? claims.permissions);
 
       const profile: AuthUser = {
         id: data.id,
@@ -100,6 +131,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         systemRole,
         accountRole: systemRole,
         tenantRole,
+        permissions: effectivePerms,
+        permissionsVersion: typeof claims.perm_ver === 'number' ? claims.perm_ver : undefined,
         name: data.full_name || data.fullName || data.email,
         phone: data.phone,
         tenantId: resolvedTenantId,
@@ -136,7 +169,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (storedUser) {
           try {
-            setUser(JSON.parse(storedUser));
+            const parsed = JSON.parse(storedUser) as Partial<AuthUser>;
+            setUser({
+              ...(parsed as AuthUser),
+              permissions: normalizePermissions(parsed.permissions),
+            });
           } catch {
             localStorage.removeItem('auth_user');
           }
@@ -182,6 +219,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refreshProfile]);
 
+  const applyLivePermissions = useCallback((payload: LivePermissionSyncPayload) => {
+    setUser((current) => {
+      if (!current) return current;
+      const nextTenantRole = payload.membershipRole
+        ? payload.membershipRole.toUpperCase()
+        : current.tenantRole;
+      const nextPermissions = payload.permissions
+        ? normalizePermissions(payload.permissions)
+        : current.permissions;
+      const updated: AuthUser = {
+        ...current,
+        role: nextTenantRole || current.role,
+        tenantRole: nextTenantRole,
+        permissions: nextPermissions,
+        permissionsVersion: payload.permissionsVersion ?? current.permissionsVersion,
+        status: payload.status ?? current.status,
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('auth_user', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  }, []);
+
+  const hasPermission = useCallback(
+    (permission: string | string[]): boolean => {
+      if (!user) return false;
+      const systemRole = (user.systemRole ?? user.accountRole ?? '').toUpperCase();
+      const tenantRole = (user.tenantRole ?? user.role ?? '').toUpperCase();
+      if (systemRole === 'SYSTEM_ADMIN' || tenantRole === 'OWNER') {
+        return true;
+      }
+      const userPerms = new Set(normalizePermissions(user.permissions));
+      const required = Array.isArray(permission) ? permission : [permission];
+      return required.some((code) => userPerms.has(code.trim().toLowerCase()));
+    },
+    [user]
+  );
+
+  const hasAllPermissions = useCallback(
+    (permissions: string[]): boolean => {
+      if (!user) return false;
+      const systemRole = (user.systemRole ?? user.accountRole ?? '').toUpperCase();
+      const tenantRole = (user.tenantRole ?? user.role ?? '').toUpperCase();
+      if (systemRole === 'SYSTEM_ADMIN' || tenantRole === 'OWNER') {
+        return true;
+      }
+      const userPerms = new Set(normalizePermissions(user.permissions));
+      return permissions.every((code) => userPerms.has(code.trim().toLowerCase()));
+    },
+    [user]
+  );
+
   const login = async (email: string, password: string) => {
     const response = await api.post<{ access_token: string; refresh_token: string }>(
       '/auth/login',
@@ -224,7 +314,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, refreshProfile, isLoading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        login,
+        logout,
+        refreshProfile,
+        hasPermission,
+        hasAllPermissions,
+        applyLivePermissions,
+        isLoading,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

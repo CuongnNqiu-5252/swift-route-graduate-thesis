@@ -21,6 +21,7 @@ public class TenantEventConfig {
     public static final String EVENT_EXCHANGE = "swiftroute.events";
     public static final String DLX_EXCHANGE = "swiftroute.events.dlx";
     public static final String DLQ_QUEUE = "swiftroute.events.dlq";
+    public static final String PERMISSIONS_SYNC_QUEUE = "order.member-permissions-sync";
 
     @Bean
     @ConditionalOnMissingBean(ObjectMapper.class)
@@ -49,6 +50,18 @@ public class TenantEventConfig {
     @Bean
     public Binding dlqBinding(Queue swiftrouteDlq, TopicExchange swiftrouteDlxExchange) {
         return BindingBuilder.bind(swiftrouteDlq).to(swiftrouteDlxExchange).with("#");
+    }
+
+    @Bean
+    public Queue orderPermissionsSyncQueue() {
+        return new Queue(PERMISSIONS_SYNC_QUEUE, true);
+    }
+
+    @Bean
+    public Binding orderPermissionsSyncBinding(Queue orderPermissionsSyncQueue, TopicExchange swiftrouteEventsExchange) {
+        return BindingBuilder.bind(orderPermissionsSyncQueue)
+                .to(swiftrouteEventsExchange)
+                .with("tenant.member_permissions_updated.v1");
     }
 
     @Bean

@@ -58,6 +58,40 @@ public class TenantContextValidator {
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
     }
 
+    /**
+     * Validates workspace access and checks granular tenant permission (with role fallback
+     * when the token does not embed an explicit permissions array).
+     */
+    public Tenant validateWorkspacePermission(
+            String tenantIdHeader,
+            String authHeader,
+            String requiredPermission,
+            java.util.Set<String> fallbackAllowedRoles) {
+        Claims claims = parseRequiredClaims(authHeader);
+        String effectiveTenantStr = resolveAuthorizedTenantString(tenantIdHeader, claims);
+        UUID tenantId = parseTenantUuid(effectiveTenantStr);
+
+        String systemRole = claims.get("system_role", String.class);
+        String tenantRole = claims.get("tenant_role", String.class);
+        if (!"SYSTEM_ADMIN".equalsIgnoreCase(systemRole) && !"OWNER".equalsIgnoreCase(tenantRole)) {
+            UUID userId = extractUserId(authHeader).orElse(null);
+            java.util.Set<String> explicitPerms = TenantPermissionRegistry
+                    .extractExplicitPermissions(claims, tenantId, userId);
+            if (explicitPerms != null) {
+                if (!explicitPerms.contains(requiredPermission)) {
+                    throw new AppException(ErrorCode.ACCESS_DENIED);
+                }
+            } else if (tenantRole == null
+                    || fallbackAllowedRoles == null
+                    || !fallbackAllowedRoles.contains(tenantRole.toUpperCase(java.util.Locale.ROOT))) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+        }
+
+        return tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
+    }
+
     public Tenant validateTenantAccess(String tenantIdHeader, String authHeader) {
         String effectiveTenantStr;
         if (authHeader != null && authHeader.startsWith("Bearer ")) {

@@ -51,7 +51,8 @@ public class TenantController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "tenant:settings:manage", java.util.Set.of("OWNER", "TENANT_ADMIN"));
         TenantSettingsResponse response = tenantSettingsService.updateSettings(tenant.getId(), request);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -63,7 +64,8 @@ public class TenantController {
             @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
 
-        Tenant tenant = tenantContextValidator.validateWorkspaceOwner(tenantIdHeader, authHeader);
+        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
+                tenantIdHeader, authHeader, "tenant:settings:manage", java.util.Set.of("OWNER", "TENANT_ADMIN"));
         TenantSettingsResponse response = tenantSettingsService.applyPreset(tenant.getId(), request.businessType());
         return ResponseEntity.ok(ApiResponse.success(response));
     }

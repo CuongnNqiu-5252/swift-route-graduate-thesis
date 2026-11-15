@@ -23,6 +23,7 @@ public class DriverEventConfig {
     public static final String DLQ_QUEUE = "swiftroute.events.dlq";
     public static final String DELIVERY_COMPLETED_QUEUE = "driver.earnings.delivery-completed.v1";
     public static final String DELIVERY_COMPLETED_ROUTING_KEY = "order.delivery_completed.v1";
+    public static final String PERMISSIONS_SYNC_QUEUE = "driver.member-permissions-sync";
 
     @Bean
     public TopicExchange swiftrouteEventsExchange() {
@@ -54,6 +55,18 @@ public class DriverEventConfig {
     @Bean
     public Binding deliveryCompletedBinding(Queue deliveryCompletedQueue, TopicExchange swiftrouteEventsExchange) {
         return BindingBuilder.bind(deliveryCompletedQueue).to(swiftrouteEventsExchange).with(DELIVERY_COMPLETED_ROUTING_KEY);
+    }
+
+    @Bean
+    public Queue driverPermissionsSyncQueue() {
+        return new Queue(PERMISSIONS_SYNC_QUEUE, true);
+    }
+
+    @Bean
+    public Binding driverPermissionsSyncBinding(Queue driverPermissionsSyncQueue, TopicExchange swiftrouteEventsExchange) {
+        return BindingBuilder.bind(driverPermissionsSyncQueue)
+                .to(swiftrouteEventsExchange)
+                .with("tenant.member_permissions_updated.v1");
     }
 
     @Bean

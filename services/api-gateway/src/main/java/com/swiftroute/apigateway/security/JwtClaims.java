@@ -13,8 +13,13 @@ public record JwtClaims(
         String userId,
         String systemRole,
         String tenantId,
-        String tenantRole
+        String tenantRole,
+        java.util.List<String> permissions
 ) {
+    public JwtClaims(String userId, String systemRole, String tenantId, String tenantRole) {
+        this(userId, systemRole, tenantId, tenantRole, java.util.List.of());
+    }
+
     /**
      * Returns the effective role for downstream compatibility and logging:
      * tenantRole when present and non-blank, otherwise systemRole.

@@ -49,9 +49,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // 4. Nếu chưa có ai đăng nhập trong SecurityContext
                 if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                     String effectiveRole = (tenantRole != null && !tenantRole.isBlank()) ? tenantRole : role;
-                    var authorities = (effectiveRole != null && !effectiveRole.isBlank())
-                            ? Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + effectiveRole))
-                            : Collections.<SimpleGrantedAuthority>emptyList();
+                    java.util.List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                    if (effectiveRole != null && !effectiveRole.isBlank()) {
+                        authorities.add(new SimpleGrantedAuthority("ROLE_" + effectiveRole));
+                    }
+                    java.util.List<String> permissions = jwtService.extractPermissions(jwt);
+                    if (permissions != null) {
+                        for (String perm : permissions) {
+                            if (perm != null && !perm.isBlank()) {
+                                authorities.add(new SimpleGrantedAuthority("PERM_" + perm));
+                            }
+                        }
+                    }
 
                     // 5. Nhét User vào Context để Spring Security công nhận là "Đã Đăng Nhập"
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
