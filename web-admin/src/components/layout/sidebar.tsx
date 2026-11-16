@@ -5,7 +5,7 @@ import { useAuth } from '@/application/contexts/auth-context';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AlertTriangle, ChevronLeft, ChevronRight, LayoutDashboard, MapPin, Menu, PackageSearch, Route, Settings, Truck, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, GitBranch, LayoutDashboard, MapPin, Menu, PackageSearch, Route, Settings, Truck, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +20,7 @@ const navItems: NavItemConfig[] = [
   { href: '/', label: 'Tổng quan', icon: LayoutDashboard },
   { href: '/orders', label: 'Đơn hàng', icon: PackageSearch, requiredPermissions: ['order:read'] },
   { href: '/dispatch', label: 'Điều phối', icon: Route, requiredPermissions: ['dispatch:read', 'dispatch:execute'] },
+  { href: '/operation-flow', label: 'Operation Flow', icon: GitBranch, requiredPermissions: ['order:create', 'dispatch:execute'] },
   { href: '/operations', label: 'Sự cố & COD', icon: AlertTriangle, requiredPermissions: ['sla:read', 'order:read'] },
   { href: '/drivers', label: 'Tài xế', icon: Users, requiredPermissions: ['driver:read', 'vehicle:read'] },
   { href: '/locations', label: 'Điểm lấy hàng', icon: MapPin, requiredPermissions: ['hub:read'] },

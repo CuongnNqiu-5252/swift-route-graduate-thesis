@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { OrderCreatePanel } from '@/components/orders/order-create-panel';
+import { OrderImportAddressQueue, OrderImportPanel } from '@/components/orders/order-import-panel';
 import OrderTrackingMap from '@/components/orders/order-tracking-map';
 import { useOrderLiveTracking } from '@/application/hooks/use-order-live-tracking';
 import { useDrivers } from '@/application/hooks/use-drivers';
@@ -48,6 +49,7 @@ const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
   { label: 'Đang giao', value: 'IN_TRANSIT' },
   { label: 'Đã giao', value: 'DELIVERED' },
   { label: 'Sự cố', value: 'FAILED' },
+  { label: 'Đang hoàn kho', value: 'RETURNING' },
   { label: 'Chuyển hoàn', value: 'RETURNED' },
   { label: 'Đã hủy', value: 'CANCELLED' },
 ];
@@ -58,9 +60,8 @@ const VALID_TAB_STATUSES = new Set<OrderStatus>(
 
 function parseOrderStatusParam(value: string | null): OrderStatus | undefined {
   if (!value) return undefined;
-  const normalized = value.trim().toUpperCase();
-  const mapped = (normalized === 'PAID' ? 'READY_FOR_DISPATCH' : normalized) as OrderStatus;
-  return VALID_TAB_STATUSES.has(mapped) ? mapped : undefined;
+  const normalized = value.trim().toUpperCase() as OrderStatus;
+  return VALID_TAB_STATUSES.has(normalized) ? normalized : undefined;
 }
 
 export default function OrdersPage() {
@@ -80,6 +81,9 @@ function OrdersWorkspace() {
   const activeTab = parseOrderStatusParam(searchParams.get('status'));
   const { drivers } = useDrivers();
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showPendingAddresses, setShowPendingAddresses] = useState(false);
+  const [importRevision, setImportRevision] = useState(0);
   const [selectedId, setSelectedId] = useState('');
   const [query, setQuery] = useState('');
   const [warehouseFilter, setWarehouseFilter] = useState('');
@@ -162,6 +166,7 @@ function OrdersWorkspace() {
   };
 
   const selectTab = (nextStatus?: OrderStatus) => {
+    setShowPendingAddresses(false);
     const params = new URLSearchParams(searchParams.toString());
     if (nextStatus) {
       params.set('status', nextStatus);
@@ -189,12 +194,26 @@ function OrdersWorkspace() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <PermissionGuard permission="order:create">
-            <Button size="sm" onClick={() => setShowCreate((value) => !value)}>
+            <Button size="sm" onClick={() => {
+              setShowImport(false);
+              setShowCreate((value) => !value);
+            }}>
               <Plus size={15} />
               {showCreate ? t("Đóng tạo đơn") : t("Tạo đơn")}
             </Button>
           </PermissionGuard>
-          <Button variant="outline" size="sm" onClick={() => refetch()} isLoading={isLoading}>
+          <PermissionGuard permission="order:create">
+            <Button size="sm" variant="outline" aria-expanded={showImport} onClick={() => {
+              setShowCreate(false);
+              setShowImport((value) => !value);
+            }}>
+              {showImport ? t('Đóng nhập CSV') : t('Nhập CSV')}
+            </Button>
+          </PermissionGuard>
+          <Button variant="outline" size="sm" onClick={() => {
+            setImportRevision((value) => value + 1);
+            void refetch();
+          }} isLoading={isLoading}>
             <RefreshCw size={14} />{" "}{t("Làm mới")}
           </Button>
           <PermissionGuard permission={['dispatch:read', 'dispatch:execute']}>
@@ -216,13 +235,19 @@ function OrdersWorkspace() {
           onClose={() => setShowCreate(false)}
         />
       )}
+      {showImport && hasPermission('order:create') && (
+        <OrderImportPanel onImported={() => {
+          setImportRevision((value) => value + 1);
+          void refetch();
+        }} />
+      )}
 
       {/* Status Tabs with Live Counts */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200">
         {STATUS_TABS.map((tab) => {
-          const isActive = activeTab === tab.value;
+          const isActive = !showPendingAddresses && activeTab === tab.value;
           const count = tab.value
-            ? statusCounts?.[tab.value === 'READY_FOR_DISPATCH' ? 'PAID' : tab.value] ?? (statusCounts ? 0 : '—')
+            ? statusCounts?.[tab.value] ?? (statusCounts ? 0 : '—')
             : allOrders ?? '—';
           return (
             <button
@@ -248,8 +273,25 @@ function OrdersWorkspace() {
             </button>
           );
         })}
+        {hasPermission('order:create') && (
+          <button type="button" aria-pressed={showPendingAddresses}
+            onClick={() => setShowPendingAddresses(true)}
+            className={`inline-flex min-h-10 shrink-0 items-center border-b-2 px-3 py-2 text-xs font-medium sm:text-sm ${
+              showPendingAddresses ? 'border-slate-950 font-semibold text-slate-950'
+                : 'border-transparent text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
+            }`}>
+            {t('Cần bổ sung địa chỉ')}
+          </button>
+        )}
       </div>
 
+      {showPendingAddresses && hasPermission('order:create') ? (
+        <OrderImportAddressQueue revision={importRevision} onCompleted={() => {
+          setImportRevision((value) => value + 1);
+          void refetch();
+        }} />
+      ) : (
+      <>
       {/* Unified Search & Warehouse Filter Toolbar */}
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
@@ -393,6 +435,7 @@ function OrdersWorkspace() {
                 orders={paginatedOrders}
                 isLoading={isLoading}
                 drivers={drivers}
+                showOrderDetails
                 selectedId={selected?.id}
                 onViewRoute={(order) => handleToggleRoute(order.id)}
                 onCancelOrder={hasPermission('order:cancel') ? handleCancelOrder : undefined}
@@ -448,7 +491,7 @@ function OrdersWorkspace() {
                     >
                       <Copy size={13} />
                     </button>
-                    <OrderStatusBadge status={selected.status} fulfillmentStatus={selected.fulfillment_status} />
+                    <OrderStatusBadge status={selected.status} />
                   </div>
                   <p className="mt-0.5 truncate text-xs text-slate-600">
                     {t("Người nhận:")}{" "}<strong className="font-medium text-slate-900">{selected.customer_name || t("Khách nhận hàng")}</strong>
@@ -541,6 +584,8 @@ function OrdersWorkspace() {
             </aside>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );

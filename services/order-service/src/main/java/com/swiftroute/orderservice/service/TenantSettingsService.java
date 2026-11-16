@@ -71,7 +71,14 @@ public class TenantSettingsService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
 
+        TenantDispatchConfig previous = tenant.getDispatchConfig();
         profileRegistry.applyProfile(tenant, type);
+        if (previous != null) {
+            TenantDispatchConfig updated = tenant.getDispatchConfig();
+            updated.setAutoDispatchEnabled(previous.getAutoDispatchEnabled());
+            updated.setScheduledDispatchEnabled(previous.getScheduledDispatchEnabled());
+            updated.setScheduledDispatchTime(previous.getScheduledDispatchTime());
+        }
         Tenant saved = tenantRepository.save(tenant);
         log.info("Applied preset {} to tenantId={}, businessName='{}'", type, tenantId, saved.getBusinessName());
         return TenantSettingsResponse.fromEntity(saved);

@@ -185,8 +185,9 @@ public class ExceptionOperationsService {
                     .build();
             deliveryAttempts.save(attempt);
 
-            order.setStatus(OrderStatus.FAILED);
-            order.setFulfillmentStatus("FAILED");
+            if (order.getStatus() != OrderStatus.RETURNING) {
+                order.setStatus(OrderStatus.FAILED);
+            }
             order.setUpdatedAt(Instant.now());
         }
 
@@ -289,7 +290,6 @@ public class ExceptionOperationsService {
                 if (order != null) {
                     execution.resumeDeliveryAfterIncident(order, order.getAssignedDriverId());
                     order.setStatus(OrderStatus.IN_TRANSIT);
-                    order.setFulfillmentStatus("IN_TRANSIT");
                     order.setUpdatedAt(Instant.now());
                 }
                 incident.setStatus("RESOLVED");
@@ -300,7 +300,6 @@ public class ExceptionOperationsService {
                 if (order != null) {
                     execution.reactivateForRedelivery(order, order.getAssignedDriverId());
                     order.setStatus(OrderStatus.PLANNED);
-                    order.setFulfillmentStatus("PLANNED");
                     order.setUpdatedAt(Instant.now());
                 }
                 incident.setStatus("RESOLVED");
@@ -327,7 +326,6 @@ public class ExceptionOperationsService {
                 if (order != null) {
                     execution.markDeliveryTaskFailed(order, order.getAssignedDriverId());
                     order.setStatus(OrderStatus.FAILED);
-                    order.setFulfillmentStatus("FAILED");
                     order.setUpdatedAt(Instant.now());
                     if (returns.existsByOrder_IdAndStatusIn(order.getId(), ACTIVE_RETURN_STATUSES)) {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
@@ -537,8 +535,7 @@ public class ExceptionOperationsService {
         returnReq.setCurrentHolderId(driverId);
         returnReq.setStatus("IN_EXECUTION");
 
-        order.setStatus(OrderStatus.FAILED);
-        order.setFulfillmentStatus("RETURNING");
+        order.setStatus(OrderStatus.RETURNING);
         order.setUpdatedAt(Instant.now());
         execution.completeDeliveryPlanIfFinished(order);
 
@@ -667,7 +664,6 @@ public class ExceptionOperationsService {
         }
 
         order.setStatus(OrderStatus.RETURNED);
-        order.setFulfillmentStatus("RETURNED");
         order.setUpdatedAt(Instant.now());
         execution.completeDeliveryPlanIfFinished(order);
 

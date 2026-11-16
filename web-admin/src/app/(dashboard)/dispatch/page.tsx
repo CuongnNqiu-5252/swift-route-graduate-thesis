@@ -148,7 +148,7 @@ export default function DispatchPage() {
   }, [orders, trackedDriver]);
 
   const returningOrderCount = trackedDriver ? orders.filter((order) =>
-    order.status === 'FAILED' && order.fulfillment_status === 'RETURNING'
+    order.status === 'RETURNING'
     && (order.assigned_driver_id === trackedDriver.id || order.assigned_driver_id === trackedDriver.user_id),
   ).length : 0;
 

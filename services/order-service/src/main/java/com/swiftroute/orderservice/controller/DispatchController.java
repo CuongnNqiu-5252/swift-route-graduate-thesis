@@ -291,6 +291,9 @@ public class DispatchController {
                 plan.getCancelReason(),
                 plan.getAckDeadlineAt(),
                 plan.getAcknowledgedAt(),
+                plan.getDeclinedAt(),
+                plan.getDeclineReason(),
+                plan.getReassignmentCount(),
                 plan.getRouteWaypoints(),
                 plan.getCreatedAt());
     }

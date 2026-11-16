@@ -176,6 +176,17 @@ public class TenantPermissionRegistry {
             return Set.of("dispatch:execute", "order:update");
         }
 
+        if (path.startsWith("/api/orders/operation-flow/drafts/")) {
+            return Set.of(path.endsWith("/planning") ? "dispatch:execute" : "order:create");
+        }
+
+        if (path.equals("/api/orders/import")
+                || path.equals("/api/orders/import/pending")
+                || path.equals("/api/orders/import/pending/complete")
+                || path.equals("/api/orders/import/pending/cancel")) {
+            return Set.of("order:create");
+        }
+
         // 4. Orders
         if (path.startsWith("/api/orders")) {
             if ("GET".equals(m)) {

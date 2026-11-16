@@ -232,14 +232,13 @@ public class OrderService {
                 .deliveryFee(deliveryFee)
                 .payer(payer)
                 .totalAmount(totalAmount)
-                .status(OrderStatus.PAID) // Sẵn sàng để điều phối lộ trình
-                .fulfillmentStatus("READY_FOR_PLANNING")
+                .status(OrderStatus.READY_FOR_DISPATCH) // Sẵn sàng để điều phối lộ trình
                 .paymentStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "PAID")
                 .codStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "NOT_APPLICABLE")
                 .build();
 
         Order saved = orderRepository.saveAndFlush(order);
-        emitOrderStatusEvent(saved, null, OrderStatus.PAID);
+        emitOrderStatusEvent(saved, null, OrderStatus.READY_FOR_DISPATCH);
         log.info("Waybill created: orderId={}, tenantId={}, trackingToken={}, recipient={}, codAmount={}",
                 saved.getId(), tenantIdFromHeader, trackingToken, request.recipientName(), codAmount);
 
@@ -300,19 +299,23 @@ public class OrderService {
     public OperationsQueueResponse getOperationsQueue(UUID tenantId, UUID requesterId, String requesterRole) {
         assertTenantOperationsAccess(tenantId, requesterId, requesterRole);
 
-        // Cancelled orders are terminal and separated in Orders; only FAILED orders require intervention.
+        // Cancelled orders are terminal and separated in Orders; FAILED and RETURNING orders require intervention.
         List<Order> orders = orderRepository.findAllByTenantIdAndStatusInOrderByUpdatedAtDesc(
                 tenantId,
-                List.of(OrderStatus.PAID, OrderStatus.PLANNED, OrderStatus.IN_TRANSIT, OrderStatus.FAILED));
+                List.of(OrderStatus.READY_FOR_DISPATCH, OrderStatus.PLANNED, OrderStatus.IN_TRANSIT,
+                        OrderStatus.FAILED, OrderStatus.RETURNING));
 
         return new OperationsQueueResponse(
-                orders.stream().filter(order -> order.getStatus() == OrderStatus.PAID).map(OrderResponse::fromEntity)
+                orders.stream().filter(order -> order.getStatus() == OrderStatus.READY_FOR_DISPATCH)
+                        .map(OrderResponse::fromEntity)
                         .toList(),
                 orders.stream()
                         .filter(order -> order.getStatus() == OrderStatus.PLANNED
                                 || order.getStatus() == OrderStatus.IN_TRANSIT)
                         .map(OrderResponse::fromEntity).toList(),
-                orders.stream().filter(order -> order.getStatus() == OrderStatus.FAILED)
+                orders.stream()
+                        .filter(order -> order.getStatus() == OrderStatus.FAILED
+                                || order.getStatus() == OrderStatus.RETURNING)
                         .map(OrderResponse::fromEntity).toList());
     }
 
@@ -511,13 +514,13 @@ public class OrderService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
+        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED
+                || order.getStatus() == OrderStatus.RETURNED) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
         OrderStatus previous = order.getStatus();
         order.setStatus(OrderStatus.FAILED);
-        order.setFulfillmentStatus("FAILED");
 
         String incidentNote = String.format("[SỰ CỐ %s]: %s (Báo cáo bởi: %s)",
                 request.incidentType(), request.notes(), requesterId);
@@ -540,7 +543,8 @@ public class OrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
 
-        if (order.getStatus() == OrderStatus.IN_TRANSIT || order.getStatus() == OrderStatus.DELIVERED) {
+        if (order.getStatus() == OrderStatus.IN_TRANSIT || order.getStatus() == OrderStatus.DELIVERED
+                || order.getStatus() == OrderStatus.RETURNING || order.getStatus() == OrderStatus.RETURNED) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
@@ -553,7 +557,6 @@ public class OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         order.setStatus(OrderStatus.CANCELLED);
-        order.setFulfillmentStatus("CANCELLED");
         String cancelNote = "[HUỶ ĐƠN]: "
                 + (request != null && request.reason() != null ? request.reason() : "Khách hàng huỷ đơn");
         order.setNotes(cancelNote);

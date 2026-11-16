@@ -65,6 +65,9 @@ export interface DispatchPlanRecord {
   dispatched_at?: string | null;
   cancelled_at?: string | null;
   cancel_reason?: string | null;
+  declined_at?: string | null;
+  decline_reason?: string | null;
+  reassignment_count?: number | null;
   ack_deadline_at?: string | null;
   acknowledged_at?: string | null;
   route_waypoints?: string | null;

@@ -144,7 +144,6 @@ public class DeliveryExecutionService {
         task.setUpdatedAt(Instant.now());
         order.setAssignedDriverId(driverId);
         order.setStatus(OrderStatus.PLANNED);
-        order.setFulfillmentStatus("PLANNED");
         order.setUpdatedAt(Instant.now());
         return tasks.save(task);
     }
@@ -349,14 +348,16 @@ public class DeliveryExecutionService {
             UpdateDeliveryTaskRequest request) {
         if ("RETURN".equals(task.getTaskType())) {
             if (request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
-                order.setFulfillmentStatus("RETURNING");
+                order.setStatus(OrderStatus.RETURNING);
             }
             if (request.status() == DeliveryTaskStatus.COMPLETED) {
                 ReturnRequest returnRequest = returnRequests.findByReturnTask_Id(task.getId())
                         .orElseThrow(() -> new AppException(ErrorCode.INVALID_ORDER_STATUS));
                 returnRequest.setStatus("AWAITING_RECEIPT");
                 returnRequest.setUpdatedAt(Instant.now());
-                order.setFulfillmentStatus("RETURNING");
+                if (order.getStatus() != OrderStatus.RETURNED) {
+                    order.setStatus(OrderStatus.RETURNING);
+                }
             }
             if (request.status() == DeliveryTaskStatus.FAILED) {
                 returnRequests.findByReturnTask_Id(task.getId()).ifPresent(returnRequest -> {
@@ -364,6 +365,7 @@ public class DeliveryExecutionService {
                     returnRequest.setUpdatedAt(Instant.now());
                 });
             }
+            order.setUpdatedAt(Instant.now());
             return;
         }
 
@@ -376,22 +378,18 @@ public class DeliveryExecutionService {
         if (request.status() == DeliveryTaskStatus.ACCEPTED
                 || request.status() == DeliveryTaskStatus.ARRIVED
                 || request.status() == DeliveryTaskStatus.PICKED_UP) {
-            if (order.getStatus() == OrderStatus.PAID) {
+            if (order.getStatus() == OrderStatus.READY_FOR_DISPATCH) {
                 order.setStatus(OrderStatus.PLANNED);
-                order.setFulfillmentStatus("PLANNED");
             }
         }
         if (request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
             order.setStatus(OrderStatus.IN_TRANSIT);
-            order.setFulfillmentStatus("IN_TRANSIT");
         }
         if (request.status() == DeliveryTaskStatus.COMPLETED) {
             order.setStatus(OrderStatus.DELIVERED);
-            order.setFulfillmentStatus("DELIVERED");
         }
         if (request.status() == DeliveryTaskStatus.FAILED) {
             order.setStatus(OrderStatus.FAILED);
-            order.setFulfillmentStatus("FAILED");
         }
         order.setUpdatedAt(Instant.now());
     }

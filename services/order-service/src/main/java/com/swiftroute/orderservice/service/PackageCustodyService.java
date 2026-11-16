@@ -16,6 +16,7 @@ import com.swiftroute.orderservice.dto.response.PackageHandoverResponse;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.PackageCustodyEvent;
 import com.swiftroute.orderservice.entity.PackageHandover;
+import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.OrderRepository;
@@ -75,7 +76,7 @@ public class PackageCustodyService {
     public void requireReturnCustody(Order order, UUID driverId) {
         requireHeldOrder(order, driverId);
         requireNoActiveHandover(order);
-        if (!"RETURNING".equals(order.getFulfillmentStatus())) {
+        if (order.getStatus() != OrderStatus.RETURNING) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
     }
@@ -167,7 +168,7 @@ public class PackageCustodyService {
         Order order = orders.findForUpdate(handover.getOrder().getId())
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         requireHeldOrder(order, handover.getFromDriverId());
-        String taskType = "RETURNING".equals(order.getFulfillmentStatus()) ? "RETURN" : "DELIVERY";
+        String taskType = order.getStatus() == OrderStatus.RETURNING ? "RETURN" : "DELIVERY";
         dispatchOrchestration.getObject().synchronizePackageTransfer(order, handover.getFromDriverId(), driverId, taskType);
         returns.findAllByOrder_IdAndCurrentHolderIdAndStatusIn(order.getId(), handover.getFromDriverId(),
                 List.of("REQUESTED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT",

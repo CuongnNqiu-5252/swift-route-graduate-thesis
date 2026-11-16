@@ -3,24 +3,28 @@
 import 'package:swiftroute_app/core/utils/formatters.dart';
 
 enum OrderStatus {
-  paid,
+  readyForDispatch,
   planned,
   inTransit,
   delivered,
+  returning,
   returned,
   failed,
   cancelled;
 
   static OrderStatus fromString(String? value) {
     switch (value?.toUpperCase()) {
+      case 'READY_FOR_DISPATCH':
       case 'PAID':
-        return OrderStatus.paid;
+        return OrderStatus.readyForDispatch;
       case 'PLANNED':
         return OrderStatus.planned;
       case 'IN_TRANSIT':
         return OrderStatus.inTransit;
       case 'DELIVERED':
         return OrderStatus.delivered;
+      case 'RETURNING':
+        return OrderStatus.returning;
       case 'RETURNED':
         return OrderStatus.returned;
       case 'FAILED':
@@ -28,20 +32,22 @@ enum OrderStatus {
       case 'CANCELLED':
         return OrderStatus.cancelled;
       default:
-        return OrderStatus.paid;
+        return OrderStatus.readyForDispatch;
     }
   }
 
   String toServerString() {
     switch (this) {
-      case OrderStatus.paid:
-        return 'PAID';
+      case OrderStatus.readyForDispatch:
+        return 'READY_FOR_DISPATCH';
       case OrderStatus.planned:
         return 'PLANNED';
       case OrderStatus.inTransit:
         return 'IN_TRANSIT';
       case OrderStatus.delivered:
         return 'DELIVERED';
+      case OrderStatus.returning:
+        return 'RETURNING';
       case OrderStatus.returned:
         return 'RETURNED';
       case OrderStatus.failed:
@@ -53,7 +59,7 @@ enum OrderStatus {
 
   String get displayName {
     switch (this) {
-      case OrderStatus.paid:
+      case OrderStatus.readyForDispatch:
         return 'Đang tìm tài xế';
       case OrderStatus.planned:
         return 'Đã phân công';
@@ -61,6 +67,8 @@ enum OrderStatus {
         return 'Đang giao hàng';
       case OrderStatus.delivered:
         return 'Đã giao';
+      case OrderStatus.returning:
+        return 'Đang hoàn kho';
       case OrderStatus.returned:
         return 'Đã hoàn kho';
       case OrderStatus.failed:

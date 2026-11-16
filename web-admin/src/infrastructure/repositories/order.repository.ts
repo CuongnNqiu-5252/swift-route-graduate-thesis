@@ -81,14 +81,6 @@ export function toCreateOrderRequest(payload: CreateOrderPayload): CreateOrderRe
   };
 }
 
-function fromApiOrderStatus(status: unknown): OrderStatus {
-  return status === 'PAID' ? 'READY_FOR_DISPATCH' : status as OrderStatus;
-}
-
-function toApiOrderStatus(status: OrderStatus): string {
-  return status === 'READY_FOR_DISPATCH' ? 'PAID' : status;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapOrder(raw: any): Order {
   const rawId = raw.orderId || raw.order_id || raw.id || '';
@@ -99,6 +91,9 @@ function mapOrder(raw: any): Order {
     tenant_name: raw.tenantName || raw.tenant_name,
     customer_id: raw.customerId || raw.customer_id || '',
     customer_name: raw.recipientName || raw.customer_name,
+    sender_name: raw.senderName ?? raw.sender_name,
+    sender_phone: raw.senderPhone ?? raw.sender_phone,
+    recipient_phone: raw.recipientPhone ?? raw.recipient_phone,
     pickup_location_id: raw.pickupLocationId || raw.pickup_location_id,
     pickup_location_name: raw.pickupLocationName || raw.pickup_location_name,
     pickup_address: raw.pickupAddress || raw.pickup_address || '',
@@ -109,21 +104,31 @@ function mapOrder(raw: any): Order {
     delivery_lng: raw.deliveryLng ?? raw.delivery_lng ?? 0,
     package_category: raw.packageCategory || raw.package_category || 'PARCEL',
     weight_kg: raw.weightKg ?? raw.weight_kg ?? 0,
-    status: fromApiOrderStatus(raw.status),
-    fulfillment_status: raw.fulfillmentStatus ?? raw.fulfillment_status,
+    status: raw.status as OrderStatus,
     notes: raw.notes || raw.note || undefined,
     time_window_start: raw.timeWindowStart || raw.time_window_start,
     time_window_end: raw.timeWindowEnd || raw.time_window_end,
     assigned_driver_id: raw.assignedDriverId || raw.assigned_driver_id,
     assigned_driver_name: raw.assignedDriverName || raw.assigned_driver_name,
     cod_amount: Number(raw.codAmount ?? raw.cod_amount ?? 0),
-    payment_status: raw.paymentStatus || raw.payment_status || 'PAID',
+    cod_status: raw.codStatus ?? raw.cod_status,
+    cod_collected_at: raw.codCollectedAt ?? raw.cod_collected_at,
+    declared_value: raw.declaredValue ?? raw.declared_value,
+    delivery_fee: raw.deliveryFee ?? raw.delivery_fee,
+    total_amount: raw.totalAmount ?? raw.total_amount,
+    payer: raw.payer,
+    payment_status: raw.paymentStatus || raw.payment_status || 'COD_PENDING',
     created_at: raw.createdAt || raw.created_at || '',
     updated_at: raw.updatedAt || raw.updated_at || '',
   };
 }
 
 export const orderRepository = {
+  async getOrder(orderId: string, signal: AbortSignal): Promise<Order> {
+    const { data } = await api.get<unknown>(`/orders/${encodeURIComponent(orderId)}`, { signal });
+    return mapOrder(data);
+  },
+
   async createOrder(payload: CreateOrderPayload): Promise<Order> {
     return mapOrder((await api.post<unknown>('/orders', toCreateOrderRequest(payload))).data);
   },
@@ -150,7 +155,7 @@ export const orderRepository = {
 
   async getOrderPage(filters: OrderPageFilters, signal?: AbortSignal): Promise<OrderListPage> {
     const params = new URLSearchParams({ page: String(filters.page), size: String(filters.size) });
-    if (filters.status) params.set('status', toApiOrderStatus(filters.status));
+    if (filters.status) params.set('status', filters.status);
     if (filters.pickupLocationId) params.set('pickupLocationId', filters.pickupLocationId);
     if (filters.query) params.set('query', filters.query);
     if (filters.driverIds?.length) params.set('driverIds', filters.driverIds.join(','));
@@ -162,7 +167,7 @@ export const orderRepository = {
 
   async getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     const params = new URLSearchParams();
-    if (filters.status) params.set('status', toApiOrderStatus(filters.status));
+    if (filters.status) params.set('status', filters.status);
     if (filters.page !== undefined) params.set('page', String(filters.page));
     if (filters.size !== undefined) params.set('size', String(filters.size));
 

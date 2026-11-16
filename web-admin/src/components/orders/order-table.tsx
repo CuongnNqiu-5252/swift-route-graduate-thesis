@@ -18,6 +18,7 @@ import { formatVNDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { OrderStatusBadge } from './order-status-badge';
 import { OrderPaginationBar } from './order-pagination-bar';
+import { OrderDetailModal } from './order-detail-modal';
 
 interface OrderTablePaginationProps {
   page: number;
@@ -39,6 +40,7 @@ interface OrderTableProps {
   drivers?: Driver[];
   selectedId?: string;
   onViewRoute?: (order: Order) => void;
+  showOrderDetails?: boolean;
   sortBy?: OrderSortField;
   sortDir?: OrderSortDirection;
   onSortChange?: (sortBy: OrderSortField, sortDir: OrderSortDirection) => void;
@@ -65,6 +67,7 @@ export function OrderTable({
   drivers = [],
   selectedId,
   onViewRoute,
+  showOrderDetails,
   sortBy = 'created_at',
   sortDir = 'desc',
   onSortChange,
@@ -150,9 +153,13 @@ export function OrderTable({
           const shortCode = formatShortOrderCode(order.order_code, order.id);
           return (
             <div className="whitespace-nowrap">
-              <div className="font-mono text-sm font-semibold text-slate-900" title={`Mã đầy đủ: ${order.order_code}`}>
-                {shortCode}
-              </div>
+              {showOrderDetails ? (
+                <OrderDetailModal orderId={order.id} orderCode={order.order_code} shortCode={shortCode} />
+              ) : (
+                <div className="font-mono text-sm font-semibold text-slate-900" title={order.order_code}>
+                  {shortCode}
+                </div>
+              )}
               <div className="mt-0.5 text-xs tabular-nums text-slate-500">
                 {formatVNDate(order.created_at)}
               </div>
@@ -212,7 +219,7 @@ export function OrderTable({
           const order = info.row.original;
           return (
             <div className="whitespace-nowrap">
-              <OrderStatusBadge status={order.status} fulfillmentStatus={order.fulfillment_status} />
+              <OrderStatusBadge status={order.status} />
             </div>
           );
         },
@@ -319,6 +326,7 @@ export function OrderTable({
     selectable,
     selectedId,
     selectedIds,
+    showOrderDetails,
     sortBy,
     sortDir,
     t,
@@ -328,6 +336,7 @@ export function OrderTable({
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: orders,
+    getRowId: (order) => order.id,
     columns,
     getCoreRowModel: getCoreRowModel(),
     manualSorting: true,

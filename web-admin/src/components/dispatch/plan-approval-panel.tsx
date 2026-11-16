@@ -255,6 +255,22 @@ export function PlanApprovalPanel({
                         status={plan.plan_status}
                         acknowledgedAt={plan.acknowledged_at}
                       />
+                      {plan.declined_at && (
+                        <div className="mt-1 max-w-56 space-y-0.5 text-xs text-slate-600">
+                          <p className="font-medium text-rose-700">{t('Tài xế từ chối tuyến')}</p>
+                          <time dateTime={plan.declined_at}>
+                            {new Date(plan.declined_at).toLocaleString(intlLocale, {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                              timeZone: 'Asia/Ho_Chi_Minh',
+                            })}
+                          </time>
+                          {plan.decline_reason && <p className="break-words">{plan.decline_reason}</p>}
+                        </div>
+                      )}
+                      {Boolean(plan.reassignment_count) && (
+                        <p className="mt-1 text-xs text-slate-600">{t('Số lần gán lại')} · {plan.reassignment_count}</p>
+                      )}
                     </td>
 
                     <td className="px-4 py-3 text-xs text-gray-700">

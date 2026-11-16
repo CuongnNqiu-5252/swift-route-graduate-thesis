@@ -66,7 +66,7 @@ public class PlanningEligibilityEvaluator {
         }
 
         List<Order> pendingOrders = orderRepository.findAllByTenantIdAndStatus(
-                tenant.getId(), OrderStatus.PAID);
+                tenant.getId(), OrderStatus.READY_FOR_DISPATCH);
 
         if (pendingOrders.isEmpty()) {
             return Optional.empty();
@@ -109,7 +109,7 @@ public class PlanningEligibilityEvaluator {
     }
 
     /**
-     * Retrieves PAID orders that are eligible for inclusion in a planning batch.
+     * Retrieves READY_FOR_DISPATCH orders that are eligible for inclusion in a planning batch.
      * Overdue/delayed orders are preserved so they can still be dispatched.
      *
      * @param tenantId the tenant UUID
@@ -117,7 +117,7 @@ public class PlanningEligibilityEvaluator {
      * @return list of eligible orders, ordered by priority then creation time
      */
     public List<Order> getEligibleOrders(UUID tenantId, Instant now) {
-        return orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.PAID)
+        return orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.READY_FOR_DISPATCH)
                 .stream()
                 .sorted((a, b) -> {
                     // URGENT first, then HIGH, then NORMAL; within same priority sort by creation

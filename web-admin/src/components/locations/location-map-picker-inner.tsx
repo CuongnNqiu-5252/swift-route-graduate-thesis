@@ -6,6 +6,7 @@ import axios from 'axios';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   AttributionControl,
+  type GeoJSONSource,
   Map as MapLibreMap,
   Marker as MapLibreMarker,
   NavigationControl,
@@ -13,6 +14,11 @@ import {
 } from 'maplibre-gl';
 import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import {
+  createCircleFeatureCollection,
+  getCircleBounds,
+} from '@/components/settings/delivery-zone-geometry';
+import type { TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
 import api from '@/lib/api';
 
 if (typeof window !== 'undefined') {
@@ -25,6 +31,20 @@ export interface LocationMapPickerProps {
   address?: string;
   onChange: (lat: number, lng: number, address?: string) => void;
   onResolvingChange?: (resolving: boolean) => void;
+  deliveryZone?: TenantDeliveryZone | null;
+  zoneStatus?: 'inside' | 'warn' | 'blocked' | null;
+  hasSelection?: boolean;
+}
+
+const ZONE_CIRCLE_SOURCE_ID = 'picker-delivery-zone-circle';
+const ZONE_CIRCLE_FILL_LAYER_ID = 'picker-delivery-zone-circle-fill';
+const ZONE_CIRCLE_LINE_LAYER_ID = 'picker-delivery-zone-circle-line';
+
+function markerColorForZoneStatus(zoneStatus?: 'inside' | 'warn' | 'blocked' | null): string {
+  if (zoneStatus === 'inside') return '#15803d';
+  if (zoneStatus === 'warn') return '#d97706';
+  if (zoneStatus === 'blocked') return '#dc2626';
+  return '#2563eb';
 }
 
 interface Prediction {
@@ -46,12 +66,25 @@ function createMarkerElement() {
   return element;
 }
 
-export default function LocationMapPickerInner({ lat, lng, address, onChange, onResolvingChange }: LocationMapPickerProps) {
+export default function LocationMapPickerInner({
+  lat,
+  lng,
+  address,
+  onChange,
+  onResolvingChange,
+  deliveryZone,
+  zoneStatus,
+  hasSelection,
+}: LocationMapPickerProps) {
   const { t } = useLocale();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const selectedMarker = useRef<MapLibreMarker | null>(null);
+  const mapLoadedRef = useRef(false);
+  const zoneFittedRef = useRef(false);
   const latestCoordinates = useRef({ lat, lng });
+  const deliveryZoneRef = useRef(deliveryZone);
+  const hasSelectionRef = useRef(hasSelection);
   const onChangeRef = useRef(onChange);
   const onResolvingChangeRef = useRef(onResolvingChange);
   const [query, setQuery] = useState(address ?? '');
@@ -71,12 +104,104 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
   }, [onChange, onResolvingChange]);
 
   useEffect(() => {
+    hasSelectionRef.current = hasSelection;
+  }, [hasSelection]);
+
+  const syncZoneOverlay = useCallback((zone: TenantDeliveryZone | null | undefined) => {
+    const instance = map.current;
+    if (!instance || !mapLoadedRef.current) return;
+
+    const hasActiveZone = Boolean(
+      zone?.configured &&
+        zone.is_active &&
+        zone.center_lat !== null &&
+        zone.center_lng !== null &&
+        zone.radius_km !== null,
+    );
+
+    if (!hasActiveZone || !zone || zone.center_lat === null || zone.center_lng === null || zone.radius_km === null) {
+      if (instance.getLayer(ZONE_CIRCLE_FILL_LAYER_ID)) {
+        instance.setLayoutProperty(ZONE_CIRCLE_FILL_LAYER_ID, 'visibility', 'none');
+      }
+      if (instance.getLayer(ZONE_CIRCLE_LINE_LAYER_ID)) {
+        instance.setLayoutProperty(ZONE_CIRCLE_LINE_LAYER_ID, 'visibility', 'none');
+      }
+      return;
+    }
+
+    const circleData = createCircleFeatureCollection(zone.center_lat, zone.center_lng, zone.radius_km);
+    const zoneColor = zone.enforcement_mode === 'STRICT_BLOCK' ? '#17766c' : '#d97706';
+
+    const existingSource = instance.getSource(ZONE_CIRCLE_SOURCE_ID) as GeoJSONSource | undefined;
+    if (existingSource) {
+      existingSource.setData(circleData);
+    } else {
+      instance.addSource(ZONE_CIRCLE_SOURCE_ID, {
+        type: 'geojson',
+        data: circleData,
+      });
+      instance.addLayer({
+        id: ZONE_CIRCLE_FILL_LAYER_ID,
+        type: 'fill',
+        source: ZONE_CIRCLE_SOURCE_ID,
+        paint: {
+          'fill-color': zoneColor,
+          'fill-opacity': 0.12,
+        },
+      });
+      instance.addLayer({
+        id: ZONE_CIRCLE_LINE_LAYER_ID,
+        type: 'line',
+        source: ZONE_CIRCLE_SOURCE_ID,
+        paint: {
+          'line-color': zoneColor,
+          'line-width': 2,
+          'line-dasharray': [2, 2],
+        },
+      });
+    }
+
+    if (instance.getLayer(ZONE_CIRCLE_FILL_LAYER_ID)) {
+      instance.setPaintProperty(ZONE_CIRCLE_FILL_LAYER_ID, 'fill-color', zoneColor);
+      instance.setLayoutProperty(ZONE_CIRCLE_FILL_LAYER_ID, 'visibility', 'visible');
+    }
+    if (instance.getLayer(ZONE_CIRCLE_LINE_LAYER_ID)) {
+      instance.setPaintProperty(ZONE_CIRCLE_LINE_LAYER_ID, 'line-color', zoneColor);
+      instance.setLayoutProperty(ZONE_CIRCLE_LINE_LAYER_ID, 'visibility', 'visible');
+    }
+
+    if (!zoneFittedRef.current && hasSelectionRef.current === false) {
+      const bounds = getCircleBounds(zone.center_lat, zone.center_lng, zone.radius_km);
+      instance.fitBounds(bounds, { padding: 40, maxZoom: 14, duration: 0 });
+      zoneFittedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    deliveryZoneRef.current = deliveryZone;
+    syncZoneOverlay(deliveryZone);
+  }, [deliveryZone, syncZoneOverlay]);
+
+  useEffect(() => {
+    const markerElement = selectedMarker.current?.getElement();
+    if (markerElement) {
+      markerElement.style.background = markerColorForZoneStatus(zoneStatus);
+    }
+  }, [zoneStatus]);
+
+  useEffect(() => {
     latestCoordinates.current = { lat, lng };
     selectedMarker.current?.setLngLat([lng, lat]);
     if (map.current && map.current.loaded()) {
-      map.current.easeTo({ center: [lng, lat], zoom: Math.max(map.current.getZoom(), 15), duration: 500 });
+      if (hasSelection === false && deliveryZoneRef.current?.configured && deliveryZoneRef.current.is_active) {
+        if (!zoneFittedRef.current) {
+          map.current.setCenter([lng, lat]);
+        }
+      } else {
+        map.current.easeTo({ center: [lng, lat], zoom: Math.max(map.current.getZoom(), 15), duration: 500 });
+      }
     }
-  }, [lat, lng]);
+  }, [hasSelection, lat, lng]);
 
   const resolveCoordinates = useCallback(async (nextLat: number, nextLng: number) => {
     setPredictions([]);
@@ -119,7 +244,11 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
     instance.addControl(new NavigationControl({ showCompass: false }), 'top-left');
     instance.addControl(new AttributionControl({ compact: true, customAttribution: '© Goong' }), 'bottom-right');
     instance.on('click', ({ lngLat }) => void resolveCoordinates(lngLat.lat, lngLat.lng));
-    instance.on('load', () => setMapError(null));
+    instance.on('load', () => {
+      mapLoadedRef.current = true;
+      setMapError(null);
+      syncZoneOverlay(deliveryZoneRef.current);
+    });
     instance.on('error', () => setMapError('Không tải được nền bản đồ Goong. Hãy kiểm tra Map Key hoặc kết nối mạng.'));
     marker.on('dragend', () => {
       const point = marker.getLngLat();
@@ -132,13 +261,15 @@ export default function LocationMapPickerInner({ lat, lng, address, onChange, on
     resize.observe(mapContainer.current);
 
     return () => {
+      mapLoadedRef.current = false;
+      zoneFittedRef.current = false;
       resize.disconnect();
       marker.remove();
       instance.remove();
       selectedMarker.current = null;
       map.current = null;
     };
-  }, [mapKey, resolveCoordinates]);
+  }, [mapKey, resolveCoordinates, syncZoneOverlay]);
 
   useEffect(() => {
     if (!searchEnabled || query.trim().length < 3) return;

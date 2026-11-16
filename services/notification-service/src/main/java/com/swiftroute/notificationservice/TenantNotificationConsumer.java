@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -24,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @Slf4j
 public class TenantNotificationConsumer {
+    static final String IMPORT_COMPLETED = "tenant.operation_flow_import_completed.v1";
     private static final Set<String> SENSITIVE_AUTH_EVENTS = Set.of(
             "user.email_verification.v1",
             "user.password_reset_requested.v1",
@@ -53,11 +56,15 @@ public class TenantNotificationConsumer {
         }
         if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "user.password_reset_requested.v1", "tenant.created.v1",
                 "tenant.verification_submitted.v1", "tenant.verification_changes_requested.v1", "tenant.approved.v1",
-                "tenant.rejected.v1", "tenant.suspended.v1").contains(type)) {
+                "tenant.rejected.v1", "tenant.suspended.v1", IMPORT_COMPLETED).contains(type)) {
             return;
         }
 
         UUID eventId = UUID.fromString(p.path("eventId").asText(p.path("event_id").asText()));
+        if (IMPORT_COMPLETED.equals(type) && !p.hasNonNull("tenantId")) {
+            log.warn("Ignoring Operation Flow import completion without a tenant: {}", eventId);
+            return;
+        }
         if (jdbc.update(
                 "INSERT INTO processed_events(event_id, consumer_name) VALUES (?, 'tenant-notifications') ON CONFLICT DO NOTHING",
                 eventId) == 0) {
@@ -75,6 +82,7 @@ public class TenantNotificationConsumer {
             case "tenant.approved.v1" -> "Hồ sơ doanh nghiệp đã được phê duyệt";
             case "tenant.rejected.v1" -> "Hồ sơ doanh nghiệp đã bị từ chối";
             case "tenant.suspended.v1" -> "Doanh nghiệp đã bị tạm ngưng hoạt động";
+            case IMPORT_COMPLETED -> "Đã chạy nhập vận đơn tự động";
             default -> "Cập nhật workspace SwiftRoute";
         };
 
@@ -91,6 +99,9 @@ public class TenantNotificationConsumer {
                 "Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản " + p.path("email").asText()
                 + ".\nLiên kết có hiệu lực trong 15 phút: " + p.path("verificationUrl").asText()
                 + "\nNếu bạn không yêu cầu, hãy bỏ qua email này.";
+            case IMPORT_COMPLETED -> "Đã tạo %d vận đơn. Cần bổ sung địa chỉ: %d. Trùng mã: %d. Dòng lỗi: %d."
+                .formatted(p.path("created").asInt(), p.path("needsAddress").asInt(),
+                    p.path("duplicates").asInt(), p.path("invalid").asInt());
             default -> "Trạng thái: " + type + (p.hasNonNull("reason") ? " - Lý do: " + p.path("reason").asText() : "");
         };
 
@@ -122,6 +133,18 @@ public class TenantNotificationConsumer {
             alertDto.put("severity", "LOW");
             alertDto.put("template_code", type);
             alertDto.put("created_at", Instant.now().toString());
+            if (IMPORT_COMPLETED.equals(type)) {
+                alertDto.put("action_url", OperationalAlertConsumer.resolveActionUrl(type, null, null, null));
+                if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            sseService.broadcast(tenant, "operational-alert", alertDto);
+                        }
+                    });
+                    return;
+                }
+            }
             sseService.broadcast(tenant, "operational-alert", alertDto);
         }
     }

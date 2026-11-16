@@ -26,7 +26,7 @@ public class TenantDispatchConfig {
 
     /**
      * Whether automated dispatch evaluation is active for this tenant.
-     * When false, orders remain in PAID state until manually optimized via Web
+     * When false, orders remain in READY_FOR_DISPATCH state until manually optimized via Web
      * Admin.
      */
     @JsonProperty("auto_dispatch_enabled")

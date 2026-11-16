@@ -125,11 +125,7 @@ public class Order {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     @Builder.Default
-    private OrderStatus status = OrderStatus.PAID;
-
-    @Column(name = "fulfillment_status", length = 30)
-    @Builder.Default
-    private String fulfillmentStatus = "READY_FOR_PLANNING";
+    private OrderStatus status = OrderStatus.READY_FOR_DISPATCH;
 
     @Column(name = "payment_status", length = 30)
     @Builder.Default

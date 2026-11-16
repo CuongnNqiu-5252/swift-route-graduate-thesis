@@ -29,6 +29,9 @@ public record DispatchPlanResponse(
         @JsonProperty("cancel_reason") String cancelReason,
         @JsonProperty("ack_deadline_at") Instant ackDeadlineAt,
         @JsonProperty("acknowledged_at") Instant acknowledgedAt,
+        @JsonProperty("declined_at") Instant declinedAt,
+        @JsonProperty("decline_reason") String declineReason,
+        @JsonProperty("reassignment_count") Short reassignmentCount,
         @JsonProperty("route_waypoints") String routeWaypoints,
         @JsonProperty("created_at") Instant createdAt
 ) {}

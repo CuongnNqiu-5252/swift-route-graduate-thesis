@@ -2,12 +2,14 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { FormEvent, useEffect, useState } from 'react';
-import { Banknote, CheckCircle2, MapPin } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Banknote, CheckCircle2, Loader2, MapPin, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import LocationMapPicker from '@/components/locations/location-map-picker';
+import type { DeliveryZoneCheckResult, TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
 import { PickupLocation } from '@/domain/entities/pickup-location.entity';
+import { deliveryZoneRepository } from '@/infrastructure/repositories/delivery-zone.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 
@@ -72,18 +74,91 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
   const [busy, setBusy] = useState(false);
   const [resolvingAddress, setResolvingAddress] = useState(false);
   const [locationSelected, setLocationSelected] = useState(false);
+  const [deliveryZone, setDeliveryZone] = useState<TenantDeliveryZone | null>(null);
+  const [zoneCheck, setZoneCheck] = useState<DeliveryZoneCheckResult | null>(null);
+  const [checkingZone, setCheckingZone] = useState(false);
+  const [zoneCheckError, setZoneCheckError] = useState<string | null>(null);
+
+  const locationSelectedRef = useRef(false);
+  const lastCheckedCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const zoneCheckSeqRef = useRef(0);
 
   const parsedCodAmount = hasCod && codThousands ? Number(codThousands) * 1000 : 0;
 
+  async function verifyDeliveryZone(
+    nextLat: number,
+    nextLng: number,
+    zone: TenantDeliveryZone | null,
+  ) {
+    if (!zone?.configured || !zone.is_active) {
+      setZoneCheck(null);
+      setZoneCheckError(null);
+      setCheckingZone(false);
+      return;
+    }
+
+    const seq = ++zoneCheckSeqRef.current;
+    setCheckingZone(true);
+    setZoneCheckError(null);
+    try {
+      const result = await deliveryZoneRepository.checkMyLocation(nextLat, nextLng);
+      if (zoneCheckSeqRef.current !== seq) return;
+      setZoneCheck(result);
+    } catch {
+      if (zoneCheckSeqRef.current !== seq) return;
+      setZoneCheck(null);
+      setZoneCheckError(t("Không kiểm tra trước được vùng giao hàng; máy chủ sẽ xác thực khi tạo đơn."));
+    } finally {
+      if (zoneCheckSeqRef.current === seq) {
+        setCheckingZone(false);
+      }
+    }
+  }
+
   useEffect(() => {
-    pickupLocationRepository.getPickupLocations('ACTIVE')
-      .then((data) => {
+    let active = true;
+    Promise.all([
+      pickupLocationRepository.getPickupLocations('ACTIVE'),
+      deliveryZoneRepository.getMyZone().catch(() => null),
+    ])
+      .then(([data, zone]) => {
+        if (!active) return;
         setLocations(data);
         const chosen = data.find((location) => location.is_default) || data[0];
         if (chosen) setPickupId(chosen.id);
+
+        setDeliveryZone(zone);
+        if (!locationSelectedRef.current) {
+          if (zone?.configured && zone.is_active && zone.center_lat !== null && zone.center_lng !== null) {
+            setLat(zone.center_lat);
+            setLng(zone.center_lng);
+          } else if (chosen) {
+            setLat(chosen.lat);
+            setLng(chosen.lng);
+          }
+        } else if (lastCheckedCoordsRef.current) {
+          void verifyDeliveryZone(lastCheckedCoordsRef.current.lat, lastCheckedCoordsRef.current.lng, zone);
+        }
       })
-      .catch(() => toast.error(t("Không tải được điểm lấy hàng")));
+      .catch(() => {
+        if (active) toast.error(t("Không tải được điểm lấy hàng"));
+      });
+    return () => {
+      active = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
+
+  const activeZone = Boolean(deliveryZone?.configured && deliveryZone.is_active);
+  const isBlockedByZone = Boolean(activeZone && zoneCheck && !zoneCheck.allowed);
+  const zoneStatus: 'inside' | 'warn' | 'blocked' | null =
+    !locationSelected || !activeZone || !zoneCheck
+      ? null
+      : zoneCheck.in_zone
+        ? 'inside'
+        : zoneCheck.allowed
+          ? 'warn'
+          : 'blocked';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -91,6 +166,10 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
     if (!pickup) return toast.error(t("Hãy chọn điểm lấy hàng."));
     if (!locationSelected) return toast.error(t("Hãy tìm địa chỉ hoặc đặt ghim tại điểm giao."));
     if (!address.trim()) return toast.error(t("Chưa xác định được địa chỉ giao hàng."));
+    if (checkingZone) return;
+    if (isBlockedByZone) {
+      return toast.error(zoneCheck?.message || t("Địa chỉ giao hàng nằm ngoài phạm vi phục vụ của doanh nghiệp."));
+    }
     const finalCodAmount = hasCod && codThousands ? Number(codThousands) * 1000 : 0;
     if (hasCod && (!Number.isInteger(finalCodAmount) || finalCodAmount <= 0)) {
       return toast.error(t("Tiền thu hộ COD phải là số nguyên lớn hơn 0."));
@@ -117,7 +196,11 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         priority: 'NORMAL',
         codAmount: finalCodAmount,
       });
-      toast.success(t("Đã tạo đơn hàng"));
+      if (activeZone && zoneCheck && !zoneCheck.in_zone && zoneCheck.allowed) {
+        toast.warning(t("Đã tạo đơn hàng (lưu ý: điểm giao nằm ngoài vùng phục vụ)."));
+      } else {
+        toast.success(t("Đã tạo đơn hàng"));
+      }
       onCreated();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("Không thể tạo đơn"));
@@ -242,8 +325,64 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         {locationSelected ? <CheckCircle2 className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
         {locationSelected ? `Đã xác định tọa độ ${lat.toFixed(6)}, ${lng.toFixed(6)}` : t("Chưa chọn điểm giao trên bản đồ")}
       </div>
+      {activeZone && deliveryZone && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            !locationSelected
+              ? 'border-slate-200 bg-white text-slate-600'
+              : checkingZone
+                ? 'border-slate-200 bg-white text-slate-600'
+                : zoneCheckError
+                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                  : zoneCheck?.in_zone
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : zoneCheck?.allowed
+                      ? 'border-amber-200 bg-amber-50 text-amber-900'
+                      : 'border-rose-200 bg-rose-50 text-rose-900'
+          }`}
+        >
+          {!locationSelected ? (
+            <p>
+              {t("Vùng giao hàng đang bật:")}{' '}
+              <span className="font-semibold tabular-nums">
+                {deliveryZone.radius_km?.toFixed(1)} km
+              </span>{' '}
+              ({deliveryZone.enforcement_mode === 'STRICT_BLOCK' ? t("Chặn ngoài vùng") : t("Chỉ cảnh báo")})
+            </p>
+          ) : checkingZone ? (
+            <p className="flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("Đang kiểm tra vùng giao hàng…")}
+            </p>
+          ) : zoneCheckError ? (
+            <p>{zoneCheckError}</p>
+          ) : zoneCheck ? (
+            <div className="flex items-start gap-2">
+              {zoneCheck.in_zone ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+              ) : zoneCheck.allowed ? (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+              ) : (
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-700" />
+              )}
+              <span>{zoneCheck.message}</span>
+            </div>
+          ) : null}
+        </div>
+      )}
       <div className="flex gap-2">
-        <Button type="submit" disabled={busy || resolvingAddress || !locationSelected}>{busy ? t("Đang tạo…") : resolvingAddress ? t("Đang lấy địa chỉ…") : t("Tạo đơn")}</Button>
+        <Button
+          type="submit"
+          disabled={busy || resolvingAddress || checkingZone || !locationSelected || isBlockedByZone}
+        >
+          {busy
+            ? t("Đang tạo…")
+            : resolvingAddress
+              ? t("Đang lấy địa chỉ…")
+              : checkingZone
+                ? t("Đang kiểm tra vùng…")
+                : t("Tạo đơn")}
+        </Button>
         <Button type="button" variant="outline" onClick={onClose}>{t("Đóng")}</Button>
       </div>
     </div>
@@ -252,10 +391,21 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         lat={lat}
         lng={lng}
         address={address}
+        deliveryZone={deliveryZone}
+        zoneStatus={zoneStatus}
+        hasSelection={locationSelected}
         onResolvingChange={setResolvingAddress}
         onChange={(nextLat, nextLng, resolvedAddress) => {
-          setLat(nextLat); setLng(nextLng); setLocationSelected(true);
+          locationSelectedRef.current = true;
+          setLat(nextLat);
+          setLng(nextLng);
+          setLocationSelected(true);
           setAddress(resolvedAddress ?? '');
+          const prev = lastCheckedCoordsRef.current;
+          if (!prev || prev.lat !== nextLat || prev.lng !== nextLng) {
+            lastCheckedCoordsRef.current = { lat: nextLat, lng: nextLng };
+            void verifyDeliveryZone(nextLat, nextLng, deliveryZone);
+          }
         }}
       />
     </div>

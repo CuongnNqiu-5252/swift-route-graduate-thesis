@@ -58,6 +58,7 @@ export default function SettingsPage() {
   const [urgentMode, setUrgentMode] = useState<'IMMEDIATE_SINGLE' | 'BATCH_IMMEDIATE'>('IMMEDIATE_SINGLE');
   const [allowPool, setAllowPool] = useState(false);
   const [requireApproval, setRequireApproval] = useState(false);
+  const [autoDispatchEnabled, setAutoDispatchEnabled] = useState(true);
   const [scheduledEnabled, setScheduledEnabled] = useState(true);
   const [scheduledTime, setScheduledTime] = useState('06:00');
 
@@ -75,6 +76,7 @@ export default function SettingsPage() {
     setUrgentMode(data.dispatch_config.urgent_order_mode);
     setAllowPool(data.dispatch_config.allow_pool_drivers);
     setRequireApproval(data.dispatch_config.require_approval);
+    setAutoDispatchEnabled(data.dispatch_config.auto_dispatch_enabled);
     setScheduledEnabled(data.dispatch_config.scheduled_dispatch_enabled ?? true);
     setScheduledTime(data.dispatch_config.scheduled_dispatch_time || '06:00');
   }, []);
@@ -125,6 +127,7 @@ export default function SettingsPage() {
   };
 
   const handleSave = async () => {
+    if (!settings) return;
     setIsSaving(true);
     try {
       const costWeight = Number((1.0 - timeWeight).toFixed(2));
@@ -135,6 +138,8 @@ export default function SettingsPage() {
           cost_weight: costWeight,
         },
         dispatch_config: {
+          ...settings.dispatch_config,
+          auto_dispatch_enabled: autoDispatchEnabled,
           max_orders_per_driver: maxOrders,
           max_wait_time_seconds: maxWaitMinutes * 60,
           urgent_order_mode: urgentMode,
@@ -436,13 +441,29 @@ export default function SettingsPage() {
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
+                    checked={autoDispatchEnabled}
+                    onChange={(e) => setAutoDispatchEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">{t("Điều phối tự động")}</span>
+                    <p className="text-xs text-gray-600">
+                      {t("Tắt để dừng lịch cố định và quy tắc tự động gom đơn. Bạn vẫn có thể điều phối thủ công.")}
+                    </p>
+                  </div>
+                </label>
+
+                <label className="ml-7 flex items-center gap-3">
+                  <input
+                    type="checkbox"
                     checked={scheduledEnabled}
+                    disabled={!autoDispatchEnabled}
                     onChange={(e) => setScheduledEnabled(e.target.checked)}
                     className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
                   <div>
                     <span className="text-sm font-medium text-gray-900">
-                      {t("Tự động gom đơn theo ca cố định hàng ngày (Scheduled Wave)")}
+                      {t("Điều phối vào giờ cố định hằng ngày")}
                     </span>
                     <p className="text-[11px] text-gray-500">
                       {t("Hệ thống sẽ tự động quét và phân tuyến toàn bộ đơn hàng đang chờ vào đúng khung giờ được chọn")}
@@ -450,7 +471,7 @@ export default function SettingsPage() {
                   </div>
                 </label>
 
-                {scheduledEnabled && (
+                {autoDispatchEnabled && scheduledEnabled && (
                   <div className="ml-7 flex flex-wrap items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="text-xs font-semibold text-gray-700">
                       {t("Khung giờ xuất bến hàng ngày:")}

@@ -361,6 +361,7 @@ public class OperationalAlertConsumer {
                     : "/operations";
             case "incident.resolved", "cod.handover_submitted", "cod.handover_settled_with_variance", "return.discrepancy" -> "/operations";
             case "order.delivery_completed.v1" -> "/orders";
+            case TenantNotificationConsumer.IMPORT_COMPLETED -> "/operation-flow";
             case "plan.acknowledged", "plan.cancelled", "assignment.timeout", "assignment.escalated",
                  "driver.unavailable_recovery", "delivery.delay_detected" -> "/dispatch";
             case "settlement.approved", "settlement.paid" -> "/settlements";

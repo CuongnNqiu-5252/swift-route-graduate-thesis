@@ -104,7 +104,7 @@ public class DispatchOrchestrationService {
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
             if (!tenantId.equals(order.getTenant().getId()))
                 throw new AppException(ErrorCode.ACCESS_DENIED);
-            if (order.getStatus() != OrderStatus.PAID || order.getPlanId() != null)
+            if (order.getStatus() != OrderStatus.READY_FOR_DISPATCH || order.getPlanId() != null)
                 throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
             // Delivery tasks and GPS events use the authenticated user identity.
             var fleetDriver = operationalReadinessService.fleetState(tenantId).drivers().stream()
@@ -153,7 +153,6 @@ public class DispatchOrchestrationService {
                         .plan(plan).order(order).stopIndex(index++).build());
                 order.setPlanId(plan.getId());
                 order.setStatus(OrderStatus.PLANNED);
-                order.setFulfillmentStatus("PLANNED");
             }
             plan.approve(operatorId);
             dispatchPlan(plan);
@@ -304,7 +303,6 @@ public class DispatchOrchestrationService {
                 UUID currentPlanId = savedPlan.getId();
                 routeOrders.forEach(o -> {
                     o.setStatus(OrderStatus.PLANNED);
-                    o.setFulfillmentStatus("PLANNED");
                     o.setPlanId(currentPlanId);
                     o.setUpdatedAt(now);
                 });
@@ -416,8 +414,7 @@ public class DispatchOrchestrationService {
 
         plan.getPlanOrders().forEach(po -> {
             Order o = po.getOrder();
-            o.setStatus(OrderStatus.PAID);
-            o.setFulfillmentStatus("READY_FOR_PLANNING");
+            o.setStatus(OrderStatus.READY_FOR_DISPATCH);
             o.setPlanId(null);
             o.setAssignedDriverId(null);
             orderRepository.save(o);
@@ -474,8 +471,7 @@ public class DispatchOrchestrationService {
 
         plan.getPlanOrders().forEach(po -> {
             Order o = po.getOrder();
-            o.setStatus(OrderStatus.PAID);
-            o.setFulfillmentStatus("READY_FOR_PLANNING");
+            o.setStatus(OrderStatus.READY_FOR_DISPATCH);
             o.setPlanId(null);
             o.setAssignedDriverId(null);
             orderRepository.save(o);
@@ -558,8 +554,7 @@ public class DispatchOrchestrationService {
         // Max retries reached or no alternative driver available -> cancel & escalate
         plan.getPlanOrders().forEach(po -> {
             Order o = po.getOrder();
-            o.setStatus(OrderStatus.PAID);
-            o.setFulfillmentStatus("READY_FOR_PLANNING");
+            o.setStatus(OrderStatus.READY_FOR_DISPATCH);
             o.setPlanId(null);
             o.setAssignedDriverId(null);
             orderRepository.save(o);
@@ -859,7 +854,6 @@ public class DispatchOrchestrationService {
         plan.setUpdatedAt(Instant.now());
 
         newOrder.setStatus(OrderStatus.PLANNED);
-        newOrder.setFulfillmentStatus("PLANNED");
         newOrder.setPlanId(plan.getId());
         if (plan.getDriverId() != null) {
             newOrder.setAssignedDriverId(plan.getDriverId());
