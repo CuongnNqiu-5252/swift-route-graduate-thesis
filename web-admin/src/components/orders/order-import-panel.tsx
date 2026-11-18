@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+
 import { readOrderCsv } from '@/application/order-import-csv';
 import { DriveCsvPicker } from '@/components/orders/drive-csv-picker';
 import LocationMapPicker from '@/components/locations/location-map-picker';
@@ -23,7 +23,7 @@ const labels = {
 };
 
 function errorMessage(error: unknown, fallback: string) {
-  return (axios.isAxiosError(error) ? error.response?.data?.error?.message : undefined) || fallback;
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 const normalizeAddress = (address: string) => address.normalize('NFC').toLocaleLowerCase('vi')

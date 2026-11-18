@@ -45,8 +45,6 @@ public class DeliveryAttempt {
     private String failureReason;
     private String notes;
     private String proofUrl;
-    private String photoUrl;
-    private String signatureUrl;
     private Double lat;
     private Double lng;
     @Builder.Default

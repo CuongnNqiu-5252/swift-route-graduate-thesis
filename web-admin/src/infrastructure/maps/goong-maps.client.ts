@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { mapsApi } from '@/lib/api';
 
 export interface MapPlacePrediction {
   place_id: string;
@@ -19,8 +19,18 @@ export interface MapPlaceDetail {
  * Axios client for Next.js local Goong Maps proxy routes (/api/maps/*).
  */
 export const goongMapsClient = {
+  async getDirections(points: { lat: number; lng: number }[], signal?: AbortSignal) {
+    const { data } = await mapsApi.post<{
+      coordinates?: [number, number][];
+      distance_meters?: number;
+      duration_seconds?: number;
+      leg_duration_seconds?: (number | null)[];
+    }>('/api/maps/directions', { points, vehicle: 'bike' }, { signal });
+    return data;
+  },
+
   async reverseGeocode(lat: number, lng: number, signal?: AbortSignal): Promise<string | null> {
-    const response = await axios.get<{ address?: string }>('/api/maps/reverse', {
+    const response = await mapsApi.get<{ address?: string }>('/api/maps/reverse', {
       params: { lat, lng },
       signal,
     });
@@ -33,7 +43,7 @@ export const goongMapsClient = {
     sessionToken: string,
     signal?: AbortSignal,
   ): Promise<MapPlacePrediction[]> {
-    const response = await axios.get<{ predictions?: MapPlacePrediction[] }>('/api/maps/search', {
+    const response = await mapsApi.get<{ predictions?: MapPlacePrediction[] }>('/api/maps/search', {
       params: {
         input: input.trim(),
         ...(center ? { location: `${center.lat},${center.lng}` } : {}),
@@ -45,7 +55,7 @@ export const goongMapsClient = {
   },
 
   async getPlaceDetail(placeId: string, sessionToken: string): Promise<MapPlaceDetail | null> {
-    const response = await axios.get<Partial<MapPlaceDetail>>('/api/maps/place-detail', {
+    const response = await mapsApi.get<Partial<MapPlaceDetail>>('/api/maps/place-detail', {
       params: { placeId, sessiontoken: sessionToken },
     });
     if (typeof response.data?.lat !== 'number' || typeof response.data?.lng !== 'number') {

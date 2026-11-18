@@ -13,7 +13,7 @@ export interface IncidentDto {
   evidence_urls: string[];
   can_continue_delivery: boolean;
   needs_immediate_assistance: boolean;
-  status: 'OPEN' | 'IN_PROGRESS' | 'ESCALATED' | 'RESOLVED' | 'CANCELLED';
+  status: 'OPEN' | 'IN_PROGRESS' | 'ESCALATED' | 'RESOLVED';
   assigned_operator_id: string | null;
   resolution_type: string | null;
   resolved_by: string | null;
@@ -29,7 +29,7 @@ export interface ReturnRequestDto {
   incident_id: string | null;
   request_type: 'RETURN_TO_ORIGIN' | 'RETURN_TO_DEPOT' | 'REDELIVERY';
   reason: string;
-  status: 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'ASSIGNED' | 'IN_EXECUTION' | 'ARRIVED' | 'AWAITING_RECEIPT' | 'COMPLETED' | 'DISCREPANCY' | 'CANCELLED';
+  status: 'REQUESTED' | 'REJECTED' | 'IN_EXECUTION' | 'ARRIVED' | 'AWAITING_RECEIPT' | 'COMPLETED' | 'DISCREPANCY' | 'EXECUTION_FAILED' | 'CANCELLED';
   return_location_id: string | null;
   return_location_name: string | null;
   return_address: string | null;
@@ -94,7 +94,7 @@ export interface CodHandoverLineDto {
 export interface CodHandoverDto {
   id: string;
   driver_id: string;
-  status: 'SUBMITTED' | 'SETTLED' | 'SETTLED_WITH_VARIANCE' | 'DISCREPANCY';
+  status: 'SUBMITTED' | 'SETTLED' | 'SETTLED_WITH_VARIANCE';
   ledger_total: number;
   declared_total: number;
   counted_total: number | null;
@@ -131,6 +131,10 @@ export interface OrderHandoverDto {
 }
 
 export const operationsRepository = {
+  async getReviewQueue() {
+    return (await api.get<unknown>('/operations/review')).data;
+  },
+
   async getOrderHandovers(): Promise<OrderHandoverDto[]> {
     const res = await api.get<{ data: OrderHandoverDto[] } | OrderHandoverDto[]>('/custody/handovers/queue');
     return Array.isArray(res.data) ? res.data : res.data.data;

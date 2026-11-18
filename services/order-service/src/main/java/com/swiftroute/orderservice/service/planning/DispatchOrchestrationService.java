@@ -3,9 +3,11 @@ package com.swiftroute.orderservice.service.planning;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -14,9 +16,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.swiftroute.orderservice.client.RoutingEngineClient;
 import com.swiftroute.orderservice.dto.request.ManualAssignmentRequest;
+import com.swiftroute.orderservice.dto.request.MovePlanStopRequest;
+import com.swiftroute.orderservice.dto.request.ReorderPlanStopsRequest;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.LocationPoint;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.StopItem;
@@ -28,8 +34,6 @@ import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteReoptimiz
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteStopState;
 import com.swiftroute.orderservice.entity.DeliveryTask;
 import com.swiftroute.orderservice.entity.DispatchPlan;
-import com.swiftroute.orderservice.entity.DispatchPlanOrder;
-import com.swiftroute.orderservice.entity.DispatchPlanOrder.DispatchPlanOrderId;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.Tenant;
@@ -56,14 +60,13 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * Responsibilities:
  * <ol>
- * <li>Collect eligible PAID orders for a tenant.</li>
+ * <li>Collect eligible READY_FOR_DISPATCH orders for a tenant.</li>
  * <li>Build a {@link BatchOptimizationRequest} and call the routing
  * engine.</li>
- * <li>Persist the resulting {@link DispatchPlan} in DRAFT state.</li>
- * <li>Auto-approve (if {@code require_approval=false}) and dispatch the
- * plan.</li>
- * <li>Update order statuses to PLANNED, create delivery tasks, and publish
- * outbox events.</li>
+ * <li>Persist the resulting {@link DispatchPlan}s in DRAFT state without
+ * assigning a driver yet, and mark their orders as PLANNED.</li>
+ * <li>Assign a driver and approve/dispatch the plan in separate steps
+ * ({@link #approvePlan}, {@link #dispatchPlan}).</li>
  * </ol>
  */
 @Service
@@ -73,6 +76,7 @@ public class DispatchOrchestrationService {
 
     private static final int DEFAULT_ACK_TIMEOUT_MINUTES = 5;
     private static final int MAX_REASSIGNMENT_ATTEMPTS = 3;
+    private static final int MAX_VEHICLES_PER_BATCH = 50;
 
     private final TenantRepository tenantRepository;
     private final OrderRepository orderRepository;
@@ -104,7 +108,7 @@ public class DispatchOrchestrationService {
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
             if (!tenantId.equals(order.getTenant().getId()))
                 throw new AppException(ErrorCode.ACCESS_DENIED);
-            if (order.getStatus() != OrderStatus.READY_FOR_DISPATCH || order.getPlanId() != null)
+            if (!order.canJoinDispatchPlan())
                 throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
             // Delivery tasks and GPS events use the authenticated user identity.
             var fleetDriver = operationalReadinessService.fleetState(tenantId).drivers().stream()
@@ -148,10 +152,7 @@ public class DispatchOrchestrationService {
                     .build());
             int index = 0;
             for (Order order : driverOrders) {
-                plan.getPlanOrders().add(DispatchPlanOrder.builder()
-                        .id(new DispatchPlanOrderId(plan.getId(), order.getId()))
-                        .plan(plan).order(order).stopIndex(index++).build());
-                order.setPlanId(plan.getId());
+                plan.addOrder(order, index++);
                 order.setStatus(OrderStatus.PLANNED);
             }
             plan.approve(operatorId);
@@ -160,26 +161,44 @@ public class DispatchOrchestrationService {
     }
 
     /**
-     * Executes a full multi-driver CVRP planning cycle for the given tenant:
-     * collect → optimize across available fleet → persist plans → (auto-approve) →
-     * dispatch.
+     * Executes a multi-route planning cycle for the given tenant:
+     * collect → optimize → persist unassigned DRAFT plans. Drivers are assigned
+     * later in a separate step.
      *
      * @param tenantId    UUID of the tenant
      * @param triggerType reason the planning cycle was triggered
-     * @return the primary persisted {@link DispatchPlan}, or empty if planning was
+     * @return the first persisted {@link DispatchPlan}, or empty if planning was
      *         skipped
      */
     @Transactional
     public Optional<DispatchPlan> executePlanningCycle(UUID tenantId, PlanTriggerType triggerType) {
+        return plan(tenantId, triggerType, null).plans().stream().findFirst();
+    }
+
+    public record CycleResult(String outcome, int eligibleOrders, List<DispatchPlan> plans) {
+    }
+
+    @Transactional
+    public CycleResult executeFlowCycle(UUID tenantId, PlanTriggerType triggerType, UUID pickupLocationId) {
+        return plan(tenantId, triggerType, pickupLocationId);
+    }
+
+    private CycleResult plan(UUID tenantId, PlanTriggerType triggerType, UUID pickupLocationId) {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
 
         Instant now = Instant.now();
         List<Order> allEligible = eligibilityEvaluator.getEligibleOrders(tenantId, now);
+        if (pickupLocationId != null) {
+            allEligible = allEligible.stream()
+                    .filter(order -> order.getPickupLocation() != null
+                            && pickupLocationId.equals(order.getPickupLocation().getId()))
+                    .toList();
+        }
 
         if (allEligible.isEmpty()) {
             log.info("Tenant {} planning cycle skipped — no eligible orders.", tenantId);
-            return Optional.empty();
+            return new CycleResult("NO_ORDERS", 0, List.of());
         }
 
         int maxOrdersPerDriver = (tenant.getDispatchConfig() != null
@@ -187,21 +206,8 @@ public class DispatchOrchestrationService {
                         ? tenant.getDispatchConfig().getMaxOrdersPerDriver()
                         : 5;
 
-        // --- Select all available candidate drivers from active fleet ---
-        List<UUID> availableDrivers = selectAvailableDrivers(tenantId);
-        List<UUID> remainingDrivers = new ArrayList<>(availableDrivers);
-        if (remainingDrivers.isEmpty()) {
-            log.warn("Tenant {} planning cycle skipped — no available drivers; {} eligible orders remain in PAID.",
-                    tenantId, allEligible.size());
-            return Optional.empty();
-        }
-
-        boolean requiresApproval = Boolean.TRUE.equals(
-                tenant.getDispatchConfig() != null && tenant.getDispatchConfig().getRequireApproval());
-
         // When triggered manually ("Chạy lập kế hoạch ngay"), process ALL warehouse
-        // groups
-        // in a single run so no depot's pending orders are left behind.
+        // groups in a single run so no depot's pending orders are left behind.
         // For background triggers (BATCH_SIZE, MAX_WAIT, URGENT), process the
         // qualifying group.
         List<List<Order>> warehouseGroups = selectTargetWarehouseGroups(tenant, allEligible, triggerType);
@@ -211,32 +217,22 @@ public class DispatchOrchestrationService {
             if (warehouseGroup.isEmpty()) {
                 continue;
             }
-            if (remainingDrivers.isEmpty()) {
-                log.warn("Tenant {} stopped planning remaining warehouse group ({} orders) — no remaining free drivers; orders remain in PAID.",
-                        tenantId, warehouseGroup.size());
-                break;
-            }
 
-            int driverCapacityCount = remainingDrivers.size();
-            int maxBatchOrders = maxOrdersPerDriver * driverCapacityCount;
-
+            int maxBatchOrders = maxOrdersPerDriver * MAX_VEHICLES_PER_BATCH;
             List<Order> eligible = warehouseGroup.size() > maxBatchOrders
                     ? warehouseGroup.subList(0, maxBatchOrders)
                     : warehouseGroup;
 
             int neededVehicles = (int) Math.ceil((double) eligible.size() / maxOrdersPerDriver);
-            int vehicleCount = Math.max(1, Math.min(driverCapacityCount, neededVehicles));
+            int vehicleCount = Math.clamp(neededVehicles, 1, MAX_VEHICLES_PER_BATCH);
 
             log.info(
-                    "Tenant {} starting planning cycle for warehouse group. Trigger={} EligibleOrders={} RemainingDrivers={} VehicleCount={}",
-                    tenantId, triggerType, eligible.size(), remainingDrivers.size(), vehicleCount);
+                    "Tenant {} starting planning cycle for warehouse group. Trigger={} EligibleOrders={} VehicleCount={}",
+                    tenantId, triggerType, eligible.size(), vehicleCount);
 
-            // --- Build routing engine request (single-vehicle TSP or multi-vehicle CVRP)
-            // ---
             BatchOptimizationRequest routingRequest = buildRoutingRequest(
                     tenant, eligible, vehicleCount, maxOrdersPerDriver);
 
-            // --- Call routing engine ---
             Optional<BatchOptimizationResponse> routingResult = routingEngineClient.optimizeBatch(routingRequest);
             if (routingResult.isEmpty()) {
                 log.error("Tenant {} planning cycle skipped warehouse group — routing engine returned no result.",
@@ -245,85 +241,86 @@ public class DispatchOrchestrationService {
             }
             BatchOptimizationResponse routingResponse = routingResult.get();
 
-            List<BatchOptimizationResponse.VehicleRoute> vehicleRoutes = (routingResponse.vehicleRoutes() != null
-                    && !routingResponse.vehicleRoutes().isEmpty())
-                            ? routingResponse.vehicleRoutes().stream()
-                                    .filter(vr -> vr.orderedStops() != null && !vr.orderedStops().isEmpty())
-                                    .toList()
-                            : List.of(new BatchOptimizationResponse.VehicleRoute(
-                                    0,
-                                    routingResponse.totalDistanceKm(),
-                                    routingResponse.totalDurationMinutes(),
-                                    0.0,
-                                    routingResponse.orderedStops()));
+            List<BatchOptimizationResponse.VehicleRoute> vehicleRoutes = extractVehicleRoutes(routingResponse);
+            Map<String, Order> eligibleById = new LinkedHashMap<>();
+            eligible.forEach(order -> eligibleById.put(order.getId().toString(), order));
+            if (!hasValidUniqueStops(vehicleRoutes, eligibleById)) {
+                log.warn(
+                        "Tenant {} planning skipped a warehouse group because the routing result had duplicate or unknown stops.",
+                        tenantId);
+                continue;
+            }
 
-            for (int i = 0; i < vehicleRoutes.size(); i++) {
-                BatchOptimizationResponse.VehicleRoute vRoute = vehicleRoutes.get(i);
-                if (remainingDrivers.isEmpty()) {
-                    log.warn("Tenant {} skipped extra route {} ({} stops) — no remaining free drivers; orders remain in PAID.",
-                            tenantId, i, vRoute.orderedStops() != null ? vRoute.orderedStops().size() : 0);
-                    break;
-                }
-                UUID assignedDriverId = remainingDrivers.remove(0);
-
-                DispatchPlan plan = DispatchPlan.builder()
-                        .tenant(tenant)
-                        .planStatus(PlanStatus.DRAFT)
-                        .driverId(assignedDriverId)
-                        .algorithmUsed(routingResponse.algorithmUsed())
-                        .totalDistanceKm(BigDecimal.valueOf(vRoute.totalDistanceKm()))
-                        .estimatedDurationMinutes((int) Math.ceil(vRoute.totalDurationMinutes()))
-                        .triggerType(triggerType)
-                        .requiresApproval(requiresApproval)
-                        .plannedAt(now)
-                        .routeWaypoints(serializeStopWaypoints(vRoute.orderedStops()))
-                        .build();
-
-                DispatchPlan savedPlan = dispatchPlanRepository.save(plan);
-
-                List<DispatchPlanOrder> planOrders = new ArrayList<>();
-                List<Order> routeOrders = new ArrayList<>();
-                for (BatchOptimizationResponse.OrderedStop stop : vRoute.orderedStops()) {
-                    UUID orderId = UUID.fromString(stop.stopId());
-                    eligible.stream()
-                            .filter(o -> o.getId().equals(orderId))
-                            .findFirst()
-                            .ifPresent(order -> {
-                                planOrders.add(DispatchPlanOrder.builder()
-                                        .id(new DispatchPlanOrderId(savedPlan.getId(), orderId))
-                                        .plan(savedPlan)
-                                        .order(order)
-                                        .stopIndex(stop.stopIndex())
-                                        .build());
-                                routeOrders.add(order);
-                            });
-                }
-                savedPlan.getPlanOrders().addAll(planOrders);
-
-                UUID currentPlanId = savedPlan.getId();
-                routeOrders.forEach(o -> {
-                    o.setStatus(OrderStatus.PLANNED);
-                    o.setPlanId(currentPlanId);
-                    o.setUpdatedAt(now);
-                });
-                orderRepository.saveAll(routeOrders);
-
-                DispatchPlan persistedPlan = dispatchPlanRepository.save(savedPlan);
-                log.info("Tenant {} dispatch plan {} saved in DRAFT for driver {}. Orders={}",
-                        tenantId, persistedPlan.getId(), assignedDriverId, routeOrders.size());
-
-                if (!requiresApproval) {
-                    persistedPlan.approve(null);
-                    persistedPlan = dispatchPlanRepository.save(persistedPlan);
-                    log.info("Tenant {} plan {} auto-approved.", tenantId, persistedPlan.getId());
-
-                    persistedPlan = dispatchPlan(persistedPlan);
-                }
-                createdPlans.add(persistedPlan);
+            for (BatchOptimizationResponse.VehicleRoute vRoute : vehicleRoutes) {
+                DispatchPlan savedPlan = persistDraftPlan(tenant, triggerType, routingResponse, vRoute, eligibleById, now);
+                createdPlans.add(savedPlan);
             }
         }
 
-        return createdPlans.stream().findFirst();
+        return new CycleResult(createdPlans.isEmpty() ? "NO_ROUTES" : "PLANNED", allEligible.size(), createdPlans);
+    }
+
+    private List<BatchOptimizationResponse.VehicleRoute> extractVehicleRoutes(
+            BatchOptimizationResponse routingResponse) {
+        if (routingResponse.vehicleRoutes() != null && !routingResponse.vehicleRoutes().isEmpty()) {
+            return routingResponse.vehicleRoutes().stream()
+                    .filter(vr -> vr.orderedStops() != null && !vr.orderedStops().isEmpty())
+                    .toList();
+        }
+        if (routingResponse.orderedStops() == null || routingResponse.orderedStops().isEmpty()) {
+            return List.of();
+        }
+        return List.of(new BatchOptimizationResponse.VehicleRoute(
+                0,
+                routingResponse.totalDistanceKm(),
+                routingResponse.totalDurationMinutes(),
+                0.0,
+                routingResponse.orderedStops()));
+    }
+
+    private boolean hasValidUniqueStops(
+            List<BatchOptimizationResponse.VehicleRoute> vehicleRoutes,
+            Map<String, Order> eligibleById) {
+        Set<String> seenStops = new HashSet<>();
+        return vehicleRoutes.stream()
+                .flatMap(route -> route.orderedStops().stream())
+                .allMatch(stop -> eligibleById.containsKey(stop.stopId()) && seenStops.add(stop.stopId()));
+    }
+
+    private DispatchPlan persistDraftPlan(
+            Tenant tenant,
+            PlanTriggerType triggerType,
+            BatchOptimizationResponse routingResponse,
+            BatchOptimizationResponse.VehicleRoute vRoute,
+            Map<String, Order> eligibleById,
+            Instant now) {
+        DispatchPlan plan = dispatchPlanRepository.save(DispatchPlan.builder()
+                .tenant(tenant)
+                .planStatus(PlanStatus.DRAFT)
+                .driverId(null)
+                .algorithmUsed(routingResponse.algorithmUsed())
+                .totalDistanceKm(BigDecimal.valueOf(vRoute.totalDistanceKm()))
+                .estimatedDurationMinutes((int) Math.ceil(vRoute.totalDurationMinutes()))
+                .triggerType(triggerType)
+                .plannedAt(now)
+                .routeWaypoints(serializeStopWaypoints(vRoute.orderedStops()))
+                .build());
+
+        List<Order> routeOrders = new ArrayList<>();
+        int stopIndex = 1;
+        for (BatchOptimizationResponse.OrderedStop stop : vRoute.orderedStops()) {
+            Order order = eligibleById.get(stop.stopId());
+            plan.addOrder(order, stopIndex++);
+            order.setStatus(OrderStatus.PLANNED);
+            order.setUpdatedAt(now);
+            routeOrders.add(order);
+        }
+        orderRepository.saveAll(routeOrders);
+
+        DispatchPlan persistedPlan = dispatchPlanRepository.save(plan);
+        log.info("Tenant {} dispatch plan {} saved in DRAFT (unassigned). Orders={}",
+                tenant.getId(), persistedPlan.getId(), routeOrders.size());
+        return persistedPlan;
     }
 
     /**
@@ -347,8 +344,7 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        for (DispatchPlanOrder po : plan.getPlanOrders()) {
-            Order order = po.getOrder();
+        for (Order order : plan.getOrders()) {
             if (!driverId.equals(order.getAssignedDriverId()) && deliveryExecutionService.holdsOrder(order)) {
                 throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
             }
@@ -366,6 +362,130 @@ public class DispatchOrchestrationService {
 
         log.info("Plan {} dispatched. Driver={} AckDeadline={}", saved.getId(), saved.getDriverId(), ackDeadline);
         return saved;
+    }
+
+    @Transactional
+    public DispatchPlan reorderDraftStops(UUID tenantId, UUID planId, ReorderPlanStopsRequest request) {
+        DispatchPlan plan = loadPlan(planId);
+        if (!plan.getTenant().getId().equals(tenantId)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        if (!Objects.equals(plan.getVersion(), request.expectedVersion())) {
+            throw new AppException(ErrorCode.CONCURRENT_UPDATE);
+        }
+        if (plan.getPlanStatus() != PlanStatus.DRAFT || plan.getDriverId() != null) {
+            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
+        }
+
+        List<UUID> requestedIds = request.orderedStopIds();
+        Map<UUID, Order> stops = new LinkedHashMap<>();
+        plan.getOrders().forEach(order -> stops.put(order.getId(), order));
+        if (requestedIds.size() != stops.size() || !new HashSet<>(requestedIds).equals(stops.keySet())) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        List<UUID> currentIds = plan.getOrdersInStopOrder().stream()
+                .map(Order::getId)
+                .toList();
+        if (currentIds.equals(requestedIds)) {
+            return plan;
+        }
+
+        List<Order> orderedOrders = requestedIds.stream().map(stops::get).toList();
+        BatchOptimizationResponse measured = routingEngineClient.measureOrderedRoute(
+                buildRoutingRequest(plan.getTenant(), orderedOrders, 1, orderedOrders.size()))
+                .orElseThrow(() -> new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE));
+        if (measured.orderedStops() == null || !measured.orderedStops().stream()
+                .map(BatchOptimizationResponse.OrderedStop::stopId).toList()
+                .equals(requestedIds.stream().map(UUID::toString).toList())) {
+            throw new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE);
+        }
+
+        for (int index = 0; index < requestedIds.size(); index++) {
+            stops.get(requestedIds.get(index)).setPlanStopIndex(index + 1);
+        }
+        plan.setRouteWaypoints(serializeStopWaypoints(measured.orderedStops()));
+        plan.setTotalDistanceKm(BigDecimal.valueOf(measured.totalDistanceKm()));
+        plan.setEstimatedDurationMinutes((int) Math.ceil(measured.totalDurationMinutes()));
+        plan.setUpdatedAt(Instant.now());
+        return dispatchPlanRepository.saveAndFlush(plan);
+    }
+
+    public record MoveStopResult(DispatchPlan sourcePlan, DispatchPlan targetPlan) {}
+
+    /**
+     * Moves one stop between two unassigned DRAFT plans of the same tenant and
+     * re-measures both routes so distance, duration and per-stop ETAs stay accurate.
+     * A source plan left without stops is cancelled.
+     */
+    @Transactional
+    public MoveStopResult moveDraftStop(UUID tenantId, MovePlanStopRequest request) {
+        if (request.sourcePlanId().equals(request.targetPlanId())) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        DispatchPlan source = loadPlan(request.sourcePlanId());
+        DispatchPlan target = loadPlan(request.targetPlanId());
+        for (DispatchPlan plan : List.of(source, target)) {
+            if (!plan.getTenant().getId().equals(tenantId)) {
+                throw new AppException(ErrorCode.ACCESS_DENIED);
+            }
+            if (plan.getPlanStatus() != PlanStatus.DRAFT || plan.getDriverId() != null) {
+                throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
+            }
+        }
+        if (!Objects.equals(source.getVersion(), request.expectedSourceVersion())
+                || !Objects.equals(target.getVersion(), request.expectedTargetVersion())) {
+            throw new AppException(ErrorCode.CONCURRENT_UPDATE);
+        }
+
+        Order moved = source.getOrders().stream()
+                .filter(order -> order.getId().equals(request.orderId()))
+                .findFirst()
+                .orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
+
+        List<Order> sourceRemaining = new ArrayList<>(source.getOrdersInStopOrder());
+        sourceRemaining.remove(moved);
+        List<Order> targetOrdered = new ArrayList<>(target.getOrdersInStopOrder());
+        int insertAt = Math.min(request.targetIndex(), targetOrdered.size());
+        targetOrdered.add(insertAt, moved);
+
+        // Measure both routes before touching any state so a routing failure changes nothing.
+        BatchOptimizationResponse targetMeasured = measureDraftRoute(target, targetOrdered);
+        BatchOptimizationResponse sourceMeasured = sourceRemaining.isEmpty()
+                ? null
+                : measureDraftRoute(source, sourceRemaining);
+
+        source.removeOrder(moved);
+        target.addOrder(moved, insertAt + 1);
+        applyMeasuredRoute(target, targetOrdered, targetMeasured);
+        DispatchPlan savedTarget = dispatchPlanRepository.saveAndFlush(target);
+        if (sourceMeasured == null) {
+            discardPlan(source, false);
+            return new MoveStopResult(null, savedTarget);
+        }
+        applyMeasuredRoute(source, sourceRemaining, sourceMeasured);
+        return new MoveStopResult(dispatchPlanRepository.saveAndFlush(source), savedTarget);
+    }
+
+    private BatchOptimizationResponse measureDraftRoute(DispatchPlan plan, List<Order> ordered) {
+        BatchOptimizationResponse measured = routingEngineClient.measureOrderedRoute(
+                buildRoutingRequest(plan.getTenant(), ordered, 1, ordered.size()))
+                .orElseThrow(() -> new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE));
+        List<String> expected = ordered.stream().map(order -> order.getId().toString()).toList();
+        if (measured.orderedStops() == null || !measured.orderedStops().stream()
+                .map(BatchOptimizationResponse.OrderedStop::stopId).toList().equals(expected)) {
+            throw new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE);
+        }
+        return measured;
+    }
+
+    private void applyMeasuredRoute(DispatchPlan plan, List<Order> ordered, BatchOptimizationResponse measured) {
+        for (int index = 0; index < ordered.size(); index++) {
+            ordered.get(index).setPlanStopIndex(index + 1);
+        }
+        plan.setRouteWaypoints(serializeStopWaypoints(measured.orderedStops()));
+        plan.setTotalDistanceKm(BigDecimal.valueOf(measured.totalDistanceKm()));
+        plan.setEstimatedDurationMinutes((int) Math.ceil(measured.totalDurationMinutes()));
+        plan.setUpdatedAt(Instant.now());
     }
 
     /**
@@ -396,34 +516,19 @@ public class DispatchOrchestrationService {
     }
 
     /**
-     * Cancels a plan from any non-terminal state.
+     * Cancels and removes a non-completed plan, returning its stops to the dispatch queue.
      *
      * @param planId UUID of the plan
-     * @param reason cancellation reason
-     * @return cancelled plan
+     * @param reason cancellation reason for logs/audit
+     * @return the removed plan snapshot
      */
     @Transactional
     public DispatchPlan cancelPlan(UUID planId, String reason) {
         DispatchPlan plan = loadPlan(planId);
         requireNoHeldOrders(plan);
-        try {
-            plan.cancel(reason);
-        } catch (IllegalStateException ex) {
-            throw new AppException(ErrorCode.PLAN_ALREADY_CANCELLED);
-        }
-
-        plan.getPlanOrders().forEach(po -> {
-            Order o = po.getOrder();
-            o.setStatus(OrderStatus.READY_FOR_DISPATCH);
-            o.setPlanId(null);
-            o.setAssignedDriverId(null);
-            orderRepository.save(o);
-        });
-
-        DispatchPlan saved = dispatchPlanRepository.save(plan);
-        publishOutboxEvent(saved, "plan.cancelled");
-        log.info("Plan {} cancelled. Reason={}", planId, reason);
-        return saved;
+        discardPlan(plan, true);
+        log.info("Plan {} cancelled and removed. Reason={}", planId, reason);
+        return plan;
     }
 
     /**
@@ -439,8 +544,8 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        for (DispatchPlanOrder po : plan.getPlanOrders()) {
-            deliveryTaskRepository.findByOrder_IdAndTaskType(po.getOrder().getId(), "DELIVERY")
+        for (Order order : plan.getOrders()) {
+            deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                     .ifPresent(task -> {
                         if (task.getStatus() == DeliveryTaskStatus.ASSIGNED) {
                             task.setStatus(DeliveryTaskStatus.ACCEPTED);
@@ -457,7 +562,7 @@ public class DispatchOrchestrationService {
 
     /**
      * Records driver decline for a DISPATCHED plan.
-     * Returns affected orders to PAID and cancels the plan.
+     * Returns affected orders to the dispatch queue and cancels the plan.
      */
     @Transactional
     public DispatchPlan declineByDriver(UUID planId, String reason) {
@@ -469,18 +574,9 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        plan.getPlanOrders().forEach(po -> {
-            Order o = po.getOrder();
-            o.setStatus(OrderStatus.READY_FOR_DISPATCH);
-            o.setPlanId(null);
-            o.setAssignedDriverId(null);
-            orderRepository.save(o);
-        });
-
-        plan.cancel("Driver declined: " + reason);
-        DispatchPlan saved = dispatchPlanRepository.save(plan);
-        publishOutboxEvent(saved, "plan.cancelled");
-        return saved;
+        plan.decline(reason);
+        discardPlan(plan, true);
+        return plan;
     }
 
     /**
@@ -503,8 +599,8 @@ public class DispatchOrchestrationService {
         // Starting execution is an implicit acceptance of the dispatched route.
         // Never reassign or return its orders to planning after the driver has
         // accepted a task, picked up custody, or begun/finished delivery.
-        if (hasClaimedDeliveryExecution(plan) || plan.getPlanOrders().stream()
-                .anyMatch(stop -> deliveryExecutionService.holdsOrder(stop.getOrder()))) {
+        if (hasClaimedDeliveryExecution(plan) || plan.getOrders().stream()
+                .anyMatch(deliveryExecutionService::holdsOrder)) {
             plan.acknowledge();
             DispatchPlan saved = dispatchPlanRepository.save(plan);
             publishOutboxEvent(saved, "plan.acknowledged_implicitly");
@@ -533,8 +629,7 @@ public class DispatchOrchestrationService {
             plan.setAckDeadlineAt(Instant.now().plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L));
             plan.setUpdatedAt(Instant.now());
 
-            for (DispatchPlanOrder po : plan.getPlanOrders()) {
-                Order order = po.getOrder();
+            for (Order order : plan.getOrders()) {
                 order.setAssignedDriverId(alternativeDriver);
                 order.setUpdatedAt(Instant.now());
                 orderRepository.save(order);
@@ -551,30 +646,73 @@ public class DispatchOrchestrationService {
             return saved;
         }
 
-        // Max retries reached or no alternative driver available -> cancel & escalate
-        plan.getPlanOrders().forEach(po -> {
-            Order o = po.getOrder();
-            o.setStatus(OrderStatus.READY_FOR_DISPATCH);
-            o.setPlanId(null);
-            o.setAssignedDriverId(null);
-            orderRepository.save(o);
-        });
-        plan.cancel("Acknowledgement timeout exceeded max reassignment attempts (" + nextCount + ")");
-        DispatchPlan saved = dispatchPlanRepository.save(plan);
-        // Do not spam escalation alert to notification inbox
-        log.warn("Plan {} escalated after {} reassignment attempts.", planId, nextCount);
-        return saved;
+        // Max retries reached or no alternative driver available -> discard plan & escalate
+        discardPlan(plan, false);
+        log.warn("Plan {} discarded after {} reassignment attempts.", planId, nextCount);
+        return plan;
+    }
+
+    private void discardPlan(DispatchPlan plan, boolean publishOutbox) {
+        if (plan.getPlanStatus() == PlanStatus.COMPLETED) {
+            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
+        }
+        if (publishOutbox) {
+            publishOutboxEvent(plan, "plan.cancelled");
+        }
+        releasePlanStops(plan);
+        if (plan.getId() != null) {
+            dispatchPlanRepository.clearIncidentReferences(plan.getId());
+            dispatchPlanRepository.clearTaskReferences(plan.getId());
+        }
+        dispatchPlanRepository.delete(plan);
+    }
+
+    private void releasePlanStops(DispatchPlan plan) {
+        List<Order> released = plan.getOrders().stream()
+                .filter(order -> order.getStatus() == OrderStatus.PLANNED || order.getStatus() == OrderStatus.IN_TRANSIT)
+                .toList();
+        for (Order order : released) {
+            plan.removeOrder(order);
+            order.setStatus(OrderStatus.READY_FOR_DISPATCH);
+            order.setAssignedDriverId(null);
+            orderRepository.save(order);
+        }
+        retainCurrentWaypoints(plan);
+    }
+
+    private void retainCurrentWaypoints(DispatchPlan plan) {
+        if (plan.getOrders().isEmpty() || plan.getRouteWaypoints() == null) {
+            plan.setRouteWaypoints("[]");
+            return;
+        }
+
+        Set<String> currentOrderIds = new HashSet<>();
+        plan.getOrders().forEach(order -> currentOrderIds.add(order.getId().toString()));
+        ArrayNode retained = objectMapper.createArrayNode();
+        try {
+            JsonNode waypoints = objectMapper.readTree(plan.getRouteWaypoints());
+            if (waypoints != null && waypoints.isArray()) {
+                for (JsonNode waypoint : waypoints) {
+                    String orderId = waypoint.path("stop_id").asText(waypoint.path("stopId").asText());
+                    if (currentOrderIds.contains(orderId)) {
+                        retained.add(waypoint);
+                    }
+                }
+            }
+        } catch (JsonProcessingException ex) {
+            log.warn("Discarded unreadable route waypoints for plan {}", plan.getId());
+        }
+        plan.setRouteWaypoints(retained.toString());
     }
 
     private void requireNoHeldOrders(DispatchPlan plan) {
-        if (plan.getPlanOrders().stream().anyMatch(stop -> deliveryExecutionService.holdsOrder(stop.getOrder()))) {
+        if (plan.getOrders().stream().anyMatch(deliveryExecutionService::holdsOrder)) {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
     }
 
     private boolean hasClaimedDeliveryExecution(DispatchPlan plan) {
-        return plan.getPlanOrders().stream()
-                .map(DispatchPlanOrder::getOrder)
+        return plan.getOrders().stream()
                 .map(Order::getId)
                 .map(orderId -> deliveryTaskRepository.findByOrder_IdAndTaskType(orderId, "DELIVERY"))
                 .flatMap(Optional::stream)
@@ -595,6 +733,7 @@ public class DispatchOrchestrationService {
             UUID toDriverId,
             String taskType) {
         if (order == null
+                || order.getStatus() == OrderStatus.DELIVERED
                 || fromDriverId == null
                 || toDriverId == null
                 || fromDriverId.equals(toDriverId)
@@ -616,10 +755,9 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
-        UUID sourcePlanId = order.getPlanId() != null ? order.getPlanId() : task.getDispatchPlanId();
+        UUID sourcePlanId = order.getPlanId();
         DispatchPlan sourcePlan = sourcePlanId == null ? null : loadPlan(sourcePlanId);
-        if (sourcePlan != null && sourcePlan.getPlanStatus() != PlanStatus.COMPLETED
-                && sourcePlan.getPlanStatus() != PlanStatus.CANCELLED) {
+        if (sourcePlan != null) {
             detachTransferredOrder(sourcePlan, order, fromDriverId);
         }
 
@@ -631,7 +769,6 @@ public class DispatchOrchestrationService {
 
         Instant now = Instant.now();
         order.setAssignedDriverId(toDriverId);
-        order.setPlanId(targetPlan != null ? targetPlan.getId() : null);
         order.setUpdatedAt(now);
         orderRepository.save(order);
 
@@ -640,31 +777,29 @@ public class DispatchOrchestrationService {
         task.setUpdatedAt(now);
         deliveryTaskRepository.save(task);
 
-        log.info("Package transfer synchronized: order={}, taskType={}, fromDriver={}, toDriver={}, sourcePlan={}, targetPlan={}",
+        log.info(
+                "Package transfer synchronized: order={}, taskType={}, fromDriver={}, toDriver={}, sourcePlan={}, targetPlan={}",
                 order.getId(), taskType, fromDriverId, toDriverId, sourcePlanId,
                 targetPlan != null ? targetPlan.getId() : null);
     }
 
     private void detachTransferredOrder(DispatchPlan plan, Order order, UUID fromDriverId) {
-        if (!fromDriverId.equals(plan.getDriverId())
-                || !Set.of(PlanStatus.DRAFT, PlanStatus.APPROVED, PlanStatus.DISPATCHED)
-                        .contains(plan.getPlanStatus())) {
-            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
-        }
-        boolean removed = plan.getPlanOrders().removeIf(po -> po.getOrder().getId().equals(order.getId()));
-        if (!removed) {
+        if (!fromDriverId.equals(plan.getDriverId()) || !plan.removeOrder(order)) {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        if (plan.getPlanOrders().isEmpty()) {
+        if (plan.getPlanStatus() == PlanStatus.COMPLETED) {
+            retainCurrentWaypoints(plan);
+        } else if (plan.getOrders().isEmpty()) {
             if (plan.getPlanStatus() == PlanStatus.DISPATCHED) {
                 plan.complete();
+                plan.setRouteWaypoints("[]");
+                plan.setTotalDistanceKm(BigDecimal.ZERO);
+                plan.setEstimatedDurationMinutes(0);
             } else {
-                plan.cancel("Tất cả điểm giao đã được chuyển sang tài xế khác");
+                discardPlan(plan, false);
+                return;
             }
-            plan.setRouteWaypoints("[]");
-            plan.setTotalDistanceKm(BigDecimal.ZERO);
-            plan.setEstimatedDurationMinutes(0);
         } else {
             refreshRemainingRoute(plan, "PACKAGE_HANDOVER");
         }
@@ -702,19 +837,14 @@ public class DispatchOrchestrationService {
     }
 
     private void attachTransferredOrder(DispatchPlan plan, Order order) {
-        if (plan.getPlanOrders().stream().anyMatch(po -> po.getOrder().getId().equals(order.getId()))) {
+        if (order.getPlanId() != null) {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        boolean newlyCreatedTransferPlan = plan.getPlanOrders().isEmpty()
+        boolean newlyCreatedTransferPlan = plan.getOrders().isEmpty()
                 && "package-handover".equals(plan.getAlgorithmUsed());
-        if (plan.getPlanOrders().isEmpty()) {
-            plan.getPlanOrders().add(DispatchPlanOrder.builder()
-                    .id(new DispatchPlanOrderId(plan.getId(), order.getId()))
-                    .plan(plan)
-                    .order(order)
-                    .stopIndex(0)
-                    .build());
+        if (plan.getOrders().isEmpty()) {
+            plan.addOrder(order, 0);
             refreshLocalRouteSnapshot(plan);
         } else {
             LocationPoint driverLoc = resolvePlanOrigin(plan, null, null);
@@ -769,13 +899,10 @@ public class DispatchOrchestrationService {
     }
 
     private void refreshLocalRouteSnapshot(DispatchPlan plan) {
-        plan.getPlanOrders().sort((left, right) -> Integer.compare(left.getStopIndex(), right.getStopIndex()));
-        for (int index = 0; index < plan.getPlanOrders().size(); index++) {
-            plan.getPlanOrders().get(index).setStopIndex(index);
+        List<Order> remaining = plan.getOrdersInStopOrder();
+        for (int index = 0; index < remaining.size(); index++) {
+            remaining.get(index).setPlanStopIndex(index);
         }
-        List<Order> remaining = plan.getPlanOrders().stream()
-                .map(DispatchPlanOrder::getOrder)
-                .toList();
         double distanceKm = estimateRouteDistanceKm(plan.getTenant(), remaining);
         plan.setRouteWaypoints(serializeOrdersAsWaypoints(remaining));
         plan.setTotalDistanceKm(BigDecimal.valueOf(distanceKm));
@@ -791,11 +918,12 @@ public class DispatchOrchestrationService {
                 && tenant.getOptimizationWeights().getCostWeight() != null
                         ? tenant.getOptimizationWeights().getCostWeight()
                         : 0.5;
-        return new double[] {timeWeight, costWeight};
+        return new double[] { timeWeight, costWeight };
     }
 
     /**
-     * Dynamically inserts a new order into an active DISPATCHED plan using OR-Tools POST /optimize/insert while preserving completed stops (P3.4).
+     * Dynamically inserts a new order into an active DISPATCHED plan using OR-Tools
+     * POST /optimize/insert while preserving completed stops (P3.4).
      */
     @Transactional
     public DispatchPlan insertOrderIntoActivePlan(
@@ -812,6 +940,9 @@ public class DispatchOrchestrationService {
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         if (!newOrder.getTenant().getId().equals(plan.getTenant().getId())) {
             throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+        if (!newOrder.canJoinDispatchPlan()) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
         Tenant tenant = plan.getTenant();
@@ -854,7 +985,6 @@ public class DispatchOrchestrationService {
         plan.setUpdatedAt(Instant.now());
 
         newOrder.setStatus(OrderStatus.PLANNED);
-        newOrder.setPlanId(plan.getId());
         if (plan.getDriverId() != null) {
             newOrder.setAssignedDriverId(plan.getDriverId());
             DeliveryTask task = deliveryExecutionService.assign(newOrder, plan.getDriverId());
@@ -925,10 +1055,8 @@ public class DispatchOrchestrationService {
     }
 
     private List<RouteStopState> buildCurrentStopStates(DispatchPlan plan) {
-        return plan.getPlanOrders().stream()
-                .sorted((a, b) -> Integer.compare(a.getStopIndex(), b.getStopIndex()))
-                .map(po -> {
-                    Order o = po.getOrder();
+        return plan.getOrdersInStopOrder().stream()
+                .map(o -> {
                     boolean completed = o.getStatus() == OrderStatus.DELIVERED
                             || deliveryTaskRepository.findByOrder_IdAndTaskType(o.getId(), "DELIVERY")
                                     .map(t -> t.getStatus() == DeliveryTaskStatus.COMPLETED)
@@ -949,28 +1077,28 @@ public class DispatchOrchestrationService {
             DispatchPlan plan,
             List<BatchOptimizationResponse.OrderedStop> orderedStops,
             Order newlyInsertedOrder) {
-        Map<UUID, Integer> indexByOrderId = new LinkedHashMap<>();
+        Map<String, Order> ordersById = new LinkedHashMap<>();
+        plan.getOrders().forEach(order -> ordersById.put(order.getId().toString(), order));
+        if (newlyInsertedOrder != null) {
+            ordersById.put(newlyInsertedOrder.getId().toString(), newlyInsertedOrder);
+        }
+
+        Set<String> returnedIds = new HashSet<>();
+        if (orderedStops == null || orderedStops.size() != ordersById.size()
+                || orderedStops.stream().anyMatch(stop ->
+                        !ordersById.containsKey(stop.stopId()) || !returnedIds.add(stop.stopId()))) {
+            throw new AppException(ErrorCode.OPERATIONS_NOT_READY);
+        }
+
+        int stopIndex = 1;
         for (BatchOptimizationResponse.OrderedStop stop : orderedStops) {
-            indexByOrderId.put(UUID.fromString(stop.stopId()), stop.stopIndex());
-        }
-
-        for (DispatchPlanOrder po : plan.getPlanOrders()) {
-            Integer newIdx = indexByOrderId.get(po.getOrder().getId());
-            if (newIdx != null) {
-                po.setStopIndex(newIdx);
+            Order order = ordersById.get(stop.stopId());
+            if (order == newlyInsertedOrder) {
+                plan.addOrder(order, stopIndex);
+            } else {
+                order.setPlanStopIndex(stopIndex);
             }
-        }
-
-        if (newlyInsertedOrder != null
-                && plan.getPlanOrders().stream()
-                        .noneMatch(po -> po.getOrder().getId().equals(newlyInsertedOrder.getId()))) {
-            int stopIdx = indexByOrderId.getOrDefault(newlyInsertedOrder.getId(), plan.getPlanOrders().size() + 1);
-            plan.getPlanOrders().add(DispatchPlanOrder.builder()
-                    .id(new DispatchPlanOrderId(plan.getId(), newlyInsertedOrder.getId()))
-                    .plan(plan)
-                    .order(newlyInsertedOrder)
-                    .stopIndex(stopIdx)
-                    .build());
+            stopIndex++;
         }
     }
 
@@ -980,41 +1108,6 @@ public class DispatchOrchestrationService {
 
     private UUID selectCandidateDriver(UUID tenantId) {
         return selectAlternativeDriver(tenantId, null);
-    }
-
-    private List<UUID> selectAvailableDrivers(UUID tenantId) {
-        List<UUID> allFleetDrivers = new ArrayList<>();
-        try {
-            OperationalReadinessService.FleetState fleet = operationalReadinessService.fleetState(tenantId);
-            if (fleet != null && fleet.available() && fleet.drivers() != null) {
-                for (Map<String, Object> driver : fleet.drivers()) {
-                    Object rawId = driver.get("user_id") != null ? driver.get("user_id") : driver.get("driver_id");
-                    if (rawId != null) {
-                        UUID candidate = UUID.fromString(String.valueOf(rawId));
-                        if (!allFleetDrivers.contains(candidate)) {
-                            allFleetDrivers.add(candidate);
-                        }
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            log.warn("Could not fetch available drivers for tenant {}: {}", tenantId, ex.getMessage());
-        }
-        if (allFleetDrivers.isEmpty()) {
-            return allFleetDrivers;
-        }
-        java.util.Set<UUID> busyDriverIds = new java.util.HashSet<>();
-        dispatchPlanRepository.findAllByTenantIdAndPlanStatusIn(
-                tenantId, List.of(PlanStatus.APPROVED, PlanStatus.DISPATCHED))
-                .stream()
-                .map(DispatchPlan::getDriverId)
-                .filter(java.util.Objects::nonNull)
-                .forEach(busyDriverIds::add);
-
-        List<UUID> freeDrivers = allFleetDrivers.stream()
-                .filter(driverId -> !busyDriverIds.contains(driverId))
-                .toList();
-        return !freeDrivers.isEmpty() ? freeDrivers : allFleetDrivers;
     }
 
     private UUID selectAlternativeDriver(UUID tenantId, UUID excludeDriverId) {
@@ -1138,11 +1231,7 @@ public class DispatchOrchestrationService {
     }
 
     private LocationPoint resolvePlanOrigin(DispatchPlan plan, Double driverLat, Double driverLng) {
-        List<Order> planOrders = plan.getPlanOrders().stream()
-                .sorted((a, b) -> Integer.compare(a.getStopIndex(), b.getStopIndex()))
-                .map(DispatchPlanOrder::getOrder)
-                .toList();
-        LocationPoint depot = resolveDepot(plan.getTenant(), planOrders);
+        LocationPoint depot = resolveDepot(plan.getTenant(), plan.getOrdersInStopOrder());
         return new LocationPoint(
                 driverLat != null ? driverLat : depot.lat(),
                 driverLng != null ? driverLng : depot.lng(),
@@ -1260,7 +1349,7 @@ public class DispatchOrchestrationService {
         payload.put("driver_id", plan.getDriverId() != null ? plan.getDriverId().toString() : null);
         payload.put("total_distance_km", plan.getTotalDistanceKm());
         payload.put("estimated_duration_minutes", plan.getEstimatedDurationMinutes());
-        payload.put("order_count", plan.getPlanOrders().size());
+        payload.put("order_count", plan.getOrders().size());
         return payload;
     }
 }

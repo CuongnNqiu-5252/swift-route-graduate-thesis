@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
 
 import com.swiftroute.authservice.entity.TenantMembership;
@@ -22,6 +23,7 @@ public interface TenantMembershipRepository extends JpaRepository<TenantMembersh
 
     List<TenantMembership> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 
+    @EntityGraph(attributePaths = "user")
     List<TenantMembership> findByTenantIdAndStatusOrderByCreatedAtDesc(UUID tenantId, TenantMembershipStatus status);
 
     Optional<TenantMembership> findByIdAndTenantId(UUID id, UUID tenantId);

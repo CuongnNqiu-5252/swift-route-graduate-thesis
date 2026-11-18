@@ -1,8 +1,5 @@
 package com.swiftroute.orderservice.controller;
 
-import org.springframework.web.bind.annotation.RequestParam;
-import com.swiftroute.orderservice.dto.response.PageRequests;
-import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,19 +14,27 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.swiftroute.orderservice.dto.request.ApprovePlanRequest;
 import com.swiftroute.orderservice.dto.request.CancelPlanRequest;
+import com.swiftroute.orderservice.dto.request.MovePlanStopRequest;
+import com.swiftroute.orderservice.dto.request.ReorderPlanStopsRequest;
 import com.swiftroute.orderservice.dto.request.StartSimulationRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.DispatchPlanResponse;
+import com.swiftroute.orderservice.dto.response.PageRequests;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import com.swiftroute.orderservice.entity.DispatchPlan;
+import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.enums.PlanStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.DispatchPlanRepository;
+import com.swiftroute.orderservice.security.TenantRequestInterceptor;
 import com.swiftroute.orderservice.service.TrackingSimulationService;
 import com.swiftroute.orderservice.service.planning.DispatchOrchestrationService;
 import com.swiftroute.orderservice.service.planning.PlanningTriggerScheduler;
@@ -41,10 +46,12 @@ import lombok.RequiredArgsConstructor;
 /**
  * REST API for dispatch plan lifecycle management.
  *
- * <p>All endpoints require the caller to have MANAGER or ADMIN role
+ * <p>
+ * All endpoints require the caller to have MANAGER or ADMIN role
  * (enforced by the API Gateway filter).
  *
- * <p>Base path: {@code /api/orders/dispatch}
+ * <p>
+ * Base path: {@code /api/orders/dispatch}
  */
 @RestController
 @RequestMapping("/api/orders/dispatch")
@@ -77,8 +84,9 @@ public class DispatchController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "15") int size,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
-        return ApiResponse.success(PageResponse.fromPage(dispatchPlanRepository.findByTenantId(requireTenantId(tenantId),
-                PageRequests.newestFirst(page, size, "createdAt")).map(this::toResponse)));
+        return ApiResponse
+                .success(PageResponse.fromPage(dispatchPlanRepository.findByTenantId(requireTenantId(tenantId),
+                        PageRequests.newestFirst(page, size, "createdAt")).map(this::toResponse)));
     }
 
     @GetMapping("/driver-plans")
@@ -99,12 +107,52 @@ public class DispatchController {
     // Commands
     // -------------------------------------------------------------------------
 
-    @PostMapping("/trigger")
-    @Operation(summary = "Manually trigger a planning cycle for the calling tenant")
-    public ResponseEntity<ApiResponse<String>> triggerManual(
+    @PostMapping({ "/trigger" })
+    @Operation(summary = "Create unassigned draft routes for eligible orders and return the planning result")
+    public ResponseEntity<ApiResponse<ManualPlanningResult>> triggerManual(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
-        planningTriggerScheduler.triggerManual(requireTenantId(tenantId));
-        return ResponseEntity.accepted().body(ApiResponse.success("Planning cycle triggered."));
+        var cycle = planningTriggerScheduler.triggerManual(requireTenantId(tenantId));
+        return ResponseEntity.ok(ApiResponse.success(new ManualPlanningResult(
+                cycle.outcome(), cycle.plans().stream().map(DispatchPlan::getId).toList())));
+    }
+
+    public record ManualPlanningResult(String outcome, @JsonProperty("plan_ids") List<UUID> planIds) {
+    }
+
+    @PostMapping("/plans/{planId}/stop-order")
+    @Operation(summary = "Reorder and measure stops on an unassigned draft plan")
+    public ApiResponse<DispatchPlanResponse> reorderStops(
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role,
+            @PathVariable UUID planId,
+            @Valid @RequestBody ReorderPlanStopsRequest request) {
+        if ("DRIVER".equalsIgnoreCase(role) || !TenantRequestInterceptor.isAuthorizedForPermission(
+                role, "dispatch:execute", Set.of("TENANT_ADMIN", "OPERATOR"))) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        return ApiResponse.success(toResponse(orchestrationService.reorderDraftStops(
+                requireTenantId(tenantId), planId, request)));
+    }
+
+    @PostMapping("/plans/move-stop")
+    @Operation(summary = "Move a stop between two unassigned draft plans and re-measure both routes")
+    public ApiResponse<MoveStopResponse> moveStop(
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role,
+            @Valid @RequestBody MovePlanStopRequest request) {
+        if ("DRIVER".equalsIgnoreCase(role) || !TenantRequestInterceptor.isAuthorizedForPermission(
+                role, "dispatch:execute", Set.of("TENANT_ADMIN", "OPERATOR"))) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        var result = orchestrationService.moveDraftStop(requireTenantId(tenantId), request);
+        return ApiResponse.success(new MoveStopResponse(
+                result.sourcePlan() != null ? toResponse(result.sourcePlan()) : null,
+                toResponse(result.targetPlan())));
+    }
+
+    public record MoveStopResponse(
+            @JsonProperty("source_plan") DispatchPlanResponse sourcePlan,
+            @JsonProperty("target_plan") DispatchPlanResponse targetPlan) {
     }
 
     @PostMapping("/plans/{planId}/approve")
@@ -167,6 +215,13 @@ public class DispatchController {
         return ResponseEntity.ok(ApiResponse.success(toResponse(plan)));
     }
 
+    @GetMapping(value = "/drivers/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Subscribe to real-time SSE GPS tracking stream for all streaming drivers in the tenant")
+    public SseEmitter streamFleetTracking(
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
+        return trackingSimulationService.subscribeFleet(requireTenantId(tenantId));
+    }
+
     @GetMapping(value = "/plans/{planId}/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Subscribe to real-time SSE GPS tracking stream for a dispatch plan")
     public SseEmitter streamPlanTracking(
@@ -183,8 +238,8 @@ public class DispatchController {
             @PathVariable UUID planId,
             @Valid @RequestBody StartSimulationRequest request) {
         DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
-        List<UUID> orderIds = plan.getPlanOrders().stream()
-                .map(po -> po.getOrder().getId())
+        List<UUID> orderIds = plan.getOrdersInStopOrder().stream()
+                .map(Order::getId)
                 .toList();
         trackingSimulationService.startRouteSimulation(
                 planId,
@@ -204,8 +259,8 @@ public class DispatchController {
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @PathVariable UUID planId) {
         DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
-        List<UUID> orderIds = plan.getPlanOrders().stream()
-                .map(po -> po.getOrder().getId())
+        List<UUID> orderIds = plan.getOrdersInStopOrder().stream()
+                .map(Order::getId)
                 .toList();
         trackingSimulationService.stopRouteSimulation(planId, orderIds);
         return ResponseEntity.ok(ApiResponse.success(Map.of(
@@ -221,17 +276,6 @@ public class DispatchController {
             @PathVariable UUID orderId) {
         findPlanInTenant(planId, requireTenantId(tenantId));
         DispatchPlan plan = orchestrationService.insertOrderIntoActivePlan(planId, orderId, null, null);
-        return ResponseEntity.ok(ApiResponse.success(toResponse(plan)));
-    }
-
-    @PostMapping("/plans/{planId}/reoptimize")
-    @Operation(summary = "Safely reoptimize remaining uncompleted stops of an active DISPATCHED plan")
-    public ResponseEntity<ApiResponse<DispatchPlanResponse>> reoptimizePlan(
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
-            @PathVariable UUID planId) {
-        findPlanInTenant(planId, requireTenantId(tenantId));
-        DispatchPlan plan = orchestrationService.reoptimizeActivePlan(
-                planId, "MANUAL_REOPTIMIZE", null, null);
         return ResponseEntity.ok(ApiResponse.success(toResponse(plan)));
     }
 
@@ -268,9 +312,8 @@ public class DispatchController {
     // -------------------------------------------------------------------------
 
     private DispatchPlanResponse toResponse(DispatchPlan plan) {
-        List<UUID> stopIds = plan.getPlanOrders().stream()
-                .sorted((a, b) -> Integer.compare(a.getStopIndex(), b.getStopIndex()))
-                .map(po -> po.getOrder().getId())
+        List<UUID> stopIds = plan.getOrdersInStopOrder().stream()
+                .map(Order::getId)
                 .toList();
         return new DispatchPlanResponse(
                 plan.getId(),
@@ -282,19 +325,18 @@ public class DispatchController {
                 plan.getEstimatedDurationMinutes(),
                 plan.getTriggerType() != null ? plan.getTriggerType().name() : null,
                 plan.getRequiresApproval(),
-                plan.getPlanOrders().size(),
+                stopIds.size(),
                 stopIds,
                 plan.getPlannedAt(),
                 plan.getApprovedAt(),
                 plan.getDispatchedAt(),
-                plan.getCancelledAt(),
-                plan.getCancelReason(),
                 plan.getAckDeadlineAt(),
                 plan.getAcknowledgedAt(),
                 plan.getDeclinedAt(),
                 plan.getDeclineReason(),
                 plan.getReassignmentCount(),
                 plan.getRouteWaypoints(),
-                plan.getCreatedAt());
+                plan.getCreatedAt(),
+                plan.getVersion());
     }
 }

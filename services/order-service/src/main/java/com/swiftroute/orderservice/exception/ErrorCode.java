@@ -48,6 +48,7 @@ public enum ErrorCode {
     INVALID_TENANT_STATUS_TRANSITION(409, "Không thể chuyển trạng thái doanh nghiệp theo yêu cầu", HttpStatus.CONFLICT),
     EMAIL_NOT_VERIFIED(403, "Verify email before creating an organization", HttpStatus.FORBIDDEN),
     CONCURRENT_UPDATE(409, "Data changed concurrently; refresh and retry", HttpStatus.CONFLICT),
+    ROUTE_MEASUREMENT_UNAVAILABLE(503, "Chưa tính lại được đường đi, vui lòng thử lại", HttpStatus.SERVICE_UNAVAILABLE),
     IDEMPOTENCY_CONFLICT(409, "Idempotency key was already used for a different request", HttpStatus.CONFLICT),
     VERIFICATION_INCOMPLETE(422, "Complete business profile, pickup point and delivery settings before submission", HttpStatus.UNPROCESSABLE_ENTITY),
     VERIFICATION_NOT_FOUND(404, "Verification request not found", HttpStatus.NOT_FOUND),
@@ -59,7 +60,6 @@ public enum ErrorCode {
     // ===== Lỗi nghiệp vụ Dispatch Plan =====
     PLAN_NOT_FOUND(404, "Không tìm thấy kế hoạch điều phối", HttpStatus.NOT_FOUND),
     INVALID_PLAN_STATUS(400, "Trạng thái kế hoạch không hợp lệ hoặc không thể chuyển đổi", HttpStatus.BAD_REQUEST),
-    PLAN_ALREADY_CANCELLED(400, "Kế hoạch điều phối đã bị huỷ, không thể cập nhật", HttpStatus.BAD_REQUEST),
 
     // ===== Lỗi nghiệp vụ Pickup Locations =====
     PICKUP_LOCATION_NOT_FOUND(404, "Điểm lấy hàng không tồn tại hoặc không thuộc doanh nghiệp của bạn", HttpStatus.NOT_FOUND),

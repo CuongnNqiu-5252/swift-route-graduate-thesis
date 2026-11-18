@@ -1,39 +1,55 @@
 'use client';
 
-import { useLocale } from '@/i18n/provider';
-
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
-import type { GeoJSONSource } from 'maplibre-gl';
-import { AlertTriangle, LoaderCircle, MapPinned, Route } from 'lucide-react';
-import { useRoadRoute } from '@/application/hooks/use-road-route';
-import { DispatchDepot, OptimizationStop } from '@/domain/entities/routing.entity';
-import { formatRoadDistance } from '@/lib/route-format';
 import type { TrackingSignal } from '@/application/hooks/use-order-live-tracking';
+import { useRoadRoute } from '@/application/hooks/use-road-route';
+import {
+  DispatchDepot,
+  MapDriverMarker,
+  MapOverviewRoute,
+  MapPlanHighlight,
+} from '@/domain/entities/routing.entity';
+import { useLocale } from '@/i18n/provider';
+import { MapPinned, Route } from 'lucide-react';
+import type { GeoJSONSource } from 'maplibre-gl';
+import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { RouteMapLayers, TRAFFIC_LAYER_ID } from './route-map-layers';
+
 
 if (typeof window !== 'undefined') {
   setWorkerUrl('/maplibre-gl-worker.mjs');
 }
+const EMPTY_OVERVIEW_ROUTES: MapOverviewRoute[] = [];
+const EMPTY_LEGS: readonly (number | null)[] = [];
 
 interface RouteMapInnerProps {
   depot: DispatchDepot | null;
-  stops: OptimizationStop[];
+  overviewRoutes?: MapOverviewRoute[];
+  selectedOverviewRouteId?: string | null;
+  highlightedPlan?: MapPlanHighlight | null;
+  previewOverviewRoute?: MapOverviewRoute;
+  showPlanDetails?: boolean;
+  onSelectOverviewRoute?: (planId: string) => void;
+  fleetDrivers?: MapDriverMarker[];
   driver?: [number, number];
   driverName?: string;
   driverVehicle?: string;
   trackingSignal?: TrackingSignal;
-  driverIncident?: { id: string; label: string; count: number };
-  routeOrigin?: [number, number];
-  skipPickup?: boolean;
-  onPickOrigin?: (position: [number, number]) => void;
-  onRouteMetricsChange?: (metrics: { distanceMeters: number; durationSeconds: number } | null) => void;
-  onRouteCoordinatesChange?: (waypoints: Array<{ lat: number; lng: number }>) => void;
 }
 
-function markerElement(label: string, tone: 'depot' | 'stop' | 'driver' | 'origin') {
+function markerElement(
+  label: string,
+  tone: 'depot' | 'stop' | 'driver' | 'origin',
+  signal: TrackingSignal = 'live',
+  customColor?: string,
+) {
+  // MapLibre owns the transform of the outer element for positioning, so every
+  // visual effect (scale, ring, colors) must be applied to the inner pin only.
+  const container = document.createElement('div');
   const element = document.createElement('button');
   element.type = 'button';
+  element.dataset.markerPin = 'true';
   element.textContent = label;
   element.setAttribute(
     'aria-label',
@@ -45,28 +61,69 @@ function markerElement(label: string, tone: 'depot' | 'stop' | 'driver' | 'origi
           ? 'Điểm bắt đầu giả lập'
           : `Xem điểm giao ${label}`,
   );
+  const isLiveDriver = tone === 'driver' && signal === 'live';
+  const background = tone === 'depot'
+    ? '#0f172a'
+    : tone === 'driver'
+      ? (isLiveDriver ? '#059669' : '#64748b')
+      : tone === 'origin'
+        ? '#0284c7'
+        : (customColor || '#dc2626');
   Object.assign(element.style, {
     width: tone === 'depot' ? '36px' : tone === 'driver' || tone === 'origin' ? '34px' : '30px',
     height: tone === 'depot' ? '36px' : tone === 'driver' || tone === 'origin' ? '34px' : '30px',
     borderRadius: tone === 'depot' ? '11px' : '50%',
     border: '3px solid white',
-    background: tone === 'depot'
-      ? '#0f172a'
-      : tone === 'driver'
-        ? '#059669'
-        : tone === 'origin'
-          ? '#0284c7'
-          : '#dc2626',
+    background,
     color: 'white',
     fontSize: '12px',
     fontWeight: '800',
-    boxShadow: tone === 'driver'
+    boxShadow: isLiveDriver
       ? '0 0 0 6px rgb(5 150 105 / 26%), 0 6px 18px rgb(15 23 42 / 34%)'
       : '0 6px 18px rgb(15 23 42 / 30%)',
     cursor: 'pointer',
-    zIndex: tone === 'driver' ? '20' : tone === 'origin' ? '15' : '10',
+    transition: 'transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease',
+    transformOrigin: 'center',
   });
-  return element;
+  container.style.zIndex = isLiveDriver ? '20' : tone === 'driver' ? '18' : tone === 'origin' ? '15' : '10';
+  container.append(element);
+  return container;
+}
+
+/** Returns the visual pin inside a marker element created by markerElement(). */
+function markerPin(container: HTMLElement): HTMLElement {
+  return container.querySelector<HTMLElement>('[data-marker-pin]') ?? container;
+}
+
+function animateLngLat(
+  from: [number, number],
+  target: [number, number],
+  onFrame: (position: [number, number]) => void,
+  onDone: () => void,
+): number | null {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    onFrame(target);
+    onDone();
+    return null;
+  }
+  const startedAt = performance.now();
+  const duration = 850;
+  let rafId = 0;
+  const tick = (now: number) => {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    onFrame([
+      from[0] + (target[0] - from[0]) * eased,
+      from[1] + (target[1] - from[1]) * eased,
+    ]);
+    if (progress < 1) {
+      rafId = window.requestAnimationFrame(tick);
+    } else {
+      onDone();
+    }
+  };
+  rafId = window.requestAnimationFrame(tick);
+  return rafId;
 }
 
 function popupContent(title: string, body: string, meta: string) {
@@ -85,119 +142,316 @@ function popupContent(title: string, body: string, meta: string) {
   return root;
 }
 
+const EMPTY_FLEET_DRIVERS: MapDriverMarker[] = [];
+interface OverviewRoadLineProps {
+  map: MapLibreMap;
+  route: MapOverviewRoute;
+  isSelected: boolean;
+  hasSelection: boolean;
+  highlightedStopId?: string;
+  onSelect?: (planId: string) => void;
+}
+
+function OverviewRoadLine({
+  map,
+  route,
+  isSelected,
+  hasSelection,
+  highlightedStopId,
+  onSelect,
+}: OverviewRoadLineProps) {
+  const points = useMemo(
+    () =>
+      route.stops
+        .map((stop) => stop.location)
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+    [route.stops],
+  );
+
+  const road = useRoadRoute(points);
+
+  const sourceId = `overview-source-${route.id}`;
+  const layerId = `overview-layer-${route.id}`;
+  const casingLayerId = `overview-casing-${route.id}`;
+  const hitLayerId = `overview-hit-${route.id}`;
+
+  const onSelectRef = useRef(onSelect);
+  const stopMarkers = useRef<Marker[]>([]);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  // Draw stop markers for this plan cluster
+  useEffect(() => {
+    const markers = route.stops.map((stop, index) => {
+      const element = markerElement(
+        String(index + 1),
+        'stop',
+        'live',
+        route.color,
+      );
+      element.addEventListener('click', () => {
+        onSelectRef.current?.(route.id);
+      });
+      return new Marker({ element })
+        .setLngLat([stop.location.lng, stop.location.lat])
+        .setPopup(
+          new Popup({ offset: 20, closeButton: false }).setDOMContent(
+            popupContent(
+              `${route.label} · Điểm ${index + 1}`,
+              stop.order?.delivery_address ?? 'Chưa có địa chỉ',
+              [
+                stop.order?.order_code ? `Đơn ${stop.order.order_code}` : null,
+                route.driverName ? `TX ${route.driverName}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Điểm giao hàng',
+            ),
+          ),
+        )
+        .addTo(map);
+    });
+    stopMarkers.current = markers;
+    return () => {
+      markers.forEach((marker) => marker.remove());
+      stopMarkers.current = [];
+    };
+  }, [map, route]);
+
+  useEffect(() => {
+    stopMarkers.current.forEach((marker, index) => {
+      const element = marker.getElement();
+      const pin = markerPin(element);
+      const isStopHighlighted = route.stops[index].id === highlightedStopId;
+      element.style.zIndex = isStopHighlighted ? '28' : isSelected ? '16' : '8';
+      pin.style.opacity = hasSelection && !isSelected ? '0.45' : '1';
+      pin.style.transform = isStopHighlighted ? 'scale(1.4)' : isSelected ? 'scale(1.08)' : '';
+      pin.style.outline = isStopHighlighted ? '2px solid #0f172a' : '';
+      pin.style.outlineOffset = isStopHighlighted ? '2px' : '';
+    });
+  }, [map, route, isSelected, hasSelection, highlightedStopId]);
+
+  // 3. Initialize Source, visible line Layer, and wider transparent hit Layer
+  useEffect(() => {
+    if (!map.getStyle()) return;
+    if (!map.getSource(sourceId)) {
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: [],
+        },
+      });
+    }
+
+    if (!map.getLayer(casingLayerId)) {
+      map.addLayer({
+        id: casingLayerId,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': 0.9 },
+      });
+    }
+
+    if (!map.getLayer(layerId)) {
+      map.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+        paint: {
+          'line-color': route.color,
+          'line-width': 5,
+          'line-opacity': 0.88,
+        },
+      });
+    }
+
+    if (!map.getLayer(hitLayerId)) {
+      map.addLayer({
+        id: hitLayerId,
+        type: 'line',
+        source: sourceId,
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+        paint: {
+          'line-color': route.color,
+          'line-width': 18,
+          'line-opacity': 0,
+        },
+      });
+    }
+
+    const handleClick = () => {
+      onSelectRef.current?.(route.id);
+    };
+    const handleMouseEnter = () => {
+      map.getCanvas().style.cursor = 'pointer';
+    };
+    const handleMouseLeave = () => {
+      map.getCanvas().style.cursor = '';
+    };
+
+    map.on('click', hitLayerId, handleClick);
+    map.on('mouseenter', hitLayerId, handleMouseEnter);
+    map.on('mouseleave', hitLayerId, handleMouseLeave);
+
+    return () => {
+      if (!map.getStyle()) return;
+      map.off('click', hitLayerId, handleClick);
+      map.off('mouseenter', hitLayerId, handleMouseEnter);
+      map.off('mouseleave', hitLayerId, handleMouseLeave);
+      map.getCanvas().style.cursor = '';
+
+      if (map.getLayer(hitLayerId)) {
+        map.removeLayer(hitLayerId);
+      }
+      if (map.getLayer(layerId)) {
+        map.removeLayer(layerId);
+      }
+      if (map.getLayer(casingLayerId)) {
+        map.removeLayer(casingLayerId);
+      }
+      if (map.getSource(sourceId)) {
+        map.removeSource(sourceId);
+      }
+    };
+  }, [map, sourceId, layerId, casingLayerId, hitLayerId, route.id, route.color]);
+
+  // 4. Update color, width & opacity when route.color or selection changes
+  useEffect(() => {
+    if (!map.getStyle() || !map.getLayer(layerId)) return;
+    map.setPaintProperty(layerId, 'line-color', route.color);
+    map.setPaintProperty(layerId, 'line-width', isSelected ? 7.5 : hasSelection ? 3.5 : 5);
+    map.setPaintProperty(layerId, 'line-opacity', isSelected ? 1 : hasSelection ? 0.42 : 0.88);
+    if (map.getLayer(casingLayerId)) {
+      map.setPaintProperty(casingLayerId, 'line-width', isSelected ? 11.5 : hasSelection ? 6 : 8);
+      map.setPaintProperty(casingLayerId, 'line-opacity', isSelected ? 0.95 : hasSelection ? 0.35 : 0.9);
+    }
+    if (isSelected) {
+      if (map.getLayer(casingLayerId)) map.moveLayer(casingLayerId);
+      map.moveLayer(layerId);
+      if (map.getLayer(hitLayerId)) map.moveLayer(hitLayerId);
+    }
+  }, [map, layerId, casingLayerId, hitLayerId, route.color, isSelected, hasSelection]);
+
+  // 5. Update GeoJSON using street coordinates or straight-line fallback
+  useEffect(() => {
+    if (!map.getStyle()) return;
+    const source = map.getSource(sourceId) as GeoJSONSource | undefined;
+    if (!source) return;
+
+    const hasStreetRoute = !road.error && road.coordinates.length > 1;
+    const coordinates: [number, number][] = hasStreetRoute
+      ? road.coordinates
+      : points.map((point) => [point.lng, point.lat]);
+
+    const geojson = {
+      type: 'FeatureCollection' as const,
+      features: coordinates.length > 1
+        ? [{
+          type: 'Feature' as const,
+          properties: {
+            planId: route.id,
+          },
+          geometry: {
+            type: 'LineString' as const,
+            coordinates,
+          },
+        }]
+        : [],
+    };
+
+    source.setData(geojson);
+    if (map.getLayer(layerId)) {
+      map.setPaintProperty(layerId, 'line-dasharray', hasStreetRoute ? [1, 0] : [2, 2]);
+    }
+  }, [map, sourceId, layerId, route.id, points, road.coordinates, road.error]);
+
+  return null;
+}
 export default function RouteMapInner({
   depot,
-  stops,
+  overviewRoutes = EMPTY_OVERVIEW_ROUTES,
+  showPlanDetails = false,
+  selectedOverviewRouteId = null,
+  highlightedPlan,
+  previewOverviewRoute,
+  onSelectOverviewRoute,
+  fleetDrivers = EMPTY_FLEET_DRIVERS,
   driver,
   driverName,
   driverVehicle,
   trackingSignal = 'waiting',
-  driverIncident,
-  routeOrigin,
-  skipPickup = false,
-  onPickOrigin,
-  onRouteMetricsChange,
-  onRouteCoordinatesChange,
 }: RouteMapInnerProps) {
   const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<Marker[]>([]);
   const driverMarkerRef = useRef<Marker | null>(null);
-  const originMarkerRef = useRef<Marker | null>(null);
-  const incidentMarkerRef = useRef<Marker | null>(null);
+  const fleetMarkersRef = useRef<Map<string, { marker: Marker; animationFrame: number | null; displayed: [number, number] }>>(new Map());
   const driverAnimationFrameRef = useRef<number | null>(null);
   const displayedDriverRef = useRef<[number, number] | null>(null);
   const styleReadyRef = useRef(false);
+  const [readyMap, setReadyMap] = useState<MapLibreMap | null>(null);
   const [mapError, setMapError] = useState('');
-  const pickOriginRef = useRef(onPickOrigin);
-  useEffect(() => {
-    pickOriginRef.current = onPickOrigin;
-  }, [onPickOrigin]);
   const mapKey = process.env.NEXT_PUBLIC_GOONG_MAP_KEY;
-  const hasDepot = Boolean(depot);
-  const depotRef = useRef(depot);
-  useEffect(() => {
-    depotRef.current = depot;
-  }, [depot]);
-  const pointsKey = useMemo(() => {
-    if (!depot) return '';
-    const raw = [
-      ...(routeOrigin ? [{ lat: routeOrigin[0], lng: routeOrigin[1] }] : []),
-      ...(!skipPickup ? [{ lat: depot.lat, lng: depot.lng }] : []),
-      ...stops.map((stop) => ({ lat: stop.location.lat, lng: stop.location.lng })),
-    ].filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
-    return raw.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`).join('|');
-  }, [depot, stops, routeOrigin, skipPickup]);
-
-  const points = useMemo(
-    () =>
-      pointsKey
-        ? pointsKey.split('|').map((pair) => {
-            const [lat, lng] = pair.split(',').map(Number);
-            return { lat, lng };
-          })
-        : [],
-    [pointsKey],
-  );
-  const route = useRoadRoute(points);
-
-  const lastMetricsKeyRef = useRef<string>('');
-  const lastWaypointsKeyRef = useRef<string>('');
+  const firstFleetDriver = fleetDrivers[0];
+  const firstOverviewDepot = overviewRoutes[0]?.depot;
+  const hasMapOrigin = Boolean(depot) || Boolean(firstFleetDriver) || Boolean(firstOverviewDepot);
+  const initialCenterRef = useRef<[number, number] | null>(null);
 
   useEffect(() => {
-    const metricsKey =
-      route.coordinates.length > 1
-        ? `${route.distanceMeters}:${route.durationSeconds}`
-        : 'null';
-    if (lastMetricsKeyRef.current !== metricsKey) {
-      lastMetricsKeyRef.current = metricsKey;
-      onRouteMetricsChange?.(
-        route.coordinates.length > 1
-          ? { distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds }
-          : null,
-      );
+    if (depot) {
+      initialCenterRef.current = [depot.lng, depot.lat];
+    } else if (firstFleetDriver) {
+      initialCenterRef.current = [firstFleetDriver.position[1], firstFleetDriver.position[0]];
+    } else if (firstOverviewDepot) {
+      initialCenterRef.current = [firstOverviewDepot.lng, firstOverviewDepot.lat];
+    } else {
+      initialCenterRef.current = null;
     }
-
-    const waypoints =
-      route.coordinates.length > 1
-        ? route.coordinates.map(([lng, lat]) => ({ lat, lng }))
-        : points;
-    const waypointsKey = waypoints
-      .map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`)
-      .join('|');
-    if (lastWaypointsKeyRef.current !== waypointsKey) {
-      lastWaypointsKeyRef.current = waypointsKey;
-      onRouteCoordinatesChange?.(waypoints);
-    }
-  }, [onRouteCoordinatesChange, onRouteMetricsChange, points, route.coordinates, route.distanceMeters, route.durationSeconds]);
-
+  }, [depot, firstFleetDriver, firstOverviewDepot]);
   useEffect(() => {
-    const initialDepot = depotRef.current;
-    if (!containerRef.current || mapRef.current || !mapKey || !hasDepot || !initialDepot) return;
+    const initialCenter = initialCenterRef.current;
+    if (!containerRef.current || mapRef.current || !mapKey || !hasMapOrigin || !initialCenter) return;
     styleReadyRef.current = false;
     const map = new MapLibreMap({
       container: containerRef.current,
       style: `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(mapKey)}`,
-      center: [initialDepot.lng, initialDepot.lat], zoom: 13, attributionControl: false,
+      center: initialCenter, zoom: 13, attributionControl: false,
     });
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(new AttributionControl({ compact: true, customAttribution: '© Goong' }), 'bottom-right');
     map.on('style.load', () => {
       styleReadyRef.current = true;
+      setReadyMap(map);
     });
+    map.on('styleimagemissing', (e) => {
+      if (!e.id || map.hasImage(e.id)) return;
+      map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+    });
+
+    map.on('remove', () => setReadyMap((current) => current === map ? null : current));
     map.on('load', () => {
       styleReadyRef.current = true;
       setMapError('');
     });
     map.on('error', (e) => {
+      if ('sourceId' in e && e.sourceId === TRAFFIC_LAYER_ID) return;
       console.error('[MapLibre error]', e);
       setMapError('Không tải được nền bản đồ Goong. Kiểm tra Map Key và kết nối mạng.');
     });
     mapRef.current = map;
-    map.on('click', (event) => pickOriginRef.current?.([event.lngLat.lat, event.lngLat.lng]));
     const resize = new ResizeObserver(() => map.resize());
     resize.observe(containerRef.current);
+    const fleetMarkers = fleetMarkersRef.current;
     return () => {
       resize.disconnect();
       styleReadyRef.current = false;
@@ -209,69 +463,94 @@ export default function RouteMapInner({
       }
       driverMarkerRef.current?.remove();
       driverMarkerRef.current = null;
-      originMarkerRef.current?.remove();
-      originMarkerRef.current = null;
+      fleetMarkers.forEach((entry) => {
+        if (entry.animationFrame !== null) {
+          window.cancelAnimationFrame(entry.animationFrame);
+        }
+        entry.marker.remove();
+      });
+      fleetMarkers.clear();
       displayedDriverRef.current = null;
-      incidentMarkerRef.current?.remove();
-      incidentMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
-  }, [hasDepot, mapKey]);
+  }, [hasMapOrigin, mapKey]);
 
-  // Static depot + delivery stop markers & camera bounds (does not re-run on 1s driver GPS ticks)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !depot) return;
-    markersRef.current.forEach((marker) => marker.remove());
-    const bounds = new LngLatBounds().extend([depot.lng, depot.lat]);
-    const depotMarker = new Marker({ element: markerElement('K', 'depot') })
-      .setLngLat([depot.lng, depot.lat])
-      .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popupContent(depot.name, depot.address, t("Kho xuất phát"))))
-      .addTo(map);
-    markersRef.current = [depotMarker, ...stops.map((stop, index) => {
-      bounds.extend([stop.location.lng, stop.location.lat]);
-      return new Marker({ element: markerElement(String(index + 1), 'stop') })
-        .setLngLat([stop.location.lng, stop.location.lat])
-        .setPopup(new Popup({ offset: 20, closeButton: false }).setDOMContent(popupContent(
-          `Điểm giao ${index + 1}`, stop.order?.delivery_address || t("Chưa có địa chỉ hiển thị"),
-          stop.order?.order_code ? `Đơn ${stop.order.order_code}` : 'Điểm trong kế hoạch',
-        ))).addTo(map);
-    })];
-    if (routeOrigin && Number.isFinite(routeOrigin[0]) && Number.isFinite(routeOrigin[1])) {
-      bounds.extend([routeOrigin[1], routeOrigin[0]]);
-    }
-    const frame = () => points.length === 1 && !routeOrigin
-      ? map.easeTo({ center: [depot.lng, depot.lat], zoom: 15, duration: 450 })
-      : map.fitBounds(bounds, { padding: 76, maxZoom: 15, duration: 550 });
-    if (styleReadyRef.current || map.loaded()) frame(); else map.once('load', frame);
-    return () => { map.off('load', frame); };
-  }, [depot, points.length, routeOrigin, stops, t]);
-
+  // Static depot + delivery stop markers & camera bounds (supports both single selected plan and multi-plan overview)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (driver || !routeOrigin || !Number.isFinite(routeOrigin[0]) || !Number.isFinite(routeOrigin[1])) {
-      originMarkerRef.current?.remove();
-      originMarkerRef.current = null;
+    markersRef.current.forEach((marker) => marker.remove());
+    markersRef.current = [];
+
+    if (overviewRoutes.length > 0) {
+      const selectedRoute = selectedOverviewRouteId
+        ? overviewRoutes.find((item) => item.id === selectedOverviewRouteId)
+        : undefined;
+      const bounds = new LngLatBounds();
+      const uniqueDepots = new Map<string, DispatchDepot>();
+
+      for (const item of overviewRoutes) {
+        const isSelected = selectedRoute?.id === item.id;
+        const depotKey = `${item.depot.lat.toFixed(5)}:${item.depot.lng.toFixed(5)}`;
+        if (!uniqueDepots.has(depotKey)) {
+          uniqueDepots.set(depotKey, item.depot);
+        }
+        if (!selectedRoute || isSelected) {
+          item.stops.forEach((stop) => {
+            bounds.extend([stop.location.lng, stop.location.lat]);
+          });
+        }
+      }
+
+      const depotMarkers: Marker[] = [];
+      for (const uniqueDepot of uniqueDepots.values()) {
+        if (!selectedRoute) {
+          bounds.extend([uniqueDepot.lng, uniqueDepot.lat]);
+        }
+        depotMarkers.push(
+          new Marker({ element: markerElement('K', 'depot') })
+            .setLngLat([uniqueDepot.lng, uniqueDepot.lat])
+            .setPopup(
+              new Popup({ offset: 22, closeButton: false }).setDOMContent(
+                popupContent(uniqueDepot.name, uniqueDepot.address, t('Kho xuất phát')),
+              ),
+            )
+            .addTo(map),
+        );
+      }
+
+      markersRef.current = depotMarkers;
+      if (!bounds.isEmpty()) {
+        const frame = () => {
+          map.resize();
+          const padding = selectedRoute && showPlanDetails && map.getContainer().clientWidth >= 640
+            ? { top: 64, left: 56, bottom: 56, right: 440 }
+            : { top: 56, left: 40, bottom: 40, right: 40 };
+          map.fitBounds(bounds, { padding, maxZoom: 15, duration: 550 });
+        };
+        if (styleReadyRef.current || map.loaded()) frame();
+        else map.once('load', frame);
+        return () => {
+          map.off('load', frame);
+        };
+      }
       return;
     }
-    const [lat, lng] = routeOrigin;
-    const popup = popupContent(
-      driverName ? `Xuất phát · ${driverName}` : 'Điểm bắt đầu giả lập',
-      `${driverVehicle ? `${driverVehicle} · ` : ''}Toạ độ ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-      'Chưa có GPS trực tiếp; bấm "Giả lập tài xế chạy" để mô phỏng từ vị trí này',
-    );
-    if (!originMarkerRef.current) {
-      originMarkerRef.current = new Marker({ element: markerElement('XP', 'origin') })
-        .setLngLat([lng, lat])
-        .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popup))
-        .addTo(map);
-    } else {
-      originMarkerRef.current.setLngLat([lng, lat]);
-      originMarkerRef.current.getPopup()?.setDOMContent(popup);
-    }
-  }, [driver, driverName, driverVehicle, routeOrigin]);
+
+    // No plan to show yet: only mark the default depot.
+    if (!depot) return;
+    markersRef.current = [
+      new Marker({ element: markerElement('K', 'depot') })
+        .setLngLat([depot.lng, depot.lat])
+        .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popupContent(depot.name, depot.address, t('Kho xuất phát')))
+        )
+        .addTo(map),
+    ];
+    const frame = () => map.easeTo({ center: [depot.lng, depot.lat], zoom: 15, duration: 450 });
+    if (styleReadyRef.current || map.loaded()) frame(); else map.once('load', frame);
+    return () => { map.off('load', frame); };
+  }, [depot, overviewRoutes, selectedOverviewRouteId, showPlanDetails, t]);
 
   // Smooth real-time driver marker update (runs every second on SSE location_update)
   useEffect(() => {
@@ -294,7 +573,7 @@ export default function RouteMapInner({
       trackingSignal === 'live' ? 'GPS trực tiếp từ ứng dụng tài xế' : 'Vị trí gần nhất nhận từ tài xế',
     );
     if (!driverMarkerRef.current) {
-      driverMarkerRef.current = new Marker({ element: markerElement('TX', 'driver') })
+      driverMarkerRef.current = new Marker({ element: markerElement('TX', 'driver', trackingSignal) })
         .setLngLat([lng, lat])
         .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popup))
         .addTo(map);
@@ -308,111 +587,143 @@ export default function RouteMapInner({
       const target: [number, number] = [lng, lat];
       const currentLngLat = driverMarkerRef.current.getLngLat();
       const from = displayedDriverRef.current ?? [currentLngLat.lng, currentLngLat.lat];
-      const updateMarkers = (position: [number, number]) => {
-        driverMarkerRef.current?.setLngLat(position);
-        incidentMarkerRef.current?.setLngLat(position);
-        displayedDriverRef.current = position;
-      };
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduceMotion) {
-        updateMarkers(target);
-        driverAnimationFrameRef.current = null;
-        return;
-      }
-
-      const startedAt = performance.now();
-      const duration = 850;
-      const animate = (now: number) => {
-        const progress = Math.min(1, (now - startedAt) / duration);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        updateMarkers([
-          from[0] + (target[0] - from[0]) * eased,
-          from[1] + (target[1] - from[1]) * eased,
-        ]);
-        if (progress < 1) {
-          driverAnimationFrameRef.current = window.requestAnimationFrame(animate);
-        } else {
+      driverAnimationFrameRef.current = animateLngLat(
+        from,
+        target,
+        (position) => {
+          driverMarkerRef.current?.setLngLat(position);
+          displayedDriverRef.current = position;
+        },
+        () => {
           driverAnimationFrameRef.current = null;
-        }
-      };
-      driverAnimationFrameRef.current = window.requestAnimationFrame(animate);
+        },
+      );
     }
-  }, [driver, driverName, driverVehicle, trackingSignal, t]);
+  }, [driver, driverName, driverVehicle, trackingSignal, hasMapOrigin, t]);
 
-  // A separate marker keeps the warning visible above the driver as GPS moves.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !driverIncident || !driver || !driver.every(Number.isFinite)) {
-      incidentMarkerRef.current?.remove();
-      incidentMarkerRef.current = null;
-      return;
-    }
-    const link = (incidentMarkerRef.current?.getElement() as HTMLAnchorElement | undefined)
-      ?? document.createElement('a');
-    link.href = `/operations?incident=${encodeURIComponent(driverIncident.id)}`;
-    link.textContent = `${driverIncident.count > 1 ? `${driverIncident.count} sự cố` : 'Có sự cố'} · Xử lý ngay`;
-    link.title = driverIncident.label;
-    link.setAttribute('aria-label', `${driverName || t("Tài xế")}: ${driverIncident.label}. Mở xử lý sự cố`);
-    if (!incidentMarkerRef.current) {
-      link.className = 'rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 hover:bg-rose-800';
-      link.addEventListener('click', (event) => event.stopPropagation());
-      const displayedPosition = displayedDriverRef.current ?? [driver[1], driver[0]];
-      incidentMarkerRef.current = new Marker({ element: link, anchor: 'bottom', offset: [0, -27] })
-        .setLngLat(displayedPosition)
-        .addTo(map);
-    }
-  }, [driver, driverIncident, driverName, t]);
-
+  // Real-time markers for all streaming drivers in the tenant fleet
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const coordinates = points.length < 2
-      ? []
-      : route.coordinates.length > 1
-        ? route.coordinates
-        : points.map((point) => [point.lng, point.lat] as [number, number]);
-    const update = () => {
-      if (!map.getStyle()) return;
-      const data = { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates } };
-      const source = map.getSource('dispatch-route');
-      if (source) {
-        (source as GeoJSONSource).setData(data);
-      } else if (coordinates.length > 1) {
-        map.addSource('dispatch-route', { type: 'geojson', data });
-        map.addLayer({ id: 'dispatch-route-line', type: 'line', source: 'dispatch-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#2563eb', 'line-width': 5, 'line-opacity': 0.88 } });
+    const entries = fleetMarkersRef.current;
+    const activeIds = new Set<string>();
+
+    for (const item of fleetDrivers) {
+      const [lat, lng] = item.position;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      activeIds.add(item.id);
+      const signal = item.signal ?? 'live';
+      const popup = popupContent(
+        item.name || t("Tài xế"),
+        `${item.vehicle ? `${item.vehicle} · ` : ''}Toạ độ ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        signal === 'live' ? 'GPS trực tiếp từ ứng dụng tài xế' : 'Vị trí gần nhất nhận từ tài xế',
+      );
+      const existing = entries.get(item.id);
+      if (!existing) {
+        const marker = new Marker({ element: markerElement('TX', 'driver', signal) })
+          .setLngLat([lng, lat])
+          .setPopup(new Popup({ offset: 22, closeButton: false }).setDOMContent(popup))
+          .addTo(map);
+        entries.set(item.id, { marker, animationFrame: null, displayed: [lng, lat] });
+      } else {
+        existing.marker.getPopup()?.setDOMContent(popup);
+        const el = markerPin(existing.marker.getElement());
+        el.style.background = signal === 'live' ? '#059669' : '#64748b';
+        el.style.boxShadow = signal === 'live'
+          ? '0 0 0 6px rgb(5 150 105 / 26%), 0 6px 18px rgb(15 23 42 / 34%)'
+          : '0 6px 18px rgb(15 23 42 / 30%)';
+
+        if (existing.animationFrame !== null) {
+          window.cancelAnimationFrame(existing.animationFrame);
+        }
+        const target: [number, number] = [lng, lat];
+        const currentLngLat = existing.marker.getLngLat();
+        const from = existing.displayed ?? [currentLngLat.lng, currentLngLat.lat];
+        if (from[0] !== target[0] || from[1] !== target[1]) {
+          existing.animationFrame = animateLngLat(
+            from,
+            target,
+            (position) => {
+              existing.marker.setLngLat(position);
+              existing.displayed = position;
+            },
+            () => {
+              existing.animationFrame = null;
+            },
+          );
+        } else {
+          existing.animationFrame = null;
+        }
       }
-      if (map.getLayer('dispatch-route-line')) {
-        map.setPaintProperty('dispatch-route-line', 'line-color', route.coordinates.length > 1 ? '#2563eb' : '#64748b');
-        map.setPaintProperty('dispatch-route-line', 'line-width', route.coordinates.length > 1 ? 5 : 3);
-        map.setPaintProperty('dispatch-route-line', 'line-dasharray', route.coordinates.length > 1 ? [1, 0] : [2, 2]);
-      }
-    };
-    if (styleReadyRef.current || map.loaded()) {
-      update();
-      return;
     }
-    map.once('style.load', update);
-    map.once('load', update);
-    return () => {
-      map.off('style.load', update);
-      map.off('load', update);
-    };
-  }, [points, route.coordinates]);
 
-  if (!depot) return <div className="flex h-full min-h-[480px] items-center justify-center bg-slate-50 px-6 text-center"><div className="max-w-sm"><MapPinned className="mx-auto text-blue-700" size={28} /><p className="mt-4 font-semibold text-slate-900">{t("Chưa có kho xuất phát")}</p><p className="mt-1 text-sm leading-6 text-slate-600">{t("Chọn đơn hoặc thiết lập kho mặc định để bắt đầu lập tuyến.")}</p></div></div>;
-  if (!mapKey) return <div role="alert" className="flex h-full min-h-[480px] items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">{t("Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.")}</div>;
+    for (const [id, existing] of entries.entries()) {
+      if (!activeIds.has(id)) {
+        if (existing.animationFrame !== null) {
+          window.cancelAnimationFrame(existing.animationFrame);
+        }
+        existing.marker.remove();
+        entries.delete(id);
+      }
+    }
+  }, [fleetDrivers, hasMapOrigin, t]);
 
-  return <div className="relative isolate h-full min-h-[480px] w-full overflow-hidden bg-slate-100">
+  const selectedOverviewRoute = selectedOverviewRouteId
+    ? overviewRoutes.find((item) => item.id === selectedOverviewRouteId)
+    : undefined;
+  const layerStops = useMemo(
+    () => selectedOverviewRoute?.stops.map((stop) => stop.location) ?? [],
+    [selectedOverviewRoute],
+  );
+  if (!depot && fleetDrivers.length === 0 && overviewRoutes.length === 0) return <div className="flex h-full items-center justify-center bg-slate-50 px-6 text-center"><div className="max-w-sm"><MapPinned className="mx-auto text-blue-700" size={28} /><p className="mt-4 font-semibold text-slate-900">{t("Chưa có kho xuất phát")}</p><p className="mt-1 text-sm leading-6 text-slate-600">{t("Chọn đơn hoặc thiết lập kho mặc định để bắt đầu lập tuyến.")}</p></div></div>;
+  if (!mapKey) return <div role="alert" className="flex h-full items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">{t("Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.")}</div>;
+
+  const totalOverviewStops = overviewRoutes.reduce((sum, item) => sum + item.stops.length, 0);
+  const isOverviewMode = overviewRoutes.length > 0;
+
+  return <div className="relative isolate h-full w-full overflow-hidden bg-slate-100">
     <div
       ref={containerRef}
-      className="h-full min-h-[480px] w-full"
+      className="h-full w-full"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       aria-label={t("Bản đồ điều phối theo đường phố")}
     />
-    <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-start"><div className="max-w-[min(92%,32rem)] rounded-xl bg-slate-950/90 px-3.5 py-3 text-white shadow-[0_10px_30px_rgb(15_23_42/0.24)]">
-      <div className="flex items-center gap-2 text-sm font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={16} /> : route.error ? <AlertTriangle className="text-amber-300" size={16} /> : <Route className="text-blue-300" size={16} />}{driverName ? `${driverName} · ${stops.length} điểm giao` : route.isLoading ? t("Đang tính tuyến đường phố") : route.error ? t("Chưa tải được tuyến Goong") : route.coordinates.length ? t("Tuyến xe máy theo Goong") : t("Thứ tự giao dự kiến")}</div>
-      <p className="mt-1 text-xs leading-5 text-slate-300">{route.error || (route.coordinates.length ? `${formatRoadDistance(route.distanceMeters)} · khoảng ${Math.max(1, Math.round(route.durationSeconds / 60))} phút${driver ? ' · marker TX là GPS tài xế' : ''}` : `${stops.length} điểm giao; thêm điểm để tính đường đi.`)}</p>
-    </div></div>
-    {(mapError || route.error) && <div role="status" className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-white px-3 py-2 text-xs text-slate-700 shadow-[0_8px_24px_rgb(15_23_42/0.18)]">{mapError || 'Đang hiển thị đường nối thứ tự; dữ liệu đơn hàng vẫn được giữ nguyên.'}</div>}
+    <div className="pointer-events-none absolute inset-x-2 bottom-9 z-10 flex items-end justify-between gap-2 sm:inset-x-3">
+      <div className="min-w-0 max-w-lg rounded-lg bg-white px-3 py-2 text-slate-950 shadow-md">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Route className="shrink-0 text-blue-700" size={16} />
+          {selectedOverviewRoute
+            ? `${selectedOverviewRoute.label} · ${selectedOverviewRoute.stops.length} ${t('điểm giao')}`
+            : isOverviewMode
+              ? `${overviewRoutes.length} ${t('kế hoạch đang hiển thị')}`
+              : t('Theo dõi đội xe trực tiếp')}
+        </div>
+        <p role={mapError ? 'status' : undefined} className="mt-1 text-xs leading-5 text-slate-600">
+          {mapError || (selectedOverviewRoute
+            ? `${selectedOverviewRoute.driverName ? `${selectedOverviewRoute.driverName} · ` : ''}${t('Bấm vào tuyến khác để chuyển hoặc Đóng để xem tất cả')}`
+            : isOverviewMode
+              ? `${totalOverviewStops} ${t('điểm giao')}${fleetDrivers.length > 0 ? ` · ${fleetDrivers.length} ${t('tài xế trực tuyến')}` : ''} · ${t('Bấm vào tuyến để xem chi tiết')}`
+              : `${fleetDrivers.length} ${t('tài xế đang trực tuyến')}`)}
+        </p>
+      </div>
+      {readyMap && <RouteMapLayers
+        map={readyMap}
+        stops={layerStops}
+        plannedLegs={EMPTY_LEGS}
+        firstStopIndex={0}
+      />}
+    </div>
+    {readyMap && [...overviewRoutes, ...(previewOverviewRoute ? [previewOverviewRoute] : [])].map((overviewRoute) => (
+      <OverviewRoadLine
+        key={overviewRoute.id}
+        map={readyMap}
+        route={overviewRoute}
+        isSelected={(highlightedPlan?.planId ?? selectedOverviewRouteId) === overviewRoute.id}
+        hasSelection={Boolean(highlightedPlan || selectedOverviewRoute)}
+        highlightedStopId={highlightedPlan?.planId === overviewRoute.id ? highlightedPlan.stopId : undefined}
+        onSelect={onSelectOverviewRoute}
+      />
+    ))}
+
   </div>;
 }

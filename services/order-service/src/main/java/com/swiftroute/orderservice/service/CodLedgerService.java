@@ -93,7 +93,6 @@ public class CodLedgerService {
         Instant occurredAt = request.occurredAt() != null ? request.occurredAt() : Instant.now();
         order.setCodStatus("IN_CUSTODY");
         order.setCodCollectedAt(occurredAt);
-        order.setPaymentStatus("PAID");
         order.setUpdatedAt(Instant.now());
         orders.save(order);
 
@@ -127,7 +126,7 @@ public class CodLedgerService {
                 expected,
                 total,
                 remaining,
-                order.getPaymentStatus(),
+                order.getCodStatus(),
                 "VND",
                 List.of(collectionResponse(order)));
     }
@@ -317,7 +316,6 @@ public class CodLedgerService {
         List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
         for (Order o : batchOrders) {
             o.setCodStatus("HANDED_OVER");
-            o.setPaymentStatus("PAID");
             o.setUpdatedAt(now);
             orders.save(o);
         }
@@ -341,7 +339,7 @@ public class CodLedgerService {
     public PageResponse<CodDisputeResponse> disputePage(UUID tenantId, String role, String status, int page, int size) {
         requireOperator(role);
         var pageable = PageRequests.newestFirst(page, size, "submittedAt");
-        String targetStatus = isBlank(status) ? "DISCREPANCY" : normalize(status);
+        String targetStatus = isBlank(status) ? "SETTLED_WITH_VARIANCE" : normalize(status);
         return PageResponse.fromPage(handovers.findByTenantIdAndStatus(tenantId, targetStatus, pageable)
                 .map(this::disputeResponse));
     }
@@ -349,7 +347,7 @@ public class CodLedgerService {
     @Transactional(readOnly = true)
     public List<CodDisputeResponse> disputes(UUID tenantId, String role, String status) {
         requireOperator(role);
-        String targetStatus = isBlank(status) ? "DISCREPANCY" : status.toUpperCase(Locale.ROOT);
+        String targetStatus = isBlank(status) ? "SETTLED_WITH_VARIANCE" : status.toUpperCase(Locale.ROOT);
         return handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, targetStatus).stream()
                 .map(this::disputeResponse)
                 .toList();
@@ -370,7 +368,7 @@ public class CodLedgerService {
         CodHandoverBatch batch = handovers.findByIdAndTenantId(handoverId, tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.COD_HANDOVER_NOT_FOUND));
 
-        if (!"DISCREPANCY".equals(batch.getStatus())) {
+        if (!"SETTLED_WITH_VARIANCE".equals(batch.getStatus())) {
             throw new AppException(ErrorCode.INVALID_COD_DISPUTE);
         }
 
@@ -389,7 +387,6 @@ public class CodLedgerService {
         List<Order> batchOrders = orders.findByCodHandoverBatchIdOrderByUpdatedAtDesc(batch.getId());
         for (Order o : batchOrders) {
             o.setCodStatus("HANDED_OVER");
-            o.setPaymentStatus("PAID");
             o.setUpdatedAt(now);
             orders.save(o);
         }
@@ -431,7 +428,7 @@ public class CodLedgerService {
         List<Order> pendingOrders = orders.findByTenant_IdAndCodStatusOrderByUpdatedAtDesc(tenantId, "COD_PENDING");
         List<Order> custodyOrders = orders.findByTenant_IdAndCodStatusOrderByUpdatedAtDesc(tenantId, "IN_CUSTODY");
         List<CodHandoverBatch> submittedBatches = handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, "SUBMITTED");
-        List<CodHandoverBatch> discrepancyBatches = handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, "DISCREPANCY");
+        List<CodHandoverBatch> discrepancyBatches = handovers.findByTenantIdAndStatusOrderBySubmittedAtDesc(tenantId, "SETTLED_WITH_VARIANCE");
         List<CodHandoverBatch> allBatches = handovers.findByTenantIdOrderBySubmittedAtDesc(tenantId);
 
         BigDecimal outstanding = pendingOrders.stream()
@@ -547,7 +544,7 @@ public class CodLedgerService {
     }
 
     private boolean isVarianceSettled(CodHandoverBatch batch) {
-        return "SETTLED_WITH_VARIANCE".equals(batch.getStatus()) || "RESOLVED".equals(batch.getStatus());
+        return "SETTLED_WITH_VARIANCE".equals(batch.getStatus());
     }
 
     private String normalize(String value) {

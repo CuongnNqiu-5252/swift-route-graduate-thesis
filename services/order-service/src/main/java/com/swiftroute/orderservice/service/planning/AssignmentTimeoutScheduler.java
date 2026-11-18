@@ -29,10 +29,17 @@ public class AssignmentTimeoutScheduler {
     private final DispatchPlanRepository dispatchPlanRepository;
     private final DispatchOrchestrationService orchestrationService;
 
+    private boolean isAutoDispatchEnabled(DispatchPlan p) {
+        return p.getTenant().getDispatchConfig().getAutoDispatchEnabled();
+    }
+
     @Scheduled(fixedDelayString = "${dispatch.ack-timeout-check-ms:60000}")
     public void checkTimedOutAssignments() {
         Instant now = Instant.now();
-        List<DispatchPlan> timedOutPlans = dispatchPlanRepository.findTimedOutDispatchedPlans(now);
+        List<DispatchPlan> timedOutPlans = dispatchPlanRepository.findTimedOutDispatchedPlans(now)
+                .stream()
+                .filter(this::isAutoDispatchEnabled)
+                .toList();
         if (timedOutPlans.isEmpty()) {
             return;
         }

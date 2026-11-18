@@ -9,6 +9,12 @@ export interface DriveCsvSelection {
 
 export const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 
+export class GoogleDriveAuthorizationError extends Error {
+  constructor() {
+    super('Phiên Google đã hết hạn. Hãy chọn lại file để kết nối.');
+  }
+}
+
 export async function downloadDriveCsv(selection: DriveCsvSelection, token: string, signal: AbortSignal) {
   if (!/\.csv$/i.test(selection.name)) throw new Error('Hãy chọn một file .csv trên Google Drive.');
 
@@ -23,7 +29,10 @@ export async function downloadDriveCsv(selection: DriveCsvSelection, token: stri
     },
     signal,
   });
-  if (response.status === 401 || response.status === 403 || response.status === 404) {
+  if (response.status === 401) {
+    throw new GoogleDriveAuthorizationError();
+  }
+  if (response.status === 403 || response.status === 404) {
     throw new Error('Google Drive không cho tải file này. Hãy kiểm tra quyền và chọn lại file.');
   }
   if (!response.ok || !response.body) throw new Error('Không thể tải file từ Google Drive. Vui lòng thử lại.');
@@ -73,6 +82,9 @@ async function requestSheets<T>(
     },
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new GoogleDriveAuthorizationError();
+    }
     if (response.status === 403) {
       throw new Error('Không có quyền đọc Google Sheets. Kiểm tra quyền file và bật Google Sheets API.');
     }

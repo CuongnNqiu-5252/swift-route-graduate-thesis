@@ -21,7 +21,6 @@ import com.swiftroute.orderservice.entity.AuditLog;
 import com.swiftroute.orderservice.entity.OptimizationWeights;
 import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.Tenant;
-import com.swiftroute.orderservice.entity.TenantDispatchConfig;
 import com.swiftroute.orderservice.entity.enums.BusinessType;
 import com.swiftroute.orderservice.entity.enums.DeliveryMode;
 import com.swiftroute.orderservice.entity.enums.TenantStatus;
@@ -39,7 +38,6 @@ public class TenantWorkflowService {
     private final TenantRepository tenants;
     private final OutboxEventRepository events;
     private final AuditLogRepository audit;
-    private final BusinessTypeProfileRegistry profiles;
     private final OperationalReadinessService readiness;
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -68,8 +66,6 @@ public class TenantWorkflowService {
                 .address(request.address().trim()).contactPhone(request.contactPhone().trim())
                 .contactEmail(identity.get("email").toString())
                 .countryCode(request.countryCode()).status(TenantStatus.PENDING).build();
-        profiles.applyProfile(tenant, request.businessType());
-        tenant.setDeliverySettings(defaultSettings(request.businessType()));
         tenant = tenants.saveAndFlush(tenant);
         jdbc.update(
                 "INSERT INTO tenant_registration_keys(owner_user_id,idempotency_key,tenant_id,request_payload) VALUES (?,?,?,?)",
@@ -79,13 +75,6 @@ public class TenantWorkflowService {
         emit(tenant, "tenant.created.v1", owner, Map.of());
         emit(tenant, "tenant.created", owner, Map.of()); // existing Auth consumers remain compatible
         return tenant;
-    }
-
-    private Map<String, Object> defaultSettings(BusinessType type) {
-        boolean food = type == BusinessType.RESTAURANT || type == BusinessType.CAFE;
-        return new LinkedHashMap<>(Map.of("preparation_enabled", food, "preparation_minutes", food ? 15 : 0,
-                "delivery_verification_required", true, "sensitive_handling", type == BusinessType.PHARMACY,
-                "service_priority", "BALANCED", "routing_approval_required", false));
     }
 
     @Transactional(readOnly = true)
@@ -132,13 +121,16 @@ public class TenantWorkflowService {
         }
         if (update.deliveryMode() != null) {
             tenant.setDeliveryMode(update.deliveryMode());
-            tenant.setModeConfirmed(true);
         }
         if (update.deliverySettings() != null) {
             Map<String, Object> settings = new LinkedHashMap<>(tenant.getDeliverySettings());
+            settings.remove("routing_approval_required");
             for (var entry : update.deliverySettings().entrySet()) {
+                // Older clients can still send the retired preference.
+                if (entry.getKey().equals("routing_approval_required"))
+                    continue;
                 if (!Set.of("preparation_enabled", "preparation_minutes", "delivery_verification_required",
-                        "sensitive_handling", "service_priority", "routing_approval_required").contains(entry.getKey()))
+                        "sensitive_handling", "service_priority").contains(entry.getKey()))
                     invalid();
                 Object v = entry.getValue();
                 if (entry.getKey().equals("preparation_minutes")) {
@@ -153,18 +145,13 @@ public class TenantWorkflowService {
                 settings.put(entry.getKey(), v);
             }
             tenant.setDeliverySettings(settings);
-            tenant.setSettingsConfirmed(true);
-            String priority = String.valueOf(settings.getOrDefault("service_priority", "BALANCED"));
-            // Business language maps to the existing supported time/cost objective; no new
-            // solver knob.
-            tenant.setOptimizationWeights(switch (priority) {
-                case "FASTEST" -> new OptimizationWeights(0.8, 0.2);
-                case "LOWEST_COST" -> new OptimizationWeights(0.2, 0.8);
-                default -> new OptimizationWeights(0.5, 0.5);
-            });
-            var dispatch = tenant.getDispatchConfig() == null ? new TenantDispatchConfig() : tenant.getDispatchConfig();
-            dispatch.setRequireApproval(Boolean.TRUE.equals(settings.get("routing_approval_required")));
-            tenant.setDispatchConfig(dispatch);
+            if (update.deliverySettings().containsKey("service_priority")) {
+                tenant.setOptimizationWeights(switch (String.valueOf(settings.get("service_priority"))) {
+                    case "FASTEST" -> new OptimizationWeights(0.8, 0.2);
+                    case "LOWEST_COST" -> new OptimizationWeights(0.2, 0.8);
+                    default -> new OptimizationWeights(0.5, 0.5);
+                });
+            }
         }
         tenants.saveAndFlush(tenant);
         onboarding(id);
@@ -177,8 +164,8 @@ public class TenantWorkflowService {
         LinkedHashMap<String, Boolean> steps = new LinkedHashMap<>();
         steps.put("BUSINESS_PROFILE", profileComplete(tenant));
         steps.put("PICKUP_POINT", readiness.hasPickup(tenant));
-        steps.put("DELIVERY_MODE", tenant.isModeConfirmed());
-        steps.put("DELIVERY_SETTINGS", tenant.isSettingsConfirmed());
+        if (tenant.getDeliveryMode() == DeliveryMode.SHARED_POOL)
+            steps.put("DELIVERY_MODE", false);
         boolean submitted = jdbc.queryForObject(
                 "SELECT count(*) FROM tenant_verification_requests WHERE tenant_id=? AND status IN ('SUBMITTED','UNDER_REVIEW','APPROVED')",
                 Integer.class, id) > 0;
@@ -282,7 +269,7 @@ public class TenantWorkflowService {
                 id);
         if (!open.isEmpty() && !"CHANGES_REQUIRED".equals(open.getFirst().get("status")))
             return request((UUID) open.getFirst().get("request_id"));
-        if (!profileComplete(t) || !readiness.hasPickup(t) || !t.isModeConfirmed() || !t.isSettingsConfirmed())
+        if (!profileComplete(t) || !readiness.hasPickup(t) || t.getDeliveryMode() == DeliveryMode.SHARED_POOL)
             throw new AppException(ErrorCode.VERIFICATION_INCOMPLETE);
         // Close the prior changes-required attempt without deleting its snapshot or
         // decision.

@@ -22,24 +22,24 @@ import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteReoptimiz
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteReoptimizeResponse;
 import com.swiftroute.orderservice.grpc.routing.RoutingGrpcProtocol;
 
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.StatusRuntimeException;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Dual-mode client (gRPC primary + HTTP/1.1 fallback) for the SwiftRoute Routing Engine service.
- *
- * <p>Uses high-performance binary Protocol Buffers over gRPC HTTP/2 (port 50051) for
- * {@code OptimizeBatch}, {@code OptimizeInsert}, and {@code OptimizeReoptimize},
- * and automatically falls back to HTTP/1.1 REST (port 8084) if the gRPC endpoint
- * is temporarily unavailable.
+ * Calls Routing Engine over gRPC for batch planning. Dynamic routing supports
+ * configurable transport and HTTP fallback. Ordered-route measurement uses REST.
  */
 @Component
 @Slf4j
 public class RoutingEngineClient {
 
-    private static final int MAX_RETRIES = 2;
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
 
     private final RestClient restClient;
+    private final ManagedChannel batchChannel;
     private final String grpcHost;
     private final int grpcPort;
     private final boolean grpcEnabled;
@@ -59,6 +59,7 @@ public class RoutingEngineClient {
         this.grpcHost = extractHost(routingEngineUrl);
         this.grpcPort = grpcPort;
         this.grpcEnabled = !"http".equalsIgnoreCase(transport);
+        this.batchChannel = ManagedChannelBuilder.forAddress(grpcHost, grpcPort).usePlaintext().build();
 
         HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -72,8 +73,13 @@ public class RoutingEngineClient {
                 .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
-        log.info("Initialized RoutingEngineClient (transport={}, grpcTarget={}:{}, httpFallback={})",
+        log.info("Initialized RoutingEngineClient (dynamicTransport={}, grpcTarget={}:{}, restTarget={})",
                 this.grpcEnabled ? "gRPC" : "HTTP", this.grpcHost, this.grpcPort, routingEngineUrl);
+    }
+
+    @PreDestroy
+    void shutdownBatchChannel() {
+        batchChannel.shutdownNow();
     }
 
     private static String extractHost(String url) {
@@ -88,60 +94,44 @@ public class RoutingEngineClient {
     }
 
     /**
-     * Submits a batch optimisation request to the routing engine via gRPC (with HTTP fallback).
+     * Submits a batch optimisation request to the routing engine via gRPC.
      *
      * @param request the optimisation request with depot + stops + weights
      * @return the routing engine response, or empty on permanent failure
      */
     public Optional<BatchOptimizationResponse> optimizeBatch(BatchOptimizationRequest request) {
-        boolean isMultiVehicle = request.vehicleCount() != null && request.vehicleCount() > 1;
-        if (grpcEnabled && !isMultiVehicle) {
-            try {
-                BatchOptimizationResponse response = RoutingGrpcProtocol.callOptimizeBatch(
-                        grpcHost, grpcPort, request, internalKey, TIMEOUT);
-                log.info("⚡ [gRPC Client] OptimizeBatch succeeded jobId={} algorithm={} totalDistanceKm={} executionTimeMs={}",
-                        response != null ? response.jobId() : "null",
-                        response != null ? response.algorithmUsed() : "null",
-                        response != null ? response.totalDistanceKm() : "null",
-                        response != null ? response.executionTimeMs() : "null");
-                return Optional.ofNullable(response);
-            } catch (IOException grpcEx) {
-                log.warn("gRPC OptimizeBatch call to {}:{} failed ({}), falling back to HTTP/1.1 REST",
-                        grpcHost, grpcPort, grpcEx.getMessage());
+        try {
+            BatchOptimizationResponse response = RoutingGrpcProtocol.callOptimizeBatch(
+                    batchChannel, request, internalKey, TIMEOUT);
+            if (request.vehicleCount() != null && request.vehicleCount() > 1
+                    && !response.orderedStops().isEmpty() && response.vehicleRoutes().isEmpty()) {
+                log.error("gRPC OptimizeBatch at {}:{} returned stops without per-vehicle routes",
+                        grpcHost, grpcPort);
+                return Optional.empty();
             }
+            log.info("gRPC OptimizeBatch succeeded jobId={} algorithm={} routes={} executionTimeMs={}",
+                    response.jobId(), response.algorithmUsed(), response.vehicleRoutes().size(),
+                    response.executionTimeMs());
+            return Optional.of(response);
+        } catch (IOException | StatusRuntimeException ex) {
+            log.error("gRPC OptimizeBatch call to {}:{} failed: {}", grpcHost, grpcPort, ex.getMessage());
+            return Optional.empty();
         }
+    }
 
-        int attempt = 0;
-        while (attempt <= MAX_RETRIES) {
-            try {
-                BatchOptimizationResponse response = restClient.post()
-                        .uri("/optimize/batch")
-                        .header("X-Internal-Key", internalKey)
-                        .header("X-Tenant-Id", "system")
-                        .body(request)
-                        .retrieve()
-                        .body(BatchOptimizationResponse.class);
-                log.info("Routing engine (HTTP) returned plan jobId={} algorithm={} totalDistanceKm={}",
-                        response != null ? response.jobId() : "null",
-                        response != null ? response.algorithmUsed() : "null",
-                        response != null ? response.totalDistanceKm() : "null");
-                return Optional.ofNullable(response);
-            } catch (RestClientException ex) {
-                attempt++;
-                if (attempt > MAX_RETRIES) {
-                    log.error("Routing engine call failed after {} attempts: {}", MAX_RETRIES + 1, ex.getMessage(), ex);
-                    return Optional.empty();
-                }
-                log.warn("Routing engine call attempt {}/{} failed: {}. Retrying...", attempt, MAX_RETRIES + 1, ex.getMessage());
-                try {
-                    Thread.sleep(500L * attempt);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return Optional.empty();
-                }
-            }
+    public Optional<BatchOptimizationResponse> measureOrderedRoute(BatchOptimizationRequest request) {
+        try {
+            return Optional.ofNullable(restClient.post()
+                    .uri("/optimize/measure")
+                    .header("X-Internal-Key", internalKey)
+                    .header("X-Tenant-Id", "system")
+                    .body(request)
+                    .retrieve()
+                    .body(BatchOptimizationResponse.class));
+        } catch (RestClientException ex) {
+            log.warn("Routing engine could not measure the ordered route: {}", ex.getMessage());
+            return Optional.empty();
         }
-        return Optional.empty();
     }
 
     /**

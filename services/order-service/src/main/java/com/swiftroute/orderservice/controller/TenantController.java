@@ -3,14 +3,12 @@ package com.swiftroute.orderservice.controller;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.swiftroute.orderservice.dto.request.ApplyPresetRequest;
 import com.swiftroute.orderservice.dto.request.UpdateTenantSettingsRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.TenantSettingsResponse;
@@ -23,11 +21,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
-/** Tenant business settings and dispatch preset endpoints. */
+/** Tenant business settings and dispatch configuration endpoints. */
 @RestController
 @RequestMapping("/api/tenants")
 @RequiredArgsConstructor
-@Tag(name = "Tenant Management", description = "Tenant business settings and dispatch profiles")
+@Tag(name = "Tenant Management", description = "Tenant business settings and dispatch configuration")
 public class TenantController {
 
     private final TenantSettingsService tenantSettingsService;
@@ -54,19 +52,6 @@ public class TenantController {
         Tenant tenant = tenantContextValidator.validateWorkspacePermission(
                 tenantIdHeader, authHeader, "tenant:settings:manage", java.util.Set.of("OWNER", "TENANT_ADMIN"));
         TenantSettingsResponse response = tenantSettingsService.updateSettings(tenant.getId(), request);
-        return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    @Operation(summary = "Apply recommended business profile preset for authenticated tenant")
-    @PostMapping("/me/settings/apply-preset")
-    public ResponseEntity<ApiResponse<TenantSettingsResponse>> applyPreset(
-            @Valid @RequestBody ApplyPresetRequest request,
-            @RequestHeader(value = "X-Tenant-Id", required = false) String tenantIdHeader,
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authHeader) {
-
-        Tenant tenant = tenantContextValidator.validateWorkspacePermission(
-                tenantIdHeader, authHeader, "tenant:settings:manage", java.util.Set.of("OWNER", "TENANT_ADMIN"));
-        TenantSettingsResponse response = tenantSettingsService.applyPreset(tenant.getId(), request.businessType());
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 }

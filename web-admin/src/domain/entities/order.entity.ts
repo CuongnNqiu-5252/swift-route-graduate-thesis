@@ -43,7 +43,6 @@ export interface Order {
   delivery_fee?: number;
   total_amount?: number;
   payer?: string;
-  payment_status: string;
   created_at: string;
   updated_at: string;
 }

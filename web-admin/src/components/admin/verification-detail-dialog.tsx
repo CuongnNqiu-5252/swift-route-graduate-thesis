@@ -302,11 +302,11 @@ function VerificationDetailContent({
                           </dl>
                         </section>
 
-                        <section aria-labelledby="admin-operations-info" className="border-t border-slate-200 pt-6">
+                        {Object.keys(deliverySettings).length > 0 && <section aria-labelledby="admin-operations-info" className="border-t border-slate-200 pt-6">
                           <div className="flex items-center gap-2">
                             <Truck className="h-4 w-4 text-[#17766c]" aria-hidden="true" />
                             <h3 id="admin-operations-info" className="text-sm font-semibold text-slate-950">
-                              {t("Cấu hình vận hành")}
+                              {t("Cấu hình đã khai báo")}
                             </h3>
                           </div>
                           <div className="mt-4 grid gap-5 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
@@ -351,7 +351,7 @@ function VerificationDetailContent({
                               />
                             </div>
                           </div>
-                        </section>
+                        </section>}
 
                         <section aria-labelledby="admin-pickups-info" className="border-t border-slate-200 pt-6">
                           <div className="flex items-center justify-between gap-2">

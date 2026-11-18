@@ -18,6 +18,7 @@ import {
 } from '@/infrastructure/repositories/member.repository';
 import { useAuth } from '@/application/contexts/auth-context';
 import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
+import { CustomSelect } from '@/components/ui/select';
 import { MemberPermissionsModal } from '@/components/members/member-permissions-modal';
 import { RoleTemplatesPanel } from '@/components/members/role-templates-panel';
 import { extractApiErrorMessage } from '@/components/members/permission-utils';
@@ -511,18 +512,20 @@ export default function MembersPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700">{t('Vai trò trong doanh nghiệp *')}</label>
-                <select
+                <CustomSelect
+                  aria-label={t('Vai trò trong doanh nghiệp *')}
                   value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as TenantMembershipRole)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
-                >
-                  <option value="OPERATOR">{t('Nhân viên vận hành (OPERATOR)')}</option>
-                  {actorIsOwner && (
-                    <option value="TENANT_ADMIN">{t('Quản trị viên chi nhánh (TENANT_ADMIN)')}</option>
-                  )}
-                  <option value="DRIVER">{t('Tài xế nội bộ (DRIVER)')}</option>
-                  <option value="VIEWER">{t('Người xem báo cáo (VIEWER)')}</option>
-                </select>
+                  onValueChange={(next) => setInviteRole(next as TenantMembershipRole)}
+                  className="mt-1"
+                  options={[
+                    { value: 'OPERATOR', label: t('Nhân viên vận hành (OPERATOR)') },
+                    ...(actorIsOwner
+                      ? [{ value: 'TENANT_ADMIN', label: t('Quản trị viên chi nhánh (TENANT_ADMIN)') }]
+                      : []),
+                    { value: 'DRIVER', label: t('Tài xế nội bộ (DRIVER)') },
+                    { value: 'VIEWER', label: t('Người xem báo cáo (VIEWER)') },
+                  ]}
+                />
                 <p className="mt-1 text-xs text-gray-500">
                   {t('Nhân viên vận hành có quyền tạo đơn, quản lý điểm lấy hàng và theo dõi điều phối.')}
                 </p>

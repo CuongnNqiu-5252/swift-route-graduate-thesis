@@ -1,7 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import api, { clearSessionAndRedirect } from '@/lib/api';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
+import { clearSessionAndRedirect } from '@/lib/api';
 
 export interface AuthUser {
   id: string;
@@ -87,26 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Fetch official user profile directly from GET /api/auth/me
   const refreshProfile = useCallback(async (): Promise<AuthUser | null> => {
     try {
-      const response = await api.get<{
-        id: string;
-        email: string;
-        phone?: string;
-        full_name?: string;
-        fullName?: string;
-        role: string;
-        account_role?: string;
-        accountRole?: string;
-        tenant_id?: string | null;
-        tenantId?: string | null;
-        status?: string;
-        email_verified?: boolean;
-        emailVerified?: boolean;
-        created_at?: string;
-        createdAt?: string;
-        permissions?: string[];
-      }>('/auth/me');
-
-      const data = response.data;
+      const data = await authRepository.getProfile();
       if (!data) return null;
 
       const storedToken = localStorage.getItem('access_token');
@@ -273,13 +255,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const login = async (email: string, password: string) => {
-    const response = await api.post<{ access_token: string; refresh_token: string }>(
-      '/auth/login',
-      { username: email, password }
-    );
+    const tokens = await authRepository.login(email, password);
 
-    const accessToken = response.data?.access_token;
-    const refreshToken = response.data?.refresh_token;
+    const accessToken = tokens?.access_token;
+    const refreshToken = tokens?.refresh_token;
 
     if (!accessToken) {
       throw new Error('Không nhận được mã xác thực từ máy chủ');
@@ -306,7 +285,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null;
     if (refreshToken) {
-      api.post('/auth/logout', null, { params: { refreshToken } }).catch(() => {});
+      authRepository.logout(refreshToken).catch(() => {});
     }
     clearSessionAndRedirect();
     setToken(null);

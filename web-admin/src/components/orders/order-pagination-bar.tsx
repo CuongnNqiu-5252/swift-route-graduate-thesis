@@ -5,6 +5,7 @@ import type { Table } from '@tanstack/react-table';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { Button } from '@/components/ui/button';
+import { CustomSelect } from '@/components/ui/select';
 
 export const ORDER_PAGE_SIZE_PRESETS = [5, 10, 15, 20, 25, 50] as const;
 
@@ -84,13 +85,24 @@ export function OrderPaginationBar<TData>({
           <label htmlFor="orders-page-size" className="text-slate-600">
             {t('Số đơn mỗi trang')}
           </label>
-          <select
+          <CustomSelect
             id="orders-page-size"
             aria-label={t('Số đơn mỗi trang')}
+            size="sm"
             value={editingCustomSize ? 'custom' : String(pageSize)}
             disabled={isLoading}
-            onChange={(event) => {
-              const value = event.target.value;
+            className="w-auto min-w-[4.75rem] tabular-nums"
+            options={[
+              ...ORDER_PAGE_SIZE_PRESETS.map((size) => ({
+                value: String(size),
+                label: String(size),
+              })),
+              ...(!isPresetSize
+                ? [{ value: String(pageSize), label: `${pageSize} (${t('tùy chỉnh')})` }]
+                : []),
+              { value: 'custom', label: t('Nhập số khác…') },
+            ]}
+            onValueChange={(value) => {
               if (value === 'custom') {
                 setCustomInput(String(pageSize));
                 setCustomError('');
@@ -101,20 +113,7 @@ export function OrderPaginationBar<TData>({
               setCustomError('');
               applyPageSize(Number(value));
             }}
-            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium tabular-nums text-slate-800 focus:border-blue-600 focus:outline-none"
-          >
-            {ORDER_PAGE_SIZE_PRESETS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-            {!isPresetSize && (
-              <option value={pageSize}>
-                {pageSize} ({t('tùy chỉnh')})
-              </option>
-            )}
-            <option value="custom">{t('Nhập số khác…')}</option>
-          </select>
+          />
 
           {editingCustomSize && (
             <form

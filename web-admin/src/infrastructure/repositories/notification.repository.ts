@@ -1,4 +1,4 @@
-import api from '@/lib/api';
+import api, { streamSse, type StreamOptions } from '@/lib/api';
 
 export interface DispatchAlertDto {
   id: string;
@@ -28,6 +28,10 @@ export interface InboxNotificationDto {
 }
 
 export const notificationRepository = {
+  streamAlerts(options: StreamOptions) {
+    return streamSse('/notifications/stream', options);
+  },
+
   async getDispatchAlerts(): Promise<DispatchAlertDto[]> {
     const response = await api.get<DispatchAlertDto[]>('/notifications/dispatch-alerts');
     return response.data;

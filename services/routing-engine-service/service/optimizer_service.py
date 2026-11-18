@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import List, Sequence, Tuple, Union
 
 # Use uvicorn logger so logs stream directly to docker container stdout
 logger = logging.getLogger("uvicorn.error")
@@ -26,6 +26,7 @@ from api.schemas import (
     RouteInsertResponse,
     RouteReoptimizeRequest,
     RouteReoptimizeResponse,
+    RouteStopState,
     StopItem,
     VehicleRoute,
     WhatIfOptimizationRequest,
@@ -35,6 +36,68 @@ from api.schemas import (
 from core.distance import build_multi_objective_matrix
 from core.road_matrix import build_road_matrices
 from core.tsp_ortools import ortools_tsp, ortools_vrp
+
+
+def _apply_open_path_costs(cost_matrix: List[List[float]]) -> None:
+    """Zero out return-to-origin edge weights so OR-Tools solves open-end delivery routes."""
+    for row in cost_matrix:
+        if row:
+            row[0] = 0.0
+
+
+def _trace_open_route(
+    route: List[int],
+    stops: Sequence[Union[StopItem, RouteStopState]],
+    dist_matrix: List[List[float]],
+    time_matrix: List[List[float]],
+) -> Tuple[List[OrderedStop], float, float, float]:
+    """Accumulate open-path OrderedStops, total distance (km), total duration (min), and load (kg)."""
+    ordered: List[OrderedStop] = []
+    cum_dist = 0.0
+    cum_time = 0.0
+    total_load = 0.0
+    prev_idx = 0
+
+    for position, matrix_idx in enumerate(route[1:], start=1):
+        if matrix_idx == 0:
+            break
+        cum_dist += dist_matrix[prev_idx][matrix_idx]
+        cum_time += time_matrix[prev_idx][matrix_idx]
+        stop_data = stops[matrix_idx - 1]
+        total_load += max(0.0, stop_data.demand_kg)
+        ordered.append(
+            OrderedStop(
+                stop_index=position,
+                stop_id=stop_data.id,
+                location=stop_data.location,
+                cumulative_distance_km=round(cum_dist, 3),
+                estimated_arrival_minutes=round(cum_time, 1),
+            )
+        )
+        prev_idx = matrix_idx
+
+    return ordered, cum_dist, cum_time, total_load
+
+
+def measure_ordered_route(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
+    """Measure the open route in input order, without invoking a solver."""
+    start_ns = time.perf_counter_ns()
+    locations = [(request.depot.lat, request.depot.lng)] + [
+        (stop.location.lat, stop.location.lng) for stop in request.stops
+    ]
+    distances, durations, _ = build_road_matrices(locations)
+    stops, distance, duration, _ = _trace_open_route(
+        list(range(len(locations))), request.stops, distances, durations
+    )
+    return BatchOptimizationResponse(
+        job_id=str(uuid.uuid4()),
+        algorithm_used="manual",
+        total_distance_km=round(distance, 3),
+        total_duration_minutes=round(duration, 1),
+        ordered_stops=stops,
+        execution_time_ms=(time.perf_counter_ns() - start_ns) / 1_000_000.0,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
@@ -70,6 +133,8 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     time_w = request.time_weight if request.time_weight is not None else 0.5
     cost_w = request.cost_weight if request.cost_weight is not None else 0.5
     cost_matrix = build_multi_objective_matrix(dist_matrix, time_matrix, time_w, cost_w)
+    # Delivery routes terminate at the final customer stop rather than returning to depot/origin.
+    _apply_open_path_costs(cost_matrix)
     logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (%s, W_time=%.2f, W_cost=%.2f)", n_total, n_total, distance_source, time_w, cost_w)
 
     algorithm_used = "ortools"
@@ -105,47 +170,20 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
 
         for v_idx in range(effective_vehicles):
             v_route = vrp_solution["routes"].get(v_idx, [])
-            v_stops: List[OrderedStop] = []
-            cum_dist = 0.0
-            cum_time = 0.0
-            prev_idx = 0
-            v_load = 0.0
-
-            for local_pos, matrix_idx in enumerate(v_route[1:], start=1):
-                if matrix_idx == 0:
-                    break
-                cum_dist += dist_matrix[prev_idx][matrix_idx]
-                cum_time += time_matrix[prev_idx][matrix_idx]
-                stop_data = request.stops[matrix_idx - 1]
-                v_load += max(0.0, stop_data.demand_kg)
-
-                v_stops.append(OrderedStop(
-                    stop_index=local_pos,
-                    stop_id=stop_data.id,
-                    location=stop_data.location,
-                    cumulative_distance_km=round(cum_dist, 3),
-                    estimated_arrival_minutes=round(cum_time, 1),
-                ))
+            v_stops, v_total_dist, v_total_min, v_load = _trace_open_route(
+                v_route, request.stops, dist_matrix, time_matrix
+            )
+            for stop in v_stops:
                 all_ordered_stops.append(OrderedStop(
                     stop_index=global_pos,
-                    stop_id=stop_data.id,
-                    location=stop_data.location,
-                    cumulative_distance_km=round(cum_dist, 3),
-                    estimated_arrival_minutes=round(cum_time, 1),
+                    stop_id=stop.stop_id,
+                    location=stop.location,
+                    cumulative_distance_km=stop.cumulative_distance_km,
+                    estimated_arrival_minutes=stop.estimated_arrival_minutes,
                 ))
                 global_pos += 1
-                prev_idx = matrix_idx
 
             if v_stops:
-                # Include return leg to depot for total vehicle distance/duration consistency
-                v_total_dist = sum(
-                    dist_matrix[v_route[i]][v_route[i + 1]]
-                    for i in range(len(v_route) - 1)
-                ) if len(v_route) > 1 else 0.0
-                v_total_min = sum(
-                    time_matrix[v_route[i]][v_route[i + 1]]
-                    for i in range(len(v_route) - 1)
-                ) if len(v_route) > 1 else 0.0
                 fleet_dist += v_total_dist
                 fleet_minutes += v_total_min
                 vehicle_routes.append(VehicleRoute(
@@ -174,54 +212,19 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
 
     logger.info("🧠 [RoutingEngine] Giải bài toán lộ trình bằng Google OR-Tools")
 
-    # Run solver on multi-objective cost matrix and measure wall-clock CPU time
+    # Run solver on open-path multi-objective cost matrix and measure wall-clock CPU time
     route, _ = ortools_tsp(cost_matrix, start=0)
-
-    # Evaluate exact ground-truth distance using dist_matrix
-    total_dist = sum(
-        dist_matrix[route[i]][route[i + 1]]
-        for i in range(len(route) - 1)
-    ) if len(route) > 1 else 0.0
-
+    ordered_stops, total_dist, total_minutes, total_load_kg = _trace_open_route(
+        route, request.stops, dist_matrix, time_matrix
+    )
     elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
-
-    # Calculate total duration from time matrix
-    total_minutes = sum(
-        time_matrix[route[i]][route[i + 1]]
-        for i in range(len(route) - 1)
-    ) if len(route) > 1 else 0.0
 
     logger.info(
         "✅ [RoutingEngine] Hoàn thành giải TSP bằng '%s' trong %.2f ms | Tổng quãng đường: %.3f km | Thời gian dự kiến: %.1f phút",
         algorithm_used, elapsed_ms, total_dist, total_minutes
     )
 
-    # Map route (list of matrix indices) back to OrderedStop objects.
-    # Skip index 0 (depot) at start and end of route.
-    ordered_stops: List[OrderedStop] = []
-    cumulative_dist = 0.0
-    cumulative_time = 0.0
-    prev_idx = 0  # depot
-
-    for position, matrix_idx in enumerate(route[1:], start=1):
-        if matrix_idx == 0:
-            # Skip the return leg to depot
-            break
-
-        cumulative_dist += dist_matrix[prev_idx][matrix_idx]
-        cumulative_time += time_matrix[prev_idx][matrix_idx]
-
-        stop_data = request.stops[matrix_idx - 1]  # stops list is 0-indexed
-        ordered_stops.append(OrderedStop(
-            stop_index=position,
-            stop_id=stop_data.id,
-            location=stop_data.location,
-            cumulative_distance_km=round(cumulative_dist, 3),
-            estimated_arrival_minutes=round(cumulative_time, 1),
-        ))
-        prev_idx = matrix_idx
-
-    total_load_kg = round(sum(max(0.0, s.demand_kg) for s in request.stops), 2)
+    total_load_kg = round(total_load_kg, 2)
     single_vehicle_route = [
         VehicleRoute(
             vehicle_index=0,
@@ -444,31 +447,12 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
     cost_w = request.cost_weight if request.cost_weight is not None else 0.5
     cost_matrix = build_multi_objective_matrix(seq_dist_matrix, seq_time_matrix, time_w, cost_w)
     # Open-path formulation from driver's current GPS position: zero cost to return to node 0
-    for row in cost_matrix:
-        row[0] = 0.0
+    _apply_open_path_costs(cost_matrix)
 
     route, _ = ortools_tsp(cost_matrix, start=0)
-
-    reopt_stops: List[OrderedStop] = []
-    cum_dist = 0.0
-    cum_time = 0.0
-    prev_idx = 0
-    for pos, matrix_idx in enumerate(route[1:], start=1):
-        if matrix_idx == 0:
-            break
-        cum_dist += seq_dist_matrix[prev_idx][matrix_idx]
-        cum_time += seq_time_matrix[prev_idx][matrix_idx]
-        st = remaining_states[matrix_idx - 1]
-        reopt_stops.append(
-            OrderedStop(
-                stop_index=pos,
-                stop_id=st.id,
-                location=st.location,
-                cumulative_distance_km=round(cum_dist, 3),
-                estimated_arrival_minutes=round(cum_time, 1),
-            )
-        )
-        prev_idx = matrix_idx
+    reopt_stops, cum_dist, cum_time, _ = _trace_open_route(
+        route, remaining_states, seq_dist_matrix, seq_time_matrix
+    )
 
     old_ids = [s.id for s in remaining_states]
     new_ids = [s.stop_id for s in reopt_stops]

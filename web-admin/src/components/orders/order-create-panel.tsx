@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Banknote, CheckCircle2, Loader2, MapPin, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { CustomSelect } from '@/components/ui/select';
 import LocationMapPicker from '@/components/locations/location-map-picker';
 import type { DeliveryZoneCheckResult, TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
 import { PickupLocation } from '@/domain/entities/pickup-location.entity';
@@ -216,10 +217,14 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         <p className="mt-1 text-sm text-slate-600">{t("Nhập người nhận, sau đó tìm hoặc đặt ghim tại điểm giao.")}</p>
       </div>
       <label className="block text-xs font-semibold text-slate-700">{t("Điểm lấy hàng")}
-        <select required value={pickupId} onChange={(event) => setPickupId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
-          <option value="">{t("Chọn kho")}</option>
-          {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
-        </select>
+        <CustomSelect
+          required
+          value={pickupId}
+          placeholder={t("Chọn kho")}
+          onValueChange={setPickupId}
+          className="mt-1"
+          options={locations.map((location) => ({ value: location.id, label: location.name }))}
+        />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-semibold text-slate-700">{t("Người nhận")}<input required value={recipient} onChange={(event) => setRecipient(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>

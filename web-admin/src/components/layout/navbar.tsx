@@ -11,7 +11,8 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Membership, switchTenant, tenantWorkflow } from '@/infrastructure/repositories/tenant-workflow.repository';
 import { NotificationBell } from '@/components/layout/notification-bell';
-import api from '@/lib/api';
+import { CustomSelect } from '@/components/ui/select';
+import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 
 export function Navbar() {
   const { t } = useLocale();
@@ -26,8 +27,8 @@ export function Navbar() {
         Promise.all(
           items.map(async (item) => {
             try {
-              const response = await api.get<{ business_name: string }>(`/tenants/${item.tenant_id}`);
-              return { ...item, businessName: response.data.business_name };
+              const businessName = await tenantSettingsRepository.getBusinessName(item.tenant_id);
+              return { ...item, businessName };
             } catch {
               return item;
             }
@@ -48,21 +49,17 @@ export function Navbar() {
       <div className="flex min-w-0 items-center gap-2">
         <span className="hidden text-xs font-medium text-slate-500 sm:inline">{t("Doanh nghiệp")}</span>
         {workspaces.length > 0 ? (
-          <select
+          <CustomSelect
             aria-label={t("Đổi doanh nghiệp")}
             value={user?.tenantId || ''}
-            onChange={(event) => void switchTenant(event.target.value)}
-            className="min-w-0 max-w-52 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900"
-          >
-            <option value="" disabled>
-              {t("Chọn doanh nghiệp")}
-            </option>
-            {workspaces.map((item) => (
-              <option key={item.tenant_id} value={item.tenant_id}>
-                {item.businessName || `${t("Doanh nghiệp")} ${item.tenant_id.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
+            placeholder={t("Chọn doanh nghiệp")}
+            onValueChange={(nextTenantId) => void switchTenant(nextTenantId)}
+            className="min-w-0 max-w-56"
+            options={workspaces.map((item) => ({
+              value: item.tenant_id,
+              label: item.businessName || `${t("Doanh nghiệp")} ${item.tenant_id.slice(0, 8)}`,
+            }))}
+          />
         ) : (
           <Link href="/organizations" className="text-sm font-medium text-blue-700 underline underline-offset-4">
             {t("Tạo doanh nghiệp")}

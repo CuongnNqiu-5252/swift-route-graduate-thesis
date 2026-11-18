@@ -56,27 +56,6 @@ public class TenantDispatchConfig {
     private Integer maxWaitTimeSeconds = 300;
 
     /**
-     * Behavior when an urgent order (priority=URGENT) arrives:
-     * - IMMEDIATE_SINGLE: immediately assigns to the closest available driver.
-     * - BATCH_IMMEDIATE: immediately triggers full batch optimization of all
-     * pending orders.
-     */
-    @JsonProperty("urgent_order_mode")
-    @NotBlank
-    @Builder.Default
-    private String urgentOrderMode = "IMMEDIATE_SINGLE";
-
-    /**
-     * Whether generated plans require manual dispatcher approval before assignment.
-     * If true, the plan is created in DRAFT state and ops staff must approve it in
-     * Web Admin.
-     * If false, assignments are automatically published and applied to drivers.
-     */
-    @JsonProperty("require_approval")
-    @Builder.Default
-    private Boolean requireApproval = false;
-
-    /**
      * Maximum number of order stops assigned to a single driver in one batch.
      */
     @JsonProperty("max_orders_per_driver")
@@ -94,14 +73,6 @@ public class TenantDispatchConfig {
     @NotBlank
     @Builder.Default
     private String algorithm = "auto";
-
-    /**
-     * Whether internal/platform driver pool is enabled when tenant's dedicated
-     * fleet is insufficient.
-     */
-    @JsonProperty("allow_pool_drivers")
-    @Builder.Default
-    private Boolean allowPoolDrivers = false;
 
     /**
      * Whether daily scheduled wave dispatch is enabled for this tenant.

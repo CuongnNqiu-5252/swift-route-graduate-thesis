@@ -1,13 +1,16 @@
 'use client';
 
 import { FormEvent, useMemo, useState } from 'react';
-import { UserPlus, Mail, Phone, Truck, ShieldCheck, X, RefreshCw, Link2, Clock3 } from 'lucide-react';
+import { UserPlus, Mail, Phone, Truck, ShieldCheck, X, RefreshCw, Link2, Clock3, MessageSquare } from 'lucide-react';
+import Link from 'next/link';
+import { useAuth } from '@/application/contexts/auth-context';
 import { useLocale } from '@/i18n/provider';
 import { CreateDriverPayload, Driver } from '@/domain/entities/driver.entity';
 import { TenantInvitation } from '@/domain/entities/member.entity';
 import { getCurrentTenantId, memberRepository } from '@/infrastructure/repositories/member.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CustomSelect } from '@/components/ui/select';
 
 export type AddDriverMode = 'choose' | 'manual' | 'invite';
 
@@ -56,6 +59,8 @@ export function DriverProfilesPanel({
   onReloadInvitations,
 }: DriverProfilesPanelProps) {
   const { t, intlLocale } = useLocale();
+  const { user } = useAuth();
+  const canChat = ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? '');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [actionError, setActionError] = useState('');
@@ -247,11 +252,15 @@ export function DriverProfilesPanel({
               <Input name="phone" label={t('Số điện thoại')} required pattern="\+?[0-9]{9,15}" />
               <label className="flex flex-col gap-1.5 text-sm font-medium text-gray-700">
                 {t('Loại phương tiện')}
-                <select name="vehicleType" className="rounded-lg border border-gray-300 bg-white px-3 py-2">
-                  <option value="MOTORCYCLE">{t('Xe máy')}</option>
-                  <option value="CAR">{t('Ô tô')}</option>
-                  <option value="VAN">Xe van</option>
-                </select>
+                <CustomSelect
+                  name="vehicleType"
+                  defaultValue="MOTORCYCLE"
+                  options={[
+                    { value: 'MOTORCYCLE', label: t('Xe máy') },
+                    { value: 'CAR', label: t('Ô tô') },
+                    { value: 'VAN', label: 'Xe van' },
+                  ]}
+                />
               </label>
               <Input name="licensePlate" label={t('Biển số (có thể bổ sung sau)')} />
               <Input name="capacity" label={t('Sức chứa (đơn)')} type="number" min={1} required defaultValue={20} />
@@ -394,6 +403,13 @@ export function DriverProfilesPanel({
                         </p>
                       )}
                     </div>
+                    {linked && canChat && (
+                      <Link href={`/messages?peer=${encodeURIComponent(driver.user_id)}`}
+                        className="inline-flex items-center gap-2 self-start rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                        <MessageSquare size={14} />
+                        {t('Nhắn tin')}
+                      </Link>
+                    )}
                     {!linked && (
                       <Button
                         size="sm"

@@ -45,6 +45,7 @@ public class SecurityConfig {
                                 "/api/auth/password/forgot",
                                 "/api/auth/password/reset",
                                 "/internal/tenant-memberships/provision",
+                                "/internal/tenant-memberships/*/chat-members",
                                 "/api/auth/login",
                                 "/api/auth/refresh",
                                 "/api/auth/invitations/accept",

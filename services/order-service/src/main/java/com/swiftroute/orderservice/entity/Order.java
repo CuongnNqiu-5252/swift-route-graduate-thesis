@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.swiftroute.orderservice.entity.enums.OrderPriority;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.entity.enums.PackageCategory;
@@ -21,6 +22,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -127,10 +129,6 @@ public class Order {
     @Builder.Default
     private OrderStatus status = OrderStatus.READY_FOR_DISPATCH;
 
-    @Column(name = "payment_status", length = 30)
-    @Builder.Default
-    private String paymentStatus = "COD_PENDING";
-
     @Column(name = "cod_status", length = 30)
     @Builder.Default
     private String codStatus = "NOT_APPLICABLE";
@@ -170,9 +168,22 @@ public class Order {
     @Column(name = "assigned_driver_id")
     private UUID assignedDriverId;
 
-    // Khoá ngoại logic tới routing-engine-service
-    @Column(name = "plan_id")
-    private UUID planId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "plan_id")
+    @JsonIgnore
+    @Setter(AccessLevel.PACKAGE)
+    private DispatchPlan dispatchPlan;
+
+    @Column(name = "plan_stop_index")
+    private Integer planStopIndex;
+
+    public UUID getPlanId() {
+        return dispatchPlan == null ? null : dispatchPlan.getId();
+    }
+
+    public boolean canJoinDispatchPlan() {
+        return status == OrderStatus.READY_FOR_DISPATCH && dispatchPlan == null;
+    }
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default

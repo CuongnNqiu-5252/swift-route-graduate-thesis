@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import api from '@/lib/api';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -44,7 +44,7 @@ export default function RegisterPage() {
   async function submit(values: FormValues) {
     setBusy(true); setError('');
     try {
-      await api.post('/auth/register', { email: values.email.trim(), password: values.password, full_name: values.fullName.trim(), phone_number: values.phoneNumber.trim() });
+      await authRepository.register({ email: values.email.trim(), password: values.password, full_name: values.fullName.trim(), phone_number: values.phoneNumber.trim() });
       setSubmittedEmail(values.email.trim()); setStep(3);
     } catch (e) { setError(e instanceof Error ? e.message : t("Không thể tạo tài khoản")); }
     finally { setBusy(false); }
@@ -52,7 +52,7 @@ export default function RegisterPage() {
 
   async function resend() {
     setBusy(true); setError(''); setNotice('');
-    try { await api.post('/auth/email/resend-public', { email: submittedEmail }); setNotice(t("Đã gửi lại email. Vui lòng kiểm tra cả thư rác và mục Quảng cáo.")); }
+    try { await authRepository.resendPublicVerification(submittedEmail); setNotice(t("Đã gửi lại email. Vui lòng kiểm tra cả thư rác và mục Quảng cáo.")); }
     catch (e) { setError(e instanceof Error ? e.message : t("Chưa thể gửi lại email")); }
     finally { setBusy(false); }
   }

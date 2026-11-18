@@ -1,16 +1,18 @@
 'use client';
 
 import Script from 'next/script';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Button } from '@/components/ui/button';
+import { CustomSelect } from '@/components/ui/select';
 import { useLocale } from '@/i18n/provider';
-import { downloadDriveCsv, downloadSheetTab, GOOGLE_SHEET_MIME, listSheetTabs, type DriveCsvSelection } from '@/infrastructure/google/drive-csv';
+import { downloadDriveCsv, downloadSheetTab, GOOGLE_SHEET_MIME, GoogleDriveAuthorizationError, listSheetTabs, type DriveCsvSelection } from '@/infrastructure/google/drive-csv';
 
 const clientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID;
 const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY;
 const appId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_PROJECT_NUMBER;
 
 type Picker = { setVisible: (visible: boolean) => void };
+export type GoogleDriveSession = { token: string; expiresAt: number };
 type PickerResponse = { action: string; docs?: DriveCsvSelection[] };
 type PickerView = {
   setIncludeFolders: (include: boolean) => PickerView;
@@ -37,7 +39,7 @@ type GoogleApis = {
       client_id: string;
       scope: string;
       include_granted_scopes: boolean;
-      callback: (response: { access_token?: string; error?: string }) => void;
+      callback: (response: { access_token?: string; expires_in?: string | number; error?: string }) => void;
       error_callback: (error: { type: string }) => void;
     }) => { requestAccessToken: (options?: { prompt: string }) => void } } };
     picker?: {
@@ -54,11 +56,12 @@ function apis() {
 }
 
 export function DriveCsvPicker({
-  disabled, onFile, onBusy, onError, buttonLabel = 'Chọn file từ Google Drive', allowAccountSwitch = false,
+  disabled, onFile, onBusy, onError, buttonLabel = 'Chọn file từ Google Drive', allowAccountSwitch = false, session,
 }: {
   disabled: boolean;
   buttonLabel?: string;
   allowAccountSwitch?: boolean;
+  session?: RefObject<GoogleDriveSession | null>;
   onFile: (file: File) => Promise<void>;
   onBusy: (busy: boolean) => void;
   onError: (message: string) => void;
@@ -74,6 +77,8 @@ export function DriveCsvPicker({
   const [loadingTab, setLoadingTab] = useState(false);
   const active = useRef<AbortController | null>(null);
   const visible = useRef<Picker | null>(null);
+  const localSession = useRef<GoogleDriveSession | null>(null);
+  const driveSession = session ?? localSession;
 
   useEffect(() => () => {
     active.current?.abort();
@@ -84,6 +89,7 @@ export function DriveCsvPicker({
     const sdk = apis().google;
     if (!clientId || !apiKey || !appId || !sdk?.accounts || !sdk.picker || active.current) return;
     const picker = sdk.picker;
+    const pickerConfig = { appId, apiKey };
     const run = new AbortController();
     active.current = run;
     onBusy(true);
@@ -96,6 +102,75 @@ export function DriveCsvPicker({
       onBusy(false);
       if (message) onError(message);
     };
+    function forgetToken(token: string) {
+      if (driveSession.current?.token === token) driveSession.current = null;
+    }
+
+    function finishFileError(failure: unknown, token: string, fallback: string) {
+      if (run.signal.aborted || active.current !== run) return;
+      if (failure instanceof GoogleDriveAuthorizationError) forgetToken(token);
+      finish(failure instanceof Error && failure.name === 'Error' ? failure.message : fallback);
+    }
+
+    function showPicker(token: string, reused = false) {
+      try {
+        const view = new picker.DocsView(picker.ViewId.DOCS)
+          .setIncludeFolders(true)
+          .setMimeTypes('text/csv,application/csv,application/vnd.ms-excel,application/octet-stream,text/plain,' + GOOGLE_SHEET_MIME);
+        visible.current = new picker.PickerBuilder()
+          .addView(view).setAppId(pickerConfig.appId).setOrigin(window.location.origin)
+          .setOAuthToken(token).setDeveloperKey(pickerConfig.apiKey)
+          .setCallback(async ({ action, docs }) => {
+            if (run.signal.aborted || active.current !== run) return;
+            if (action === picker.Action.CANCEL) return finish();
+            if (action === picker.Action.ERROR) {
+              if (reused) forgetToken(token);
+              return finish('Không mở được bộ chọn Google Drive. Vui lòng thử lại.');
+            }
+            if (action !== picker.Action.PICKED) return;
+            const selection = docs?.[0];
+            if (!selection?.id || !selection.name) return finish('Hãy chọn file CSV hoặc Google Sheets trên Drive.');
+            try {
+              if (selection.mimeType === GOOGLE_SHEET_MIME) {
+                const tabs = await listSheetTabs(selection, token, AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));
+                if (run.signal.aborted || active.current !== run) return;
+                if (!tabs.length) return finish('Bảng tính không có tab dữ liệu để nhập.');
+                setTab(tabs[0]);
+                setSheetChoice({
+                  name: selection.name, tabs, cancel: () => finish(),
+                  load: async (title) => {
+                    try {
+                      const file = await downloadSheetTab(selection, title, token,
+                        AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));
+                      if (!run.signal.aborted) await onFile(file);
+                      finish();
+                    } catch (failure) {
+                      finishFileError(failure, token, 'Không thể đọc Google Sheets. Hãy chọn lại bảng tính và thử lại.');
+                    }
+                  },
+                });
+                return;
+              }
+              const file = await downloadDriveCsv(selection, token, AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));
+              if (!run.signal.aborted) await onFile(file);
+              finish();
+            } catch (failure) {
+              finishFileError(failure, token, 'Không thể tải file từ Google Drive. Vui lòng thử lại.');
+            }
+          })
+          .build();
+        visible.current.setVisible(true);
+      } catch {
+        finish('Không mở được bộ chọn Google Drive. Vui lòng thử lại.');
+      }
+    }
+
+    const cached = driveSession.current;
+    if (!selectAccount && cached && cached.expiresAt > Date.now() + 30_000) {
+      showPicker(cached.token, true);
+      return;
+    }
+
     try {
       sdk.accounts.oauth2.initTokenClient({
         client_id: clientId,
@@ -103,63 +178,19 @@ export function DriveCsvPicker({
         include_granted_scopes: false,
         error_callback: ({ type }) => finish(type === 'popup_closed' ? undefined :
           'Không mở được đăng nhập Google. Hãy cho phép cửa sổ bật lên rồi thử lại.'),
-        callback: ({ access_token: token, error }) => {
+        callback: ({ access_token: token, expires_in, error }) => {
           if (run.signal.aborted || active.current !== run) return;
           if (error || !token) {
             finish('Không thể kết nối Google Drive. Hãy kiểm tra quyền và thử lại.');
             return;
           }
-          try {
-            const view = new picker.DocsView(picker.ViewId.DOCS)
-              .setIncludeFolders(true)
-              .setMimeTypes('text/csv,application/csv,application/vnd.ms-excel,application/octet-stream,text/plain,' + GOOGLE_SHEET_MIME);
-            visible.current = new picker.PickerBuilder()
-              .addView(view).setAppId(appId).setOrigin(window.location.origin)
-              .setOAuthToken(token).setDeveloperKey(apiKey)
-              .setCallback(async ({ action, docs }) => {
-                if (run.signal.aborted || active.current !== run) return;
-                if (action === picker.Action.CANCEL) return finish();
-                if (action === picker.Action.ERROR) return finish('Không mở được bộ chọn Google Drive. Vui lòng thử lại.');
-                if (action !== picker.Action.PICKED) return;
-                const selection = docs?.[0];
-                if (!selection?.id || !selection.name) return finish('Hãy chọn file CSV hoặc Google Sheets trên Drive.');
-                try {
-                  if (selection.mimeType === GOOGLE_SHEET_MIME) {
-                    const tabs = await listSheetTabs(selection, token, AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));
-                    if (run.signal.aborted || active.current !== run) return;
-                    if (!tabs.length) return finish('Bảng tính không có tab dữ liệu để nhập.');
-                    setTab(tabs[0]);
-                    setSheetChoice({
-                      name: selection.name, tabs, cancel: () => finish(),
-                      load: async (title) => {
-                        try {
-                          const file = await downloadSheetTab(selection, title, token,
-                            AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));
-                          if (!run.signal.aborted) await onFile(file);
-                          finish();
-                        } catch (failure) {
-                          finish(failure instanceof Error && failure.name === 'Error' ? failure.message :
-                            'Không thể đọc Google Sheets. Hãy chọn lại bảng tính và thử lại.');
-                        }
-                      },
-                    });
-                    return;
-                  }
-                  const file = await downloadDriveCsv(selection, token, AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));
-                  if (!run.signal.aborted) await onFile(file);
-                  finish();
-                } catch (failure) {
-                  finish(failure instanceof Error && failure.name === 'Error' ? failure.message :
-                    'Không thể tải file từ Google Drive. Vui lòng thử lại.');
-                }
-              })
-              .build();
-            visible.current.setVisible(true);
-          } catch {
-            finish('Không mở được bộ chọn Google Drive. Vui lòng thử lại.');
-          }
+          const lifetime = Number(expires_in);
+          driveSession.current = Number.isFinite(lifetime) && lifetime > 0
+            ? { token, expiresAt: Date.now() + lifetime * 1000 }
+            : null;
+          showPicker(token);
         },
-      }).requestAccessToken(selectAccount ? { prompt: 'select_account' } : undefined);
+      }).requestAccessToken({ prompt: selectAccount ? 'select_account' : '' });
     } catch {
       finish('Không thể kết nối Google Drive. Hãy kiểm tra quyền và thử lại.');
     }
@@ -198,10 +229,13 @@ export function DriveCsvPicker({
           <p className="break-all text-sm font-medium">{sheetChoice.name}</p>
           <label className="block text-sm">
             {t('Tab Google Sheets')}
-            <select className="mt-1 block w-full rounded-md border border-slate-300 p-2"
-              value={tab} disabled={loadingTab} onChange={(event) => setTab(event.target.value)}>
-              {sheetChoice.tabs.map((title) => <option key={title} value={title}>{title}</option>)}
-            </select>
+            <CustomSelect
+              className="mt-1"
+              value={tab}
+              disabled={loadingTab}
+              onValueChange={setTab}
+              options={sheetChoice.tabs.map((title) => ({ value: title, label: title }))}
+            />
           </label>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" type="button" isLoading={loadingTab} onClick={async () => {

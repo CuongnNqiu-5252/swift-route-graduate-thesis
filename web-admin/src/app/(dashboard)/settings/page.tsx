@@ -4,12 +4,7 @@ import { useLocale } from '@/i18n/provider';
 
 import { useState, useEffect, useCallback } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
-import {
-  BusinessType,
-  TenantSettings,
-  BUSINESS_TYPE_LABEL,
-  BUSINESS_TYPE_DESCRIPTION,
-} from '@/domain/entities/tenant-settings.entity';
+import type { TenantSettings } from '@/domain/entities/tenant-settings.entity';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import DeliveryZoneSection from '@/components/settings/delivery-zone-section';
 import { useAuth } from '@/application/contexts/auth-context';
@@ -18,67 +13,40 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Sliders,
-  Utensils,
-  Coffee,
-  Pill,
-  ShoppingBag,
-  Store,
-  Sparkles,
   Save,
   RotateCcw,
   Clock,
   Gauge,
-  CheckCircle2,
   MapPin,
-  type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const BUSINESS_TYPE_ICONS: Record<BusinessType, LucideIcon> = {
-  RESTAURANT: Utensils,
-  CAFE: Coffee,
-  PHARMACY: Pill,
-  RETAIL: ShoppingBag,
-  OTHER: Store,
-};
-
-const SCHEDULED_HOURS = Array.from({ length: 24 }, (_, i) => {
-  const h = i.toString().padStart(2, '0');
-  return `${h}:00`;
-});
+const ROUTE_PRIORITIES = [
+  { label: 'Ưu tiên quãng đường', timeWeight: 0.2 },
+  { label: 'Cân bằng', timeWeight: 0.5 },
+  { label: 'Ưu tiên thời gian', timeWeight: 0.8 },
+] as const;
 
 export default function SettingsPage() {
   const { t } = useLocale();
   const { hasPermission } = useAuth();
+  const canEdit = hasPermission('tenant:settings:manage');
   const [settings, setSettings] = useState<TenantSettings | null>(null);
-  const [selectedType, setSelectedType] = useState<BusinessType>('OTHER');
   const [timeWeight, setTimeWeight] = useState(0.5);
   const [maxOrders, setMaxOrders] = useState(5);
   const [maxWaitMinutes, setMaxWaitMinutes] = useState(5);
-  const [urgentMode, setUrgentMode] = useState<'IMMEDIATE_SINGLE' | 'BATCH_IMMEDIATE'>('IMMEDIATE_SINGLE');
-  const [allowPool, setAllowPool] = useState(false);
-  const [requireApproval, setRequireApproval] = useState(false);
   const [autoDispatchEnabled, setAutoDispatchEnabled] = useState(true);
-  const [scheduledEnabled, setScheduledEnabled] = useState(true);
-  const [scheduledTime, setScheduledTime] = useState('06:00');
 
   const [activeTab, setActiveTab] = useState<'general' | 'delivery-zone'>('general');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isApplyingPreset, setIsApplyingPreset] = useState(false);
 
   const applySettingsData = useCallback((data: TenantSettings) => {
     setSettings(data);
-    setSelectedType(data.business_type);
     setTimeWeight(data.optimization_weights.time_weight);
     setMaxOrders(data.dispatch_config.max_orders_per_driver);
-    setMaxWaitMinutes(Math.round(data.dispatch_config.max_wait_time_seconds / 60));
-    setUrgentMode(data.dispatch_config.urgent_order_mode);
-    setAllowPool(data.dispatch_config.allow_pool_drivers);
-    setRequireApproval(data.dispatch_config.require_approval);
+    setMaxWaitMinutes(data.dispatch_config.max_wait_time_seconds / 60);
     setAutoDispatchEnabled(data.dispatch_config.auto_dispatch_enabled);
-    setScheduledEnabled(data.dispatch_config.scheduled_dispatch_enabled ?? true);
-    setScheduledTime(data.dispatch_config.scheduled_dispatch_time || '06:00');
   }, []);
 
   const reloadSettings = useCallback(async () => {
@@ -113,27 +81,13 @@ export default function SettingsPage() {
     };
   }, [applySettingsData, t]);
 
-  const handleApplyPreset = async () => {
-    setIsApplyingPreset(true);
-    try {
-      await tenantSettingsRepository.applyPreset(selectedType);
-      toast.success(`${t("Đã áp dụng cấu hình đề xuất cho ngành")} ${t(BUSINESS_TYPE_LABEL[selectedType])}`);
-      await reloadSettings();
-    } catch {
-      toast.error(t("Lỗi khi áp dụng cấu hình đề xuất"));
-    } finally {
-      setIsApplyingPreset(false);
-    }
-  };
-
   const handleSave = async () => {
-    if (!settings) return;
+    if (!canEdit || !settings) return;
     setIsSaving(true);
     try {
       const costWeight = Number((1.0 - timeWeight).toFixed(2));
       await tenantSettingsRepository.updateSettings({
-        business_type: selectedType,
-        optimization_weights: {
+        optimization_weights: timeWeight === settings.optimization_weights.time_weight ? settings.optimization_weights : {
           time_weight: Number(timeWeight.toFixed(2)),
           cost_weight: costWeight,
         },
@@ -141,12 +95,7 @@ export default function SettingsPage() {
           ...settings.dispatch_config,
           auto_dispatch_enabled: autoDispatchEnabled,
           max_orders_per_driver: maxOrders,
-          max_wait_time_seconds: maxWaitMinutes * 60,
-          urgent_order_mode: urgentMode,
-          allow_pool_drivers: allowPool,
-          require_approval: requireApproval,
-          scheduled_dispatch_enabled: scheduledEnabled,
-          scheduled_dispatch_time: scheduledTime,
+          max_wait_time_seconds: Math.round(maxWaitMinutes * 60),
         },
       });
       toast.success(t("Đã lưu cấu hình doanh nghiệp thành công!"));
@@ -185,7 +134,7 @@ export default function SettingsPage() {
             {t("Cài đặt Doanh nghiệp & Điều phối")}
           </h1>
           <p className="text-sm text-gray-500">
-            {t("Quản trị loại hình kinh doanh, vùng phục vụ giao hàng, hàm mục tiêu và ràng buộc gom đơn")}
+            {t("Chọn ưu tiên lộ trình, quy tắc điều phối và vùng giao hàng.")}
           </p>
         </div>
         {activeTab === 'general' && (
@@ -195,9 +144,9 @@ export default function SettingsPage() {
                 variant="outline"
                 size="sm"
                 onClick={reloadSettings}
-                disabled={isSaving || isApplyingPreset}
+                disabled={isSaving}
               >
-                <RotateCcw size={14} className="mr-1.5" />{" "}{t("Khôi phục")}
+                <RotateCcw size={14} className="mr-1.5" />{" "}{t("Bỏ thay đổi")}
               </Button>
               <Button
                 size="sm"
@@ -238,265 +187,129 @@ export default function SettingsPage() {
         </Tabs.List>
 
         <Tabs.Content value="general" className="space-y-6 focus:outline-none">
+          <Card className="border border-gray-200 shadow-sm">
+            <CardContent className="p-6 space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                  <Sliders size={18} className="text-blue-600" />
+                  {t("Ưu tiên lộ trình")}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {t("Chọn cấu hình có sẵn hoặc chỉnh tỷ lệ giữa thời gian và quãng đường.")}
+                </p>
+              </div>
 
-      {/* 1. Industry Presets */}
-      <Card className="border border-gray-200 shadow-sm">
-        <CardContent className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                <Store size={18} className="text-blue-600" />
-                {t("Hồ sơ Ngành hàng & Loại hình kinh doanh")}
-              </h2>
-              <p className="text-xs text-gray-500">
-                {t("Lựa chọn mô hình kinh doanh để hệ thống áp dụng bộ thông số thực tế được tối ưu trước")}
-              </p>
-            </div>
-            <PermissionGuard permission="tenant:settings:manage">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleApplyPreset}
-                isLoading={isApplyingPreset}
-                className="border-blue-200 text-blue-700 hover:bg-blue-50"
-              >
-                <Sparkles size={14} className="mr-1.5 text-blue-600" />{" "}{t("Áp dụng hồ sơ đề xuất")}
-              </Button>
-            </PermissionGuard>
-          </div>
+              <div role="group" aria-label={t("Ưu tiên lộ trình")} className="flex flex-wrap gap-2">
+                {ROUTE_PRIORITIES.map(({ label, timeWeight: weight }) => (
+                  <Button
+                    key={label}
+                    type="button"
+                    size="sm"
+                    variant={timeWeight === weight ? 'default' : 'outline'}
+                    aria-pressed={timeWeight === weight}
+                    disabled={!canEdit || isSaving}
+                    onClick={() => setTimeWeight(weight)}
+                  >
+                    {t(label)}
+                  </Button>
+                ))}
+              </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
-            {(Object.keys(BUSINESS_TYPE_LABEL) as BusinessType[]).map((type) => {
-              const Icon = BUSINESS_TYPE_ICONS[type];
-              const isSelected = selectedType === type;
-              return (
-                <div
-                  key={type}
-                  onClick={() => setSelectedType(type)}
-                  className={`cursor-pointer rounded-xl border p-4 transition-all ${
-                    isSelected
-                      ? 'border-blue-600 bg-blue-50/50 ring-2 ring-blue-600/20 shadow-sm'
-                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-                        isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      <Icon size={16} />
+              <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/60 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm font-medium">
+                  <span className="flex items-center gap-1.5 text-blue-700">
+                    <Clock size={16} />{" "}{t("Thời gian")}{" "}{timeWeightPercent}%
+                  </span>
+                  <span className="flex items-center gap-1.5 text-emerald-700">
+                    <Gauge size={16} />{" "}{t("Quãng đường")}{" "}{costWeightPercent}%
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  aria-label={t("Mức ưu tiên thời gian")}
+                  aria-valuetext={`${t("Thời gian")} ${timeWeightPercent}% · ${t("Quãng đường")} ${costWeightPercent}%`}
+                  disabled={!canEdit || isSaving}
+                  value={timeWeight}
+                  onChange={(e) => setTimeWeight(parseFloat(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer h-2 bg-gray-200 rounded-lg"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border border-gray-200 shadow-sm">
+            <CardContent className="p-6 space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                  <Gauge size={18} className="text-blue-600" />
+                  {t("Quy tắc điều phối")}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {t("Kiểm soát số lượng kiện hàng trên mỗi chuyến xe và quy chế phân công tài xế")}
+                </p>
+              </div>
+
+              <fieldset disabled={!canEdit || isSaving} className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="max-orders" className="text-xs font-semibold text-gray-700 block mb-1">
+                    {t("Số đơn gộp tối đa mỗi tài xế / chuyến")}
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      id="max-orders"
+                      min="1"
+                      max="20"
+                      value={maxOrders}
+                      onChange={(e) => setMaxOrders(parseInt(e.target.value) || 1)}
+                      className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
+                    />
+                    <span className="text-xs text-gray-500">{t("đơn hàng / chuyến xe (Khuyến nghị 2 - 10)")}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="max-batch-wait" className="text-xs font-semibold text-gray-700 block mb-1">
+                    {t("Thời gian chờ gom đơn tối đa trước khi xuất bến")}
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      id="max-batch-wait"
+                      min="0.5"
+                      max="60"
+                      step="any"
+                      value={maxWaitMinutes}
+                      onChange={(e) => setMaxWaitMinutes(e.target.valueAsNumber || 0.5)}
+                      className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
+                    />
+                    <span className="text-xs text-gray-500">{t("phút (Kích hoạt điều phối ngay cả khi chưa đủ số đơn)")}</span>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-3 sm:col-span-2">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoDispatchEnabled}
+                      onChange={(e) => setAutoDispatchEnabled(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">{t("Tự động gom đơn và điều phối")}</span>
+                      <p className="text-xs text-gray-600">
+                        {t("Chạy theo số đơn, thời gian chờ hoặc mức ưu tiên. Lịch cố định được quản lý trong Operation Flow.")}
+                      </p>
                     </div>
-                    {isSelected && <CheckCircle2 size={16} className="text-blue-600" />}
-                  </div>
-                  <p className="text-xs font-semibold text-gray-900">{t(BUSINESS_TYPE_LABEL[type])}</p>
+                  </label>
                 </div>
-              );
-            })}
-          </div>
-
-          <div className="rounded-lg bg-gray-50 p-3.5 border border-gray-100 text-xs text-gray-600">
-            <span className="font-semibold text-gray-800">{t("Đặc điểm khuyến nghị:")}{" "}</span>
-            {t(BUSINESS_TYPE_DESCRIPTION[selectedType])}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 2. Optimization Weights */}
-      <Card className="border border-gray-200 shadow-sm">
-        <CardContent className="p-6 space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <Sliders size={18} className="text-blue-600" />
-              {t("Trọng số Tối ưu hóa Lộ trình (Multi-criteria Objective)")}
-            </h2>
-            <p className="text-xs text-gray-500">
-              {t("Cân bằng giữa ưu tiên tốc độ giao hàng (rút ngắn thời gian) và cắt giảm chi phí (rút ngắn cự ly di chuyển)")}
-            </p>
-          </div>
-
-          <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/60 p-5">
-            <div className="flex items-center justify-between text-sm font-medium">
-              <span className="flex items-center gap-1.5 text-blue-700">
-                <Clock size={16} />{" "}{t("Thời gian giao hàng:")}{" "}{timeWeightPercent}%
-              </span>
-              <span className="flex items-center gap-1.5 text-emerald-700">
-                <Gauge size={16} />{" "}{t("Tiết kiệm chi phí & Quãng đường:")}{" "}{costWeightPercent}%
-              </span>
-            </div>
-
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={timeWeight}
-              onChange={(e) => setTimeWeight(parseFloat(e.target.value))}
-              className="w-full accent-blue-600 cursor-pointer h-2 bg-gray-200 rounded-lg"
-            />
-
-            <div className="flex justify-between text-[11px] text-gray-400">
-              <span>{t("0% Thời gian (Tối đa hóa lợi nhuận)")}</span>
-              <span>{t("Cân bằng (50/50)")}</span>
-              <span>{t("100% Thời gian (Giao siêu tốc)")}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 3. Dispatch Constraints & Fleet Policies */}
-      <Card className="border border-gray-200 shadow-sm">
-        <CardContent className="p-6 space-y-5">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <Gauge size={18} className="text-blue-600" />
-              {t("Ràng buộc Gom đơn & Chính sách Đội xe")}
-            </h2>
-            <p className="text-xs text-gray-500">
-              {t("Kiểm soát số lượng kiện hàng trên mỗi chuyến xe và quy chế phân công tài xế")}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                {t("Số đơn gộp tối đa mỗi tài xế / chuyến")}
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={maxOrders}
-                  onChange={(e) => setMaxOrders(parseInt(e.target.value) || 1)}
-                  className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
-                />
-                <span className="text-xs text-gray-500">{t("đơn hàng / chuyến xe (Khuyến nghị 2 - 10)")}</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                {t("Thời gian chờ gom đơn tối đa trước khi xuất bến")}
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={maxWaitMinutes}
-                  onChange={(e) => setMaxWaitMinutes(parseInt(e.target.value) || 1)}
-                  className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
-                />
-                <span className="text-xs text-gray-500">{t("phút (Kích hoạt điều phối ngay cả khi chưa đủ số đơn)")}</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                {t("Chiến lược xử lý đơn hỏa tốc (Urgent Orders)")}
-              </label>
-              <select
-                value={urgentMode}
-                onChange={(e) => setUrgentMode(e.target.value as 'IMMEDIATE_SINGLE' | 'BATCH_IMMEDIATE')}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
-              >
-                <option value="IMMEDIATE_SINGLE">{t("Gán ngay tài xế gần nhất (Khuyến nghị)")}</option>
-                <option value="BATCH_IMMEDIATE">{t("Kích hoạt giải toán lại toàn bộ lô gom ngay")}</option>
-              </select>
-            </div>
-
-            <div className="space-y-3 pt-1">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={allowPool}
-                  onChange={(e) => setAllowPool(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <span className="text-sm font-medium text-gray-900">{t("Cho phép dùng Tài xế Pool (Sàn chung)")}</span>
-                  <p className="text-[11px] text-gray-500">
-                    {t("Tự động huy động thêm tài xế Pool của sàn khi đội xe nội bộ quá tải hoặc thiếu người")}
-                  </p>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requireApproval}
-                  onChange={(e) => setRequireApproval(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <span className="text-sm font-medium text-gray-900">{t("Yêu cầu nhân viên duyệt trước khi phát xe")}</span>
-                  <p className="text-[11px] text-gray-500">
-                    {t("Lộ trình tạo ra ở trạng thái DRAFT chờ nhân viên điều phối bấm Duyệt trên Web Admin")}
-                  </p>
-                </div>
-              </label>
-
-              <div className="pt-3 border-t border-gray-100 space-y-3">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoDispatchEnabled}
-                    onChange={(e) => setAutoDispatchEnabled(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">{t("Điều phối tự động")}</span>
-                    <p className="text-xs text-gray-600">
-                      {t("Tắt để dừng lịch cố định và quy tắc tự động gom đơn. Bạn vẫn có thể điều phối thủ công.")}
-                    </p>
-                  </div>
-                </label>
-
-                <label className="ml-7 flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={scheduledEnabled}
-                    disabled={!autoDispatchEnabled}
-                    onChange={(e) => setScheduledEnabled(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">
-                      {t("Điều phối vào giờ cố định hằng ngày")}
-                    </span>
-                    <p className="text-[11px] text-gray-500">
-                      {t("Hệ thống sẽ tự động quét và phân tuyến toàn bộ đơn hàng đang chờ vào đúng khung giờ được chọn")}
-                    </p>
-                  </div>
-                </label>
-
-                {autoDispatchEnabled && scheduledEnabled && (
-                  <div className="ml-7 flex flex-wrap items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <label className="text-xs font-semibold text-gray-700">
-                      {t("Khung giờ xuất bến hàng ngày:")}
-                    </label>
-                    <select
-                      value={scheduledTime}
-                      onChange={(e) => setScheduledTime(e.target.value)}
-                      className="w-32 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-semibold text-gray-900 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    >
-                      {SCHEDULED_HOURS.map((hour) => (
-                        <option key={hour} value={hour}>
-                          {hour}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-gray-500">
-                      {t("(Định dạng 24h, theo múi giờ Việt Nam GMT+7)")}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+              </fieldset>
+            </CardContent>
+          </Card>
         </Tabs.Content>
 
         <Tabs.Content value="delivery-zone" className="focus:outline-none">
@@ -506,4 +319,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

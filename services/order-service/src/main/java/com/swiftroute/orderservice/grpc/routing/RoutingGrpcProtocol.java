@@ -1,8 +1,10 @@
 package com.swiftroute.orderservice.grpc.routing;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -12,31 +14,66 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.LocationPoint;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.StopItem;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationResponse;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationResponse.OrderedStop;
+import com.swiftroute.orderservice.dto.routing.BatchOptimizationResponse.VehicleRoute;
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteInsertRequest;
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteInsertResponse;
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteReoptimizeRequest;
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteReoptimizeResponse;
 import com.swiftroute.orderservice.dto.routing.DynamicRoutingDtos.RouteStopState;
 
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ClientInterceptors;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.Status;
+import io.grpc.stub.ClientCalls;
+import io.grpc.stub.MetadataUtils;
+
 /**
- * Pure Java 21 gRPC HTTP/2 (h2c) + Protocol Buffers v3 wire implementation for
- * {@code com.swiftroute.routing.v1.RoutingEngineGrpcService} defined in {@code routing.proto}.
- *
- * <p>Speaks standard binary {@code application/grpc+proto} over HTTP/2 directly with
- * Python's C-core {@code grpcio} server without requiring native {@code protoc} plugins.
+ * Protobuf codec and gRPC calls for the Routing Engine service defined in {@code routing.proto}.
+ * Batch optimization uses a managed gRPC channel. Dynamic routing uses the existing h2c transport.
  */
 public final class RoutingGrpcProtocol {
 
     public static final String SERVICE_NAME = "com.swiftroute.routing.v1.RoutingEngineGrpcService";
-    public static final String OPTIMIZE_BATCH_PATH = "/" + SERVICE_NAME + "/OptimizeBatch";
     public static final String OPTIMIZE_INSERT_PATH = "/" + SERVICE_NAME + "/OptimizeInsert";
     public static final String OPTIMIZE_REOPTIMIZE_PATH = "/" + SERVICE_NAME + "/OptimizeReoptimize";
+
+    private static final Metadata.Key<String> INTERNAL_KEY_HEADER =
+            Metadata.Key.of("x-internal-key", Metadata.ASCII_STRING_MARSHALLER);
+
+    private static final MethodDescriptor.Marshaller<byte[]> PROTOBUF_BYTES = new MethodDescriptor.Marshaller<>() {
+        @Override
+        public InputStream stream(byte[] value) {
+            return new ByteArrayInputStream(value);
+        }
+
+        @Override
+        public byte[] parse(InputStream stream) {
+            try {
+                return stream.readAllBytes();
+            } catch (IOException ex) {
+                throw Status.INTERNAL.withDescription("Could not read routing protobuf response")
+                        .withCause(ex).asRuntimeException();
+            }
+        }
+    };
+
+    private static final MethodDescriptor<byte[], byte[]> OPTIMIZE_BATCH_METHOD =
+            MethodDescriptor.<byte[], byte[]>newBuilder()
+                    .setType(MethodDescriptor.MethodType.UNARY)
+                    .setFullMethodName(MethodDescriptor.generateFullMethodName(SERVICE_NAME, "OptimizeBatch"))
+                    .setRequestMarshaller(PROTOBUF_BYTES)
+                    .setResponseMarshaller(PROTOBUF_BYTES)
+                    .build();
 
     private static final byte[] HTTP2_PREFACE =
             "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
@@ -65,11 +102,20 @@ public final class RoutingGrpcProtocol {
     // =========================================================================
 
     public static BatchOptimizationResponse callOptimizeBatch(
-            String host, int port, BatchOptimizationRequest request, String internalKey, Duration timeout)
+            Channel channel, BatchOptimizationRequest request, String internalKey, Duration timeout)
             throws IOException {
-        byte[] reqBytes = encodeBatchRequest(request);
-        byte[] respBytes = invokeUnaryGrpc(host, port, OPTIMIZE_BATCH_PATH, reqBytes, internalKey, timeout);
-        return decodeBatchResponse(respBytes);
+        Metadata headers = new Metadata();
+        if (!internalKey.isEmpty()) {
+            headers.put(INTERNAL_KEY_HEADER, internalKey);
+        }
+        Channel authenticatedChannel =
+                ClientInterceptors.intercept(channel, MetadataUtils.newAttachHeadersInterceptor(headers));
+        byte[] response = ClientCalls.blockingUnaryCall(
+                authenticatedChannel,
+                OPTIMIZE_BATCH_METHOD,
+                CallOptions.DEFAULT.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS),
+                encodeBatchRequest(request));
+        return decodeBatchResponse(response);
     }
 
     public static RouteInsertResponse callOptimizeInsert(
@@ -306,11 +352,15 @@ public final class RoutingGrpcProtocol {
 
         void writeDouble(int fieldNumber, double value) {
             if (value != 0.0) {
-                writeTag(fieldNumber, WIRETYPE_FIXED64);
-                long bits = Double.doubleToRawLongBits(value);
-                for (int i = 0; i < 8; i++) {
-                    baos.write((int) ((bits >>> (8 * i)) & 0xFFL));
-                }
+                writePresentDouble(fieldNumber, value);
+            }
+        }
+
+        void writePresentDouble(int fieldNumber, double value) {
+            writeTag(fieldNumber, WIRETYPE_FIXED64);
+            long bits = Double.doubleToRawLongBits(value);
+            for (int i = 0; i < 8; i++) {
+                baos.write((int) ((bits >>> (8 * i)) & 0xFFL));
             }
         }
 
@@ -521,10 +571,16 @@ public final class RoutingGrpcProtocol {
         }
         w.writeString(3, req.algorithm());
         if (req.timeWeight() != null) {
-            w.writeDouble(4, req.timeWeight());
+            w.writePresentDouble(4, req.timeWeight());
         }
         if (req.costWeight() != null) {
-            w.writeDouble(5, req.costWeight());
+            w.writePresentDouble(5, req.costWeight());
+        }
+        if (req.vehicleCount() != null) {
+            w.writeInt32(7, req.vehicleCount());
+        }
+        if (req.maxStopsPerVehicle() != null) {
+            w.writeInt32(8, req.maxStopsPerVehicle());
         }
         return w.toByteArray();
     }
@@ -536,6 +592,7 @@ public final class RoutingGrpcProtocol {
         double totalDistanceKm = 0.0;
         double totalDurationMinutes = 0.0;
         List<OrderedStop> orderedStops = new ArrayList<>();
+        List<VehicleRoute> vehicleRoutes = new ArrayList<>();
         double executionTimeMs = 0.0;
         String timestamp = "";
         while (!r.isAtEnd()) {
@@ -548,11 +605,34 @@ public final class RoutingGrpcProtocol {
                 case 5 -> orderedStops.add(decodeOrderedStop(r.readBytes()));
                 case 6 -> executionTimeMs = r.readDouble();
                 case 7 -> timestamp = r.readString();
+                case 8 -> vehicleRoutes.add(decodeVehicleRoute(r.readBytes()));
                 default -> r.skipField(tag);
             }
         }
         return new BatchOptimizationResponse(
-                jobId, algorithmUsed, totalDistanceKm, totalDurationMinutes, orderedStops, executionTimeMs, timestamp);
+                jobId, algorithmUsed, totalDistanceKm, totalDurationMinutes,
+                orderedStops, vehicleRoutes, executionTimeMs, timestamp);
+    }
+
+    private static VehicleRoute decodeVehicleRoute(byte[] bytes) throws IOException {
+        ProtoReader r = new ProtoReader(bytes);
+        int vehicleIndex = 0;
+        double distanceKm = 0.0;
+        double durationMinutes = 0.0;
+        double loadKg = 0.0;
+        List<OrderedStop> stops = new ArrayList<>();
+        while (!r.isAtEnd()) {
+            int tag = r.readTag();
+            switch (tag >>> 3) {
+                case 1 -> vehicleIndex = r.readInt32();
+                case 2 -> distanceKm = r.readDouble();
+                case 3 -> durationMinutes = r.readDouble();
+                case 4 -> loadKg = r.readDouble();
+                case 5 -> stops.add(decodeOrderedStop(r.readBytes()));
+                default -> r.skipField(tag);
+            }
+        }
+        return new VehicleRoute(vehicleIndex, distanceKm, durationMinutes, loadKg, stops);
     }
 
     public static byte[] encodeInsertRequest(RouteInsertRequest req) {

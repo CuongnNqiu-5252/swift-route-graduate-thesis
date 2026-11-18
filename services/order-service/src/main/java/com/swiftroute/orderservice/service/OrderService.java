@@ -233,7 +233,6 @@ public class OrderService {
                 .payer(payer)
                 .totalAmount(totalAmount)
                 .status(OrderStatus.READY_FOR_DISPATCH) // Sẵn sàng để điều phối lộ trình
-                .paymentStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "PAID")
                 .codStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "NOT_APPLICABLE")
                 .build();
 

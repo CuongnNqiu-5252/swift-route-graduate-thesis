@@ -2,7 +2,7 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import axios from 'axios';
+import { isRequestCancelled } from '@/lib/api';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   AttributionControl,
@@ -19,7 +19,7 @@ import {
   getCircleBounds,
 } from '@/components/settings/delivery-zone-geometry';
 import type { TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
-import api from '@/lib/api';
+import { goongMapsClient, type MapPlacePrediction } from '@/infrastructure/maps/goong-maps.client';
 
 if (typeof window !== 'undefined') {
   setWorkerUrl('/maplibre-gl-worker.mjs');
@@ -45,12 +45,6 @@ function markerColorForZoneStatus(zoneStatus?: 'inside' | 'warn' | 'blocked' | n
   if (zoneStatus === 'warn') return '#d97706';
   if (zoneStatus === 'blocked') return '#dc2626';
   return '#2563eb';
-}
-
-interface Prediction {
-  place_id: string;
-  description: string;
-  structured_formatting?: { main_text?: string; secondary_text?: string };
 }
 
 function createMarkerElement() {
@@ -88,7 +82,7 @@ export default function LocationMapPickerInner({
   const onChangeRef = useRef(onChange);
   const onResolvingChangeRef = useRef(onResolvingChange);
   const [query, setQuery] = useState(address ?? '');
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [predictions, setPredictions] = useState<MapPlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,13 +206,10 @@ export default function LocationMapPickerInner({
     onChangeRef.current(nextLat, nextLng);
     onResolvingChangeRef.current?.(true);
     try {
-      const { data: body } = await api.get<{ address?: string; error?: string }>('/api/maps/reverse', {
-        baseURL: '',
-        params: { lat: nextLat, lng: nextLng },
-      });
-      if (!body.address) throw new Error(body.error || t("Không xác định được địa chỉ."));
-      setQuery(body.address);
-      onChangeRef.current(nextLat, nextLng, body.address);
+      const address = await goongMapsClient.reverseGeocode(nextLat, nextLng);
+      if (!address) throw new Error(t("Không xác định được địa chỉ."));
+      setQuery(address);
+      onChangeRef.current(nextLat, nextLng, address);
     } catch {
       setError('Đã chọn tọa độ, nhưng Goong chưa trả về địa chỉ. Hãy nhập địa chỉ chi tiết thủ công trước khi lưu.');
     } finally {
@@ -278,14 +269,10 @@ export default function LocationMapPickerInner({
       setSearching(true);
       setError(null);
       try {
-        const { data: body } = await api.get<{ predictions?: Prediction[]; error?: string }>('/api/maps/search', {
-          baseURL: '',
-          params: { input: query.trim(), location: `${lat},${lng}`, sessiontoken: sessionToken.current },
-          signal: controller.signal,
-        });
-        setPredictions(body.predictions ?? []);
+        const results = await goongMapsClient.searchPlaces(query, { lat, lng }, sessionToken.current, controller.signal);
+        if (!controller.signal.aborted) setPredictions(results);
       } catch (cause) {
-        if (!controller.signal.aborted && !axios.isCancel(cause)) {
+        if (!controller.signal.aborted && !isRequestCancelled(cause)) {
           setError(cause instanceof Error ? cause.message : t("Không thể tìm địa chỉ."));
         }
       } finally {
@@ -298,23 +285,17 @@ export default function LocationMapPickerInner({
     };
   }, [lat, lng, query, searchEnabled, t]);
 
-  async function choosePrediction(prediction: Prediction) {
+  async function choosePrediction(prediction: MapPlacePrediction) {
     setSearching(true);
     setPredictions([]);
     setSearchEnabled(false);
     setError(null);
     try {
-      const { data: body } = await api.get<{ address?: string; lat?: number; lng?: number; error?: string }>(
-        '/api/maps/place-detail',
-        {
-          baseURL: '',
-          params: { placeId: prediction.place_id, sessiontoken: sessionToken.current },
-        },
-      );
-      if (body.lat == null || body.lng == null) throw new Error(body.error || t("Không lấy được vị trí đã chọn."));
-      const resolvedAddress = body.address || prediction.description;
+      const detail = await goongMapsClient.getPlaceDetail(prediction.place_id, sessionToken.current);
+      if (!detail) throw new Error(t("Không lấy được vị trí đã chọn."));
+      const resolvedAddress = detail.address || prediction.description;
       setQuery(resolvedAddress);
-      onChangeRef.current(body.lat, body.lng, resolvedAddress);
+      onChangeRef.current(detail.lat, detail.lng, resolvedAddress);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("Không lấy được vị trí đã chọn."));
     } finally {

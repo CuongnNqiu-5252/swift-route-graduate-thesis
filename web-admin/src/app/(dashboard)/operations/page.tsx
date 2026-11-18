@@ -20,8 +20,9 @@ import {
   UserCheck,
   AlertOctagon,
 } from 'lucide-react';
-import api from '@/lib/api';
+
 import { Button } from '@/components/ui/button';
+import { CustomSelect } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Modal } from '@/components/ui/modal';
 import {
@@ -108,8 +109,6 @@ const incidentStatusBadge = (status: string, t: Translator) => {
       return <Badge className="bg-purple-100 text-purple-800 border border-purple-300">{t("Đã leo thang")}</Badge>;
     case 'RESOLVED':
       return <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">{t("Đã giải quyết")}</Badge>;
-    case 'CANCELLED':
-      return <Badge className="bg-slate-100 text-slate-600">{t("Đã hủy")}</Badge>;
     default:
       return <Badge className="bg-slate-100 text-slate-700">{status}</Badge>;
   }
@@ -119,10 +118,7 @@ const returnStatusBadge = (status: string, t: Translator) => {
   switch (status?.toUpperCase()) {
     case 'REQUESTED':
       return <Badge className="bg-amber-100 text-amber-800 border border-amber-300">{t("Chờ duyệt")}</Badge>;
-    case 'APPROVED':
-      return <Badge className="bg-blue-50 text-blue-700 border border-blue-200">{t("Đã duyệt")}</Badge>;
     case 'IN_EXECUTION':
-    case 'ASSIGNED':
       return <Badge className="bg-sky-50 text-sky-700 border border-sky-200">{t("Đang hoàn về")}</Badge>;
     case 'ARRIVED':
       return <Badge className="bg-indigo-50 text-indigo-700 border border-indigo-200">{t("Đã đến điểm hoàn")}</Badge>;
@@ -130,6 +126,8 @@ const returnStatusBadge = (status: string, t: Translator) => {
       return <Badge className="bg-orange-100 text-orange-800 border border-orange-300 animate-pulse">{t("Chờ kiểm nhận")}</Badge>;
     case 'DISCREPANCY':
       return <Badge className="bg-rose-600 text-white font-semibold">{t("Có chênh lệch / Hỏng")}</Badge>;
+    case 'EXECUTION_FAILED':
+      return <Badge className="bg-rose-100 text-rose-800 border border-rose-300">{t("Hoàn hàng thất bại")}</Badge>;
     case 'COMPLETED':
       return <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">{t("Đã nhận hàng vào kho")}</Badge>;
     case 'REJECTED':
@@ -218,16 +216,26 @@ function OrderHandoverQueue() {
         <div className="space-y-3 rounded-lg border p-4">
           <p className="font-semibold">{selected.order_code ?? selected.order_id}</p>
           {selected.status === 'REQUESTED' && (
-            <label className="block text-sm">
-              {t("Tài xế nhận")}
-              <select className="ml-2 rounded border p-2" value={driverId} onChange={(event) => setDriverId(event.target.value)}>
-                <option value="">{t("Chọn tài xế")}</option>
-                {drivers.filter((driver) => driver.onboarding_status === 'ACTIVE' && driver.user_id
-                  && driver.user_id !== selected.from_driver_id).map((driver) => (
-                  <option key={driver.user_id} value={driver.user_id}>{driver.name}</option>
-                ))}
-              </select>
-            </label>
+            <div className="space-y-1 text-sm">
+              <span>{t("Tài xế nhận")}</span>
+              <CustomSelect
+                value={driverId}
+                placeholder={t("Chọn tài xế")}
+                onValueChange={setDriverId}
+                className="max-w-sm"
+                options={drivers
+                  .filter(
+                    (driver) =>
+                      driver.onboarding_status === 'ACTIVE' &&
+                      driver.user_id &&
+                      driver.user_id !== selected.from_driver_id,
+                  )
+                  .map((driver) => ({
+                    value: driver.user_id!,
+                    label: driver.name,
+                  }))}
+              />
+            </div>
           )}
           <label className="block text-sm">
             {t("Lý do từ chối hoặc hủy")}
@@ -310,14 +318,14 @@ export default function OperationsPage() {
       const [incRes, retRes, revRes, drivers] = await Promise.all([
         operationsRepository.getIncidents(),
         operationsRepository.getReturns(),
-        api.get<unknown>('/operations/review'),
+        operationsRepository.getReviewQueue(),
         driverRepository.getDrivers().catch(() => []),
       ]);
       setIncidents(incRes);
       setReturns(retRes);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawRev = (revRes.data as any)?.data ?? revRes.data;
+      const rawRev = (revRes as any)?.data ?? revRes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rawCod = (rawRev?.cod_collections ?? rawRev?.codCollections ?? []).map((item: any) => ({
         id: String(item.id ?? ''),
@@ -345,14 +353,14 @@ export default function OperationsPage() {
     Promise.all([
       operationsRepository.getIncidents(),
       operationsRepository.getReturns(),
-      api.get<unknown>('/operations/review'),
+      operationsRepository.getReviewQueue(),
       driverRepository.getDrivers().catch(() => []),
     ]).then(([incRes, retRes, revRes, drivers]) => {
       if (!active) return;
       setIncidents(incRes);
       setReturns(retRes);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawRev = (revRes.data as any)?.data ?? revRes.data;
+      const rawRev = (revRes as any)?.data ?? revRes;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rawCod = (rawRev?.cod_collections ?? rawRev?.codCollections ?? []).map((item: any) => ({
         id: String(item.id ?? ''),
@@ -683,32 +691,38 @@ export default function OperationsPage() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
                 <span>{t("Trạng thái:")}</span>
-                <select
+                <CustomSelect
+                  size="sm"
+                  aria-label={t("Trạng thái:")}
                   value={incidentStatusFilter}
-                  onChange={(e) => setIncidentStatusFilter(e.target.value)}
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                >
-                  <option value="ALL">{t("Tất cả trạng thái")}</option>
-                  <option value="OPEN">{t("Chờ xử lý (OPEN)")}</option>
-                  <option value="IN_PROGRESS">{t("Đang xử lý (IN_PROGRESS)")}</option>
-                  <option value="ESCALATED">Leo thang (ESCALATED)</option>
-                  <option value="RESOLVED">{t("Đã giải quyết (RESOLVED)")}</option>
-                </select>
+                  onValueChange={setIncidentStatusFilter}
+                  className="w-44"
+                  options={[
+                    { value: 'ALL', label: t("Tất cả trạng thái") },
+                    { value: 'OPEN', label: t("Chờ xử lý (OPEN)") },
+                    { value: 'IN_PROGRESS', label: t("Đang xử lý (IN_PROGRESS)") },
+                    { value: 'ESCALATED', label: 'Leo thang (ESCALATED)' },
+                    { value: 'RESOLVED', label: t("Đã giải quyết (RESOLVED)") },
+                  ]}
+                />
               </div>
 
               <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
                 <span>{t("Mức độ:")}</span>
-                <select
+                <CustomSelect
+                  size="sm"
+                  aria-label={t("Mức độ:")}
                   value={incidentSeverityFilter}
-                  onChange={(e) => setIncidentSeverityFilter(e.target.value)}
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                >
-                  <option value="ALL">{t("Tất cả mức độ")}</option>
-                  <option value="CRITICAL">{t("Khẩn cấp")}</option>
-                  <option value="HIGH">{t("Cao")}</option>
-                  <option value="MEDIUM">{t("Trung bình")}</option>
-                  <option value="LOW">{t("Thấp")}</option>
-                </select>
+                  onValueChange={setIncidentSeverityFilter}
+                  className="w-36"
+                  options={[
+                    { value: 'ALL', label: t("Tất cả mức độ") },
+                    { value: 'CRITICAL', label: t("Khẩn cấp") },
+                    { value: 'HIGH', label: t("Cao") },
+                    { value: 'MEDIUM', label: t("Trung bình") },
+                    { value: 'LOW', label: t("Thấp") },
+                  ]}
+                />
               </div>
             </div>
 
@@ -811,19 +825,24 @@ export default function OperationsPage() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
                 <span>{t("Trạng thái hoàn:")}</span>
-                <select
+                <CustomSelect
+                  size="sm"
+                  aria-label={t("Trạng thái hoàn:")}
                   value={returnStatusFilter}
-                  onChange={(e) => setReturnStatusFilter(e.target.value)}
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="ALL">{t("Tất cả trạng thái")}</option>
-                  <option value="ACTIVE">{t("Đang xử lý")}</option>
-                  <option value="REQUESTED">{t("Chờ duyệt")}</option>
-                  <option value="IN_EXECUTION">{t("Đang hoàn về")}</option>
-                  <option value="AWAITING_RECEIPT">{t("Chờ kiểm nhận")}</option>
-                  <option value="DISCREPANCY">{t("Có chênh lệch / Hỏng")}</option>
-                  <option value="COMPLETED">{t("Đã nhận hàng vào kho")}</option>
-                </select>
+                  onValueChange={setReturnStatusFilter}
+                  className="w-48"
+                  options={[
+                    { value: 'ALL', label: t("Tất cả trạng thái") },
+                    { value: 'ACTIVE', label: t("Đang xử lý") },
+                    { value: 'REQUESTED', label: t("Chờ duyệt") },
+                    { value: 'IN_EXECUTION', label: t("Đang hoàn về") },
+                    { value: 'ARRIVED', label: t("Đã đến điểm hoàn") },
+                    { value: 'AWAITING_RECEIPT', label: t("Chờ kiểm nhận") },
+                    { value: 'DISCREPANCY', label: t("Có chênh lệch / Hỏng") },
+                    { value: 'EXECUTION_FAILED', label: t("Hoàn hàng thất bại") },
+                    { value: 'COMPLETED', label: t("Đã nhận hàng vào kho") },
+                  ]}
+                />
               </div>
             </div>
 
@@ -1077,16 +1096,16 @@ export default function OperationsPage() {
                   <label htmlFor="cod-variance-resolution" className="mb-2 block font-medium text-slate-800">
                     {t("Cách ghi nhận chênh lệch")}
                   </label>
-                  <select
+                  <CustomSelect
                     id="cod-variance-resolution"
                     value={codVarianceResolution}
-                    onChange={(event) => setCodVarianceResolution(event.target.value as CodVarianceResolution)}
-                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-slate-900 outline-none focus:border-slate-700 focus:ring-2 focus:ring-slate-200"
-                  >
-                    <option value="BUSINESS_ADJUSTMENT">{t("Doanh nghiệp chấp nhận điều chỉnh")}</option>
-                    <option value="DRIVER_RESPONSIBLE">{t("Ghi nhận tài xế chịu trách nhiệm")}</option>
-                    <option value="OTHER">{t("Xử lý theo quyết định khác")}</option>
-                  </select>
+                    onValueChange={(next) => setCodVarianceResolution(next as CodVarianceResolution)}
+                    options={[
+                      { value: 'BUSINESS_ADJUSTMENT', label: t("Doanh nghiệp chấp nhận điều chỉnh") },
+                      { value: 'DRIVER_RESPONSIBLE', label: t("Ghi nhận tài xế chịu trách nhiệm") },
+                      { value: 'OTHER', label: t("Xử lý theo quyết định khác") },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="cod-settlement-notes" className="mb-2 block font-medium text-slate-800">
@@ -1444,17 +1463,18 @@ export default function OperationsPage() {
         <div className="space-y-4 text-sm">
           <div>
             <label className="text-xs font-semibold text-slate-700 block mb-1">{t("Loại chênh lệch:")}</label>
-            <select
+            <CustomSelect
+              aria-label={t("Loại chênh lệch:")}
               value={discrepancyType}
-              onChange={(e) => setDiscrepancyType(e.target.value)}
-              className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
-            >
-              <option value="DAMAGED">{t("Hàng hóa bị vỡ / hư hỏng")}</option>
-              <option value="MISSING_ITEMS">{t("Thiếu kiện hàng / thiếu sản phẩm")}</option>
-              <option value="WRONG_ITEMS">{t("Sai sản phẩm hoàn về")}</option>
-              <option value="REFUSED_BY_RECIPIENT">{t("Bao bì rách nát / khách từ chối")}</option>
-              <option value="OTHER">{t("Lý do khác")}</option>
-            </select>
+              onValueChange={setDiscrepancyType}
+              options={[
+                { value: 'DAMAGED', label: t("Hàng hóa bị vỡ / hư hỏng") },
+                { value: 'MISSING_ITEMS', label: t("Thiếu kiện hàng / thiếu sản phẩm") },
+                { value: 'WRONG_ITEMS', label: t("Sai sản phẩm hoàn về") },
+                { value: 'REFUSED_BY_RECIPIENT', label: t("Bao bì rách nát / khách từ chối") },
+                { value: 'OTHER', label: t("Lý do khác") },
+              ]}
+            />
           </div>
 
           <div>

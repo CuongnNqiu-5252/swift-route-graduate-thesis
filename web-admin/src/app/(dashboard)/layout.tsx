@@ -20,6 +20,7 @@ export default function DashboardLayout({
   const { user, token, isLoading, refreshProfile, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const isDispatch = pathname === '/dispatch';
 
   useEffect(() => {
     if (!isLoading && !token) {
@@ -62,8 +63,10 @@ export default function DashboardLayout({
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Navbar />
-          <main id="workspace-content" className="workspace-sheet mx-2 mb-18 min-w-0 flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:mb-2 lg:p-8">
-            <SetupProgress />
+          <main id="workspace-content" className={isDispatch
+            ? 'workspace-sheet mb-18 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-white [scrollbar-gutter:auto] lg:mb-2'
+            : 'workspace-sheet mx-2 mb-18 min-w-0 flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:mb-2 lg:p-8'}>
+            {isDispatch ? <div className="shrink-0 px-3 [&>section]:mb-2 [&>section]:mt-2"><SetupProgress /></div> : <SetupProgress />}
             {children}
           </main>
         </div>

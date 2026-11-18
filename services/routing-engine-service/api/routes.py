@@ -18,6 +18,7 @@ from api.schemas import (
     WhatIfOptimizationResponse,
 )
 from service.optimizer_service import (
+    measure_ordered_route,
     simulate_what_if,
     solve_batch,
     solve_insert,
@@ -48,6 +49,15 @@ def optimize_batch(request: BatchOptimizationRequest) -> BatchOptimizationRespon
     Returns the optimised visitation order with cumulative distances and ETA.
     """
     return solve_batch(request)
+
+
+@router.post(
+    "/optimize/measure",
+    response_model=BatchOptimizationResponse,
+    summary="Measure a route without changing stop order",
+)
+def measure_route(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
+    return measure_ordered_route(request)
 
 
 @router.post(

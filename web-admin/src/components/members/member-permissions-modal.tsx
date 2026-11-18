@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useLocale } from '@/i18n/provider';
 import { Button } from '@/components/ui/button';
+import { CustomSelect } from '@/components/ui/select';
 import {
   MEMBER_ROLE_LABEL,
   PERMISSION_MODULE_LABEL,
@@ -178,17 +179,17 @@ export function MemberPermissionsModal({
               <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
                 {t('Vai trò trong doanh nghiệp')}
               </label>
-              <select
+              <CustomSelect
+                aria-label={t('Vai trò trong doanh nghiệp')}
                 value={selectedRole}
-                onChange={(e) => handleRoleChange(e.target.value as TenantMembershipRole)}
-                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-blue-600 focus:outline-none"
-              >
-                {ASSIGNABLE_ROLES.map((roleOpt) => (
-                  <option key={roleOpt} value={roleOpt} disabled={!canAssignRole(roleOpt)}>
-                    {t(MEMBER_ROLE_LABEL[roleOpt])} ({roleOpt})
-                  </option>
-                ))}
-              </select>
+                onValueChange={(next) => handleRoleChange(next as TenantMembershipRole)}
+                className="mt-1.5"
+                options={ASSIGNABLE_ROLES.map((roleOpt) => ({
+                  value: roleOpt,
+                  label: `${t(MEMBER_ROLE_LABEL[roleOpt])} (${roleOpt})`,
+                  disabled: !canAssignRole(roleOpt),
+                }))}
+              />
               <p className="mt-1 text-xs text-slate-500">
                 {t('Đổi vai trò sẽ nạp lại bộ quyền mẫu của vai trò mới để bạn tinh chỉnh thêm.')}
               </p>

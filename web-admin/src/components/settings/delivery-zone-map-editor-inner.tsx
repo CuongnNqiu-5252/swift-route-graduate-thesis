@@ -3,7 +3,7 @@
 import { useLocale } from '@/i18n/provider';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import axios from 'axios';
+import { isRequestCancelled } from '@/lib/api';
 import {
   AttributionControl,
   type GeoJSONSource,
@@ -476,7 +476,7 @@ export default function DeliveryZoneMapEditorInner({
         );
         setPredictions(items);
       } catch (err) {
-        if (!axios.isCancel(err)) {
+        if (!isRequestCancelled(err)) {
           setGeoError(t("Không thể tìm kiếm địa điểm qua Goong."));
         }
       } finally {

@@ -53,6 +53,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/refresh",
             "/api/auth/invitations/accept",
             "/api/auth/invitations/preview",
+            "/ws/chat",
             "/actuator/health");
 
     private final JwtVerifier jwtVerifier;

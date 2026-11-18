@@ -40,7 +40,9 @@ export async function POST(request: Request) {
         // The codec returns [lat, lng]; GeoJSON/MapLibre requires [lng, lat].
         coordinates: decode(encoded, 5).map(([lat, lng]) => [lng, lat] as [number, number]),
         distanceMeters: Number(distance?.value) || 0,
-        durationSeconds: Number(duration?.value) || 0,
+        durationSeconds: typeof duration?.value === 'number' && Number.isFinite(duration.value) && duration.value >= 0
+          ? duration.value
+          : null,
       };
     }));
 
@@ -50,7 +52,8 @@ export async function POST(request: Request) {
     return Response.json({
       coordinates,
       distance_meters: segments.reduce((sum, segment) => sum + segment.distanceMeters, 0),
-      duration_seconds: segments.reduce((sum, segment) => sum + segment.durationSeconds, 0),
+      duration_seconds: segments.reduce((sum, segment) => sum + (segment.durationSeconds ?? 0), 0),
+      leg_duration_seconds: segments.map((segment) => segment.durationSeconds),
       provider: 'GOONG',
     });
   } catch (error) {

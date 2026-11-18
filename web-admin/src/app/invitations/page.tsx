@@ -4,23 +4,15 @@ import { useLocale } from '@/i18n/provider';
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useAuth } from '@/application/contexts/auth-context';
-import api from '@/lib/api';
+import { authRepository, type InvitationPreview } from '@/infrastructure/repositories/auth.repository';
+import { memberRepository } from '@/infrastructure/repositories/member.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-
-interface Invitation {
-  email: string;
-  tenant_id: string;
-  business_name?: string;
-  role: string;
-  expires_at: string;
-  status: string;
-}
 
 export default function InvitationPage() {
   const { t, intlLocale } = useLocale();
   const { user, login, refreshProfile, isLoading } = useAuth();
-  const [invitation, setInvitation] = useState<Invitation | null>(null);
+  const [invitation, setInvitation] = useState<InvitationPreview | null>(null);
   const [token, setToken] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [busy, setBusy] = useState(false);
@@ -38,8 +30,8 @@ export default function InvitationPage() {
     }
     sessionStorage.setItem('driver_invitation_token', raw);
     window.history.replaceState(null, '', '/invitations');
-    api.post<Invitation>('/auth/invitations/preview', { token: raw })
-      .then(({ data }) => { if (active) { setToken(raw); setInvitation(data); } })
+    authRepository.previewInvitation(raw)
+      .then((data) => { if (active) { setToken(raw); setInvitation(data); } })
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Không thể tải lời mời."); });
     return () => { active = false; };
   }, []);
@@ -52,7 +44,7 @@ export default function InvitationPage() {
     try {
       const password = String(fields.get('password'));
       if (mode === 'register') {
-        await api.post('/auth/register', {
+        await authRepository.register({
           email: invitation.email, password,
           full_name: String(fields.get('fullName')).trim(),
           phone_number: String(fields.get('phoneNumber')).trim(),
@@ -70,13 +62,13 @@ export default function InvitationPage() {
     setBusy(true); setError(''); setNotice('');
     try {
       if (action === 'verify') {
-        await api.post('/auth/email/resend');
+        await authRepository.resendVerification();
         setNotice(t("Đã yêu cầu gửi email xác minh. Kiểm tra hộp thư và thư rác."));
       } else if (action === 'refresh') {
         const profile = await refreshProfile();
         if (!profile?.emailVerified) setNotice(t("Email chưa được xác minh. Hãy mở liên kết trong email rồi thử lại."));
       } else {
-        await api.post('/auth/invitations/accept', { token });
+        await memberRepository.acceptInvitation({ token });
         setAccepted(true);
         sessionStorage.removeItem('driver_invitation_token');
         await refreshProfile();

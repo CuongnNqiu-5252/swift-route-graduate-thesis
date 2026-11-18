@@ -11,7 +11,6 @@ import com.swiftroute.orderservice.dto.response.TenantSettingsResponse;
 import com.swiftroute.orderservice.entity.OptimizationWeights;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.TenantDispatchConfig;
-import com.swiftroute.orderservice.entity.enums.BusinessType;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.TenantRepository;
@@ -25,7 +24,6 @@ import lombok.extern.slf4j.Slf4j;
 public class TenantSettingsService {
 
     private final TenantRepository tenantRepository;
-    private final BusinessTypeProfileRegistry profileRegistry;
 
     @Transactional(readOnly = true)
     public TenantSettingsResponse getSettings(UUID tenantId) {
@@ -66,24 +64,6 @@ public class TenantSettingsService {
         return TenantSettingsResponse.fromEntity(saved);
     }
 
-    @Transactional
-    public TenantSettingsResponse applyPreset(UUID tenantId, BusinessType type) {
-        Tenant tenant = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
-
-        TenantDispatchConfig previous = tenant.getDispatchConfig();
-        profileRegistry.applyProfile(tenant, type);
-        if (previous != null) {
-            TenantDispatchConfig updated = tenant.getDispatchConfig();
-            updated.setAutoDispatchEnabled(previous.getAutoDispatchEnabled());
-            updated.setScheduledDispatchEnabled(previous.getScheduledDispatchEnabled());
-            updated.setScheduledDispatchTime(previous.getScheduledDispatchTime());
-        }
-        Tenant saved = tenantRepository.save(tenant);
-        log.info("Applied preset {} to tenantId={}, businessName='{}'", type, tenantId, saved.getBusinessName());
-        return TenantSettingsResponse.fromEntity(saved);
-    }
-
     private void validateOptimizationWeights(OptimizationWeights weights) {
         if (weights.getTimeWeight() == null || weights.getCostWeight() == null) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
@@ -110,10 +90,6 @@ public class TenantSettingsService {
         }
         if (config.getMaxWaitTimeSeconds() != null
                 && (config.getMaxWaitTimeSeconds() < 30 || config.getMaxWaitTimeSeconds() > 3600)) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
-        if (config.getUrgentOrderMode() != null
-                && !List.of("IMMEDIATE_SINGLE", "BATCH_IMMEDIATE").contains(config.getUrgentOrderMode())) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
         if (config.getAlgorithm() != null

@@ -116,12 +116,6 @@ public class Tenant {
     @Column(name="delivery_settings", columnDefinition="jsonb")
     @Builder.Default
     private java.util.Map<String,Object> deliverySettings = new java.util.LinkedHashMap<>();
-    @Column(name="settings_confirmed", nullable=false)
-    @Builder.Default
-    private boolean settingsConfirmed = false;
-    @Column(name="mode_confirmed", nullable=false)
-    @Builder.Default
-    private boolean modeConfirmed = false;
 
     @Version
     @Column(nullable = false)

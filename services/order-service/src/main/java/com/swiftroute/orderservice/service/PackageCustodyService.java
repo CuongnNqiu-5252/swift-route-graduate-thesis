@@ -171,7 +171,7 @@ public class PackageCustodyService {
         String taskType = order.getStatus() == OrderStatus.RETURNING ? "RETURN" : "DELIVERY";
         dispatchOrchestration.getObject().synchronizePackageTransfer(order, handover.getFromDriverId(), driverId, taskType);
         returns.findAllByOrder_IdAndCurrentHolderIdAndStatusIn(order.getId(), handover.getFromDriverId(),
-                List.of("REQUESTED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT",
+                List.of("REQUESTED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT",
                         "DISCREPANCY", "EXECUTION_FAILED"))
                 .forEach(request -> {
                     request.setCurrentHolderId(driverId);

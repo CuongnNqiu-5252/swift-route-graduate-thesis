@@ -1,15 +1,19 @@
-import { TenantSettings, BusinessType } from '@/domain/entities/tenant-settings.entity';
+import { TenantSettings } from '@/domain/entities/tenant-settings.entity';
 import api from '@/lib/api';
 
 export interface UpdateSettingsPayload {
   business_name?: string;
-  business_type?: BusinessType;
   address?: string;
   dispatch_config?: Partial<TenantSettings['dispatch_config']>;
   optimization_weights?: Partial<TenantSettings['optimization_weights']>;
 }
 
 export const tenantSettingsRepository = {
+  async getBusinessName(tenantId: string): Promise<string> {
+    const { data } = await api.get<{ business_name: string }>(`/tenants/${tenantId}`);
+    return data.business_name;
+  },
+
   async getSettings(): Promise<TenantSettings> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await api.get<any>('/tenants/me/settings');
@@ -17,18 +21,14 @@ export const tenantSettingsRepository = {
     return {
       tenant_id: String(data.tenant_id || data.tenantId || ''),
       business_name: String(data.business_name || data.businessName || ''),
-      business_type: (data.business_type || data.businessType || 'OTHER') as BusinessType,
       status: String(data.status || 'APPROVED'),
       address: data.address || '',
       dispatch_config: {
         auto_dispatch_enabled: data.dispatch_config?.auto_dispatch_enabled ?? true,
         batch_size_threshold: data.dispatch_config?.batch_size_threshold ?? 5,
         max_wait_time_seconds: data.dispatch_config?.max_wait_time_seconds ?? 300,
-        urgent_order_mode: data.dispatch_config?.urgent_order_mode || 'IMMEDIATE_SINGLE',
-        require_approval: data.dispatch_config?.require_approval ?? false,
         max_orders_per_driver: data.dispatch_config?.max_orders_per_driver ?? 5,
         algorithm: data.dispatch_config?.algorithm || 'auto',
-        allow_pool_drivers: data.dispatch_config?.allow_pool_drivers ?? false,
         scheduled_dispatch_enabled: data.dispatch_config?.scheduled_dispatch_enabled ?? true,
         scheduled_dispatch_time: data.dispatch_config?.scheduled_dispatch_time || '06:00',
       },
@@ -45,12 +45,5 @@ export const tenantSettingsRepository = {
     return response.data;
   },
 
-  async applyPreset(businessType: BusinessType): Promise<TenantSettings> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = await api.post<any>('/tenants/me/settings/apply-preset', {
-      business_type: businessType,
-    });
-    return response.data;
-  },
 };
 

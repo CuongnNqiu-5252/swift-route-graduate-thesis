@@ -42,8 +42,7 @@ public class PlanningEligibilityEvaluator {
      * <p>
      * Trigger priority (highest to lowest):
      * <ol>
-     * <li>URGENT — an URGENT-priority order exists and urgent mode is
-     * IMMEDIATE_SINGLE or BATCH_IMMEDIATE</li>
+     * <li>URGENT — an URGENT-priority order exists</li>
      * <li>BATCH_SIZE — pending order count has reached the configured
      * threshold</li>
      * <li>MAX_WAIT — the oldest pending order has waited longer than
@@ -119,6 +118,7 @@ public class PlanningEligibilityEvaluator {
     public List<Order> getEligibleOrders(UUID tenantId, Instant now) {
         return orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.READY_FOR_DISPATCH)
                 .stream()
+                .filter(Order::canJoinDispatchPlan)
                 .sorted((a, b) -> {
                     // URGENT first, then HIGH, then NORMAL; within same priority sort by creation
                     // time

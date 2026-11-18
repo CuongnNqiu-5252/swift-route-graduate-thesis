@@ -54,7 +54,7 @@ public class RecoveryRuleEngine {
             "WEATHER_DELAY");
 
     private static final List<String> UNFINISHED_RETURN_STATUSES = List.of(
-            "REQUESTED", "APPROVED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT");
+            "REQUESTED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED");
 
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final ReturnRequestRepository returnRequestRepository;

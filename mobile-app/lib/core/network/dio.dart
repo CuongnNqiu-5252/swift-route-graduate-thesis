@@ -38,17 +38,51 @@ final dioProvider = Provider<Dio>((ref) {
   dio.interceptors.add(
     AuthInterceptor(dio: dio, storage: storage, tokenStorage: tokenStorage),
   );
-  dio.interceptors.add(
-    LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      // ignore: avoid_print
-      logPrint: (obj) => print(obj), // Dùng logger thực tế trong production
-    ),
-  );
+  dio.interceptors.add(_ApiLogInterceptor());
 
   return dio;
 });
+
+class _ApiLogInterceptor extends LogInterceptor {
+  _ApiLogInterceptor()
+    : super(
+        requestBody: true,
+        responseBody: true,
+        logPrint: (value) => debugPrint(value.toString()),
+      );
+
+  bool _isChat(RequestOptions options) => options.path.startsWith('/chat/');
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (_isChat(options)) {
+      handler.next(options);
+      return;
+    }
+    super.onRequest(options, handler);
+  }
+
+  @override
+  void onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    if (_isChat(response.requestOptions)) {
+      handler.next(response);
+      return;
+    }
+    super.onResponse(response, handler);
+  }
+
+  @override
+  void onError(DioException error, ErrorInterceptorHandler handler) {
+    if (_isChat(error.requestOptions)) {
+      handler.next(error);
+      return;
+    }
+    super.onError(error, handler);
+  }
+}
 
 class TokenStorage {
   final FlutterSecureStorage _storage;

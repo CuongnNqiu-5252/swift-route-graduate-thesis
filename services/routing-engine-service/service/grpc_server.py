@@ -120,8 +120,10 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
             depot=_to_location_schema(request.depot),
             stops=[_to_stop_item_schema(s) for s in request.stops],
             algorithm=request.algorithm if request.algorithm else "auto",
-            time_weight=request.time_weight if request.time_weight > 0 else 0.5,
-            cost_weight=request.cost_weight if request.cost_weight > 0 else 0.5,
+            time_weight=request.time_weight if request.HasField("time_weight") else 0.5,
+            cost_weight=request.cost_weight if request.HasField("cost_weight") else 0.5,
+            vehicle_count=request.vehicle_count or 1,
+            max_stops_per_vehicle=request.max_stops_per_vehicle or None,
         )
         res = solve_batch(schema_req)
         return routing_pb2.BatchOptimizationGrpcResponse(
@@ -132,6 +134,16 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
             ordered_stops=[_to_ordered_stop_proto(s) for s in res.ordered_stops],
             execution_time_ms=res.execution_time_ms,
             timestamp=res.timestamp,
+            vehicle_routes=[
+                routing_pb2.VehicleRouteProto(
+                    vehicle_index=route.vehicle_index,
+                    total_distance_km=route.total_distance_km,
+                    total_duration_minutes=route.total_duration_minutes,
+                    total_load_kg=route.total_load_kg,
+                    ordered_stops=[_to_ordered_stop_proto(s) for s in route.ordered_stops],
+                )
+                for route in res.vehicle_routes
+            ],
         )
 
     def OptimizeInsert(

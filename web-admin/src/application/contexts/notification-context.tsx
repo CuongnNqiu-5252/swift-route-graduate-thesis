@@ -1,6 +1,6 @@
 'use client';
 
-import axios from 'axios';
+import { isRequestCancelled } from '@/lib/api';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -10,7 +10,6 @@ import {
   InboxNotificationDto,
   notificationRepository,
 } from '@/infrastructure/repositories/notification.repository';
-import { streamSse } from '@/lib/api';
 
 interface NotificationContextValue {
   alerts: DispatchAlertDto[];
@@ -277,7 +276,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       while (!disposed) {
         try {
           const currentTenantId = localStorage.getItem('tenant_id') || tenantId;
-          await streamSse('/notifications/stream', {
+          await notificationRepository.streamAlerts({
             signal: controller.signal,
             headers: { 'X-Tenant-Id': currentTenantId },
             onOpen: async () => {
@@ -288,7 +287,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             onEvent: handleSseMessage,
           });
         } catch (err) {
-          if (disposed || axios.isCancel(err) || controller.signal.aborted) {
+          if (disposed || isRequestCancelled(err) || controller.signal.aborted) {
             return;
           }
           if ((err as { status?: number })?.status === 403) {

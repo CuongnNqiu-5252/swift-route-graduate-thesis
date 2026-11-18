@@ -6,6 +6,7 @@ import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
 import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_chat_screen.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
@@ -165,6 +166,13 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Tin nhắn',
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(builder: (_) => const DriverChatScreen()),
+            ),
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+          ),
           IconButton(
             tooltip: 'Hòm thư thông báo',
             onPressed: () => _openNotificationsSheet(context, notifications),

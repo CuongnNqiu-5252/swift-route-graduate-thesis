@@ -169,6 +169,7 @@ public class DeliveryExecutionService {
     public List<DriverDeliveryTaskResponse> activeForDriver(UUID driverId, String role) {
         requireDriver(role);
         return tasks.findByDriverIdAndStatusIn(driverId, ACTIVE).stream()
+                .filter(this::matchesCurrentDispatchPlan)
                 .filter(task -> task.getOrder().getStatus() != OrderStatus.CANCELLED)
                 .map(task -> "RETURN".equals(task.getTaskType())
                         ? DriverDeliveryTaskResponse.from(task, returnRequests.findByReturnTask_Id(task.getId())
@@ -190,6 +191,9 @@ public class DeliveryExecutionService {
         // The order remains authoritative even if a stale task is still active.
         if (task.getOrder().getStatus() == OrderStatus.CANCELLED) {
             throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
+        }
+        if (!matchesCurrentDispatchPlan(task)) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         if (task.getOrder().getAssignedDriverId() != null
                 && !driverId.equals(task.getOrder().getAssignedDriverId())) {
@@ -372,9 +376,6 @@ public class DeliveryExecutionService {
         if (order.getAssignedDriverId() == null || !order.getAssignedDriverId().equals(driverId)) {
             order.setAssignedDriverId(driverId);
         }
-        if (order.getPlanId() == null && task.getDispatchPlanId() != null) {
-            order.setPlanId(task.getDispatchPlanId());
-        }
         if (request.status() == DeliveryTaskStatus.ACCEPTED
                 || request.status() == DeliveryTaskStatus.ARRIVED
                 || request.status() == DeliveryTaskStatus.PICKED_UP) {
@@ -486,7 +487,9 @@ public class DeliveryExecutionService {
     }
 
     private List<DeliveryTask> filterCandidateTasks(UUID driverId, BatchDeliveryTaskActionRequest request) {
-        List<DeliveryTask> activeTasks = tasks.findByDriverIdAndStatusIn(driverId, ACTIVE);
+        List<DeliveryTask> activeTasks = tasks.findByDriverIdAndStatusIn(driverId, ACTIVE).stream()
+                .filter(this::matchesCurrentDispatchPlan)
+                .toList();
         Set<UUID> taskIdFilter = request != null && request.taskIds() != null && !request.taskIds().isEmpty()
                 ? new HashSet<>(request.taskIds())
                 : Set.of();
@@ -500,6 +503,12 @@ public class DeliveryExecutionService {
                 .filter(task -> taskIdFilter.contains(task.getId())
                         || (task.getOrder() != null && orderIdFilter.contains(task.getOrder().getId())))
                 .toList();
+    }
+
+    private boolean matchesCurrentDispatchPlan(DeliveryTask task) {
+        return !"DELIVERY".equals(task.getTaskType())
+                || task.getDispatchPlanId() == null
+                || task.getDispatchPlanId().equals(task.getOrder().getPlanId());
     }
 
     private boolean allowed(String taskType, DeliveryTaskStatus from, DeliveryTaskStatus to) {

@@ -16,7 +16,7 @@ export interface VerificationDetail {
   history: Verification[];
   timeline: Array<{ action: string; actor_id: string; created_at: string; details: string }>;
 }
-export interface TenantProfile { business_name: string; business_type: string; contact_phone: string; address: string; country_code: string; delivery_mode: string; delivery_settings: { preparation_enabled: boolean; preparation_minutes: number; delivery_verification_required: boolean; sensitive_handling: boolean } }
+export interface TenantProfile { business_name: string; contact_phone: string; address: string; country_code: string; delivery_mode: string }
 export interface Progress { tenant_id: string; status: string; completed_steps: string[]; incomplete_steps: string[]; next_action: string; profile: TenantProfile; tenant: { status: string; business_name: string }; verification_requests: Verification[]; readiness: { ready_for_operations: boolean; missing_requirements: string[]; shared_network_available: boolean } }
 export async function switchTenant(id: string) {
   const response = await api.post<{ access_token: string }>(`/auth/tenants/${id}/switch`);

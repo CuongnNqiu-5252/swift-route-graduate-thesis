@@ -2,7 +2,7 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import axios from 'axios';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
 import { CheckCircle2, Mail, Route } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useEffect, useRef, useState } from 'react';
@@ -29,8 +29,7 @@ export default function ForgotPasswordPage() {
     setBusy(true);
     setError('');
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-      await axios.post(`${baseUrl}/auth/password/forgot`, { email: normalizedEmail });
+      await authRepository.requestPasswordReset(normalizedEmail);
       setSubmittedEmail(normalizedEmail);
       setDone(true);
     } catch {

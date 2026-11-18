@@ -3,7 +3,7 @@
 import { useLocale } from '@/i18n/provider';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useOrderPage } from '@/application/hooks/use-order-page';
 import {
@@ -16,6 +16,7 @@ import { OrderStatus } from '@/domain/entities/order.entity';
 import { OrderTable, formatShortOrderCode } from '@/components/orders/order-table';
 import { OrderStatusBadge } from '@/components/orders/order-status-badge';
 import { Button } from '@/components/ui/button';
+import { CustomSelect } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   ArrowUpDown,
@@ -26,8 +27,9 @@ import {
   MapPin,
   PackageSearch,
   Plus,
+  ChevronDown,
+  FileSpreadsheet,
   RefreshCw,
-  Route,
   Search,
   UserRound,
   Warehouse,
@@ -80,8 +82,8 @@ function OrdersWorkspace() {
   const searchParams = useSearchParams();
   const activeTab = parseOrderStatusParam(searchParams.get('status'));
   const { drivers } = useDrivers();
-  const [showCreate, setShowCreate] = useState(false);
-  const [showImport, setShowImport] = useState(false);
+  const [entryPanel, setEntryPanel] = useState<'create' | 'import' | null>(null);
+  const canAddOrder = hasPermission('order:create');
   const [showPendingAddresses, setShowPendingAddresses] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [selectedId, setSelectedId] = useState('');
@@ -184,62 +186,66 @@ function OrdersWorkspace() {
 
   return (
     <div className="space-y-4">
-      {/* Compact Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{t("Quản lý đơn hàng")}</h1>
-          <p className="text-xs text-slate-500 sm:text-sm">
-            {t("Tìm kiếm nhanh trong hàng trăm đơn và bấm vào từng đơn để xem lộ trình trực tiếp")}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{t('Quản lý đơn hàng')}</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <PermissionGuard permission="order:create">
-            <Button size="sm" onClick={() => {
-              setShowImport(false);
-              setShowCreate((value) => !value);
-            }}>
-              <Plus size={15} />
-              {showCreate ? t("Đóng tạo đơn") : t("Tạo đơn")}
-            </Button>
-          </PermissionGuard>
-          <PermissionGuard permission="order:create">
-            <Button size="sm" variant="outline" aria-expanded={showImport} onClick={() => {
-              setShowCreate(false);
-              setShowImport((value) => !value);
-            }}>
-              {showImport ? t('Đóng nhập CSV') : t('Nhập CSV')}
-            </Button>
-          </PermissionGuard>
-          <Button variant="outline" size="sm" onClick={() => {
+          <Button type="button" variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={() => {
             setImportRevision((value) => value + 1);
             void refetch();
           }} isLoading={isLoading}>
-            <RefreshCw size={14} />{" "}{t("Làm mới")}
+            <RefreshCw size={14} aria-hidden="true" />
+            {t('Làm mới')}
           </Button>
-          <PermissionGuard permission={['dispatch:read', 'dispatch:execute']}>
-            <Link href="/dispatch">
-              <Button size="sm" variant="outline">
-                <Route size={15} />{" "}{t("Điều phối")}
-              </Button>
-            </Link>
+          <PermissionGuard permission="order:create">
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <Button type="button" size="sm" className="min-h-11 sm:min-h-9">
+                  <Plus size={15} aria-hidden="true" />
+                  {t('Thêm đơn')}
+                  <ChevronDown size={14} aria-hidden="true" />
+                </Button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={6}
+                  className="z-50 min-w-40 rounded-lg bg-white p-1 text-sm text-slate-800 shadow-lg ring-1 ring-slate-200">
+                  <DropdownMenu.Item onSelect={() => setEntryPanel('create')}
+                    className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-3 outline-none data-highlighted:bg-slate-100 sm:min-h-9">
+                    <Plus size={16} aria-hidden="true" />
+                    {t('Tạo đơn')}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setEntryPanel('import')}
+                    className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-3 outline-none data-highlighted:bg-slate-100 sm:min-h-9">
+                    <FileSpreadsheet size={16} aria-hidden="true" />
+                    {t('Nhập CSV')}
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </PermissionGuard>
         </div>
       </div>
 
-      {showCreate && (
+      {entryPanel === 'create' && canAddOrder && (
         <OrderCreatePanel
           onCreated={() => {
-            setShowCreate(false);
+            setEntryPanel(null);
             void refetch();
           }}
-          onClose={() => setShowCreate(false)}
+          onClose={() => setEntryPanel(null)}
         />
       )}
-      {showImport && hasPermission('order:create') && (
-        <OrderImportPanel onImported={() => {
-          setImportRevision((value) => value + 1);
-          void refetch();
-        }} />
+      {entryPanel === 'import' && canAddOrder && (
+        <section className="space-y-2" aria-label={t('Nhập CSV')}>
+          <div className="flex justify-end">
+            <Button type="button" size="sm" variant="ghost" className="min-h-11 sm:min-h-9" onClick={() => setEntryPanel(null)}>
+              {t('Đóng nhập CSV')}
+            </Button>
+          </div>
+          <OrderImportPanel onImported={() => {
+            setImportRevision((value) => value + 1);
+            void refetch();
+          }} />
+        </section>
       )}
 
       {/* Status Tabs with Live Counts */}
@@ -331,56 +337,44 @@ function OrdersWorkspace() {
           </div>
 
           {warehouseOptions.length > 0 && (
-            <div className="relative sm:w-56">
-              <Warehouse
-                aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                size={15}
-              />
-              <select
+            <div className="sm:w-56">
+              <CustomSelect
                 aria-label={t("Lọc theo kho lấy hàng")}
                 value={warehouseFilter}
-                onChange={(event) => {
-                  setWarehouseFilter(event.target.value);
+                leadingIcon={<Warehouse size={15} aria-hidden="true" />}
+                onValueChange={(next) => {
+                  setWarehouseFilter(next);
                   setPage(1);
                 }}
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 focus:border-blue-600 focus:outline-none"
-              >
-                <option value="">{t("Tất cả kho lấy (")}{warehouseOptions.length})</option>
-                {warehouseOptions.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: `${t("Tất cả kho lấy (")}${warehouseOptions.length})` },
+                  ...warehouseOptions.map((item) => ({ value: item.value, label: item.label })),
+                ]}
+              />
             </div>
           )}
 
-          <div className="relative sm:w-56">
-            <ArrowUpDown
-              aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              size={15}
-            />
-            <select
+          <div className="sm:w-56">
+            <CustomSelect
               aria-label={t("Sắp xếp đơn theo ngày")}
               value={`${sortBy}:${sortDir}`}
-              onChange={(event) => {
-                const [nextField, nextDir] = event.target.value.split(':') as [OrderSortField, OrderSortDirection];
+              leadingIcon={<ArrowUpDown size={15} aria-hidden="true" />}
+              onValueChange={(next) => {
+                const [nextField, nextDir] = next.split(':') as [OrderSortField, OrderSortDirection];
                 setSortBy(nextField);
                 setSortDir(nextDir);
                 setPage(1);
                 setSelectedId('');
               }}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 focus:border-blue-600 focus:outline-none"
-            >
-              <option value="created_at:desc">{t("Ngày tạo: Mới nhất trước")}</option>
-              <option value="created_at:asc">{t("Ngày tạo: Cũ nhất trước")}</option>
-              <option value="updated_at:desc">{t("Cập nhật: Mới nhất trước")}</option>
-              <option value="updated_at:asc">{t("Cập nhật: Cũ nhất trước")}</option>
-              <option value="time_window_start:asc">{t("Hẹn giao: Sớm nhất trước")}</option>
-              <option value="time_window_start:desc">{t("Hẹn giao: Muộn nhất trước")}</option>
-            </select>
+              options={[
+                { value: 'created_at:desc', label: t("Ngày tạo: Mới nhất trước") },
+                { value: 'created_at:asc', label: t("Ngày tạo: Cũ nhất trước") },
+                { value: 'updated_at:desc', label: t("Cập nhật: Mới nhất trước") },
+                { value: 'updated_at:asc', label: t("Cập nhật: Cũ nhất trước") },
+                { value: 'time_window_start:asc', label: t("Hẹn giao: Sớm nhất trước") },
+                { value: 'time_window_start:desc', label: t("Hẹn giao: Muộn nhất trước") },
+              ]}
+            />
           </div>
 
           {(query || activeTab || warehouseFilter || sortBy !== 'created_at' || sortDir !== 'desc') && (
@@ -419,7 +413,9 @@ function OrdersWorkspace() {
         <div className="flex min-h-60 flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50/50 text-center">
           <PackageSearch className="text-slate-400" size={28} />
           <p className="mt-3 font-medium text-slate-900">{t("Chưa có đơn hàng nào trong hệ thống")}</p>
-          <p className="mt-1 text-sm text-slate-500">{t("Bấm &ldquo;Tạo đơn&rdquo; ở góc trên để thêm đơn vận chuyển mới.")}</p>
+          {canAddOrder && (
+            <p className="mt-1 text-sm text-slate-600">{t('Mở Thêm đơn để tạo đơn lẻ hoặc nhập nhiều đơn từ CSV.')}</p>
+          )}
         </div>
       ) : (
         /* Main Workspace: Table on the left, Contextual Route Inspector on the right when an order is selected */

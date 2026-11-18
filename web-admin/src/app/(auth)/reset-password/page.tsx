@@ -3,7 +3,8 @@
 import { useLocale } from '@/i18n/provider';
 
 import { CheckCircle2, KeyRound, Route } from 'lucide-react';
-import axios from 'axios';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
+import { ApiError } from '@/lib/api';
 import Link from 'next/link';
 import { FormEvent, Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -37,12 +38,11 @@ function ResetPasswordForm() {
     setError('');
     setInvalidToken(false);
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-      await axios.post(`${baseUrl}/auth/password/reset`, { token, new_password: password });
+      await authRepository.resetPassword(token, password);
       window.history.replaceState(null, '', '/reset-password');
       setDone(true);
     } catch (requestError) {
-      const status = axios.isAxiosError(requestError) ? requestError.response?.status : undefined;
+      const status = requestError instanceof ApiError ? requestError.status : undefined;
       setInvalidToken(Boolean(status && status >= 400 && status < 500));
       setError(status && status >= 400 && status < 500
         ? t("Liên kết không hợp lệ, đã hết hạn hoặc đã được sử dụng. Hãy yêu cầu email mới.")

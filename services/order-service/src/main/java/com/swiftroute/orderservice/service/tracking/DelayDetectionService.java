@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.orderservice.entity.DispatchPlan;
-import com.swiftroute.orderservice.entity.DispatchPlanOrder;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
@@ -85,9 +84,7 @@ public class DelayDetectionService {
             double currentLat,
             double currentLng,
             Instant now) {
-        List<Order> remainingOrders = plan.getPlanOrders().stream()
-                .sorted((a, b) -> Integer.compare(a.getStopIndex(), b.getStopIndex()))
-                .map(DispatchPlanOrder::getOrder)
+        List<Order> remainingOrders = plan.getOrdersInStopOrder().stream()
                 .filter(o -> o.getStatus() == OrderStatus.PLANNED || o.getStatus() == OrderStatus.IN_TRANSIT)
                 .toList();
 

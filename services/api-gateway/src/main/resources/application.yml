@@ -42,6 +42,17 @@ spring:
               predicates:
                 - Path=/api/notifications/**
 
+            - id: chat-api
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/chat/**
+
+            - id: chat-websocket
+              uri: ${NOTIFICATION_WEBSOCKET_URL:ws://localhost:8086}
+              predicates:
+                - Path=/ws/chat
+                - Header=Upgrade, (?i)websocket
+
             # --- Exception, return and COD operations ---
             - id: operations-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}

@@ -43,6 +43,7 @@ public class DriverLocationEventListener {
         try {
             JsonNode root = objectMapper.readTree(new String(message.getBody(), StandardCharsets.UTF_8));
             UUID userId = uuid(root, "user_id", "userId");
+            UUID tenantId = nullableUuid(root, "tenant_id", "tenantId");
             long sequence = number(root, "sequence").longValue();
             Long currentSequence = latestSequences.get(userId);
             if (currentSequence != null && sequence <= currentSequence) {
@@ -62,6 +63,10 @@ public class DriverLocationEventListener {
             }
             tracking.recordDriverPosition(userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
             tracking.broadcastDriverLocation(userId, userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+            if (tenantId != null) {
+                tracking.broadcastFleetDriverLocation(
+                        tenantId, userId, lat, lng, accuracy, speed, bearing, recordedAt, sequence);
+            }
 
             deliveryTasks.findActiveOrderIdsByDriverId(userId, ACTIVE).forEach(orderId -> {
                 if (tracking.isSimulationActive(orderId)) {
@@ -91,6 +96,15 @@ public class DriverLocationEventListener {
 
     private UUID uuid(JsonNode root, String... names) {
         return UUID.fromString(text(root, names));
+    }
+
+    private UUID nullableUuid(JsonNode root, String... names) {
+        for (String name : names) {
+            if (root.hasNonNull(name) && !root.get(name).asText().isBlank()) {
+                return UUID.fromString(root.get(name).asText());
+            }
+        }
+        return null;
     }
 
     private String text(JsonNode root, String... names) {

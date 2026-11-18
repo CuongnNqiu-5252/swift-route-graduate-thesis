@@ -65,7 +65,7 @@ public class ExceptionOperationsService {
             "TENANT_OWNER", "MANAGER", "STAFF");
 
     private static final List<String> ACTIVE_RETURN_STATUSES = List.of(
-            "REQUESTED", "APPROVED", "ASSIGNED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT");
+            "REQUESTED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED");
 
     private static final List<String> UNFINISHED_INCIDENT_STATUSES = List.of(
             "OPEN", "IN_PROGRESS", "ESCALATED");
@@ -179,7 +179,6 @@ public class ExceptionOperationsService {
                     .failureReason(request.incidentType())
                     .notes(request.notes())
                     .proofUrl(photoProof)
-                    .photoUrl(photoProof)
                     .contactAttempts(request.contactAttempts() != null ? request.contactAttempts() : 1)
                     .completedBy(reporterId)
                     .build();
@@ -576,7 +575,7 @@ public class ExceptionOperationsService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        if (!Set.of("ASSIGNED", "IN_EXECUTION").contains(returnReq.getStatus())) {
+        if (!Set.of("IN_EXECUTION", "EXECUTION_FAILED").contains(returnReq.getStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
@@ -643,7 +642,7 @@ public class ExceptionOperationsService {
         ReturnRequest returnReq = returns.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-        if (!Set.of("IN_EXECUTION", "ASSIGNED", "ARRIVED", "AWAITING_RECEIPT").contains(returnReq.getStatus())) {
+        if (!Set.of("IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED").contains(returnReq.getStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
@@ -712,7 +711,7 @@ public class ExceptionOperationsService {
         ReturnRequest returnReq = returns.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-        if (!Set.of("IN_EXECUTION", "ASSIGNED", "ARRIVED", "AWAITING_RECEIPT").contains(returnReq.getStatus())) {
+        if (!Set.of("IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED").contains(returnReq.getStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
@@ -815,7 +814,6 @@ public class ExceptionOperationsService {
                             UUID.randomUUID(), order.getCodAmount(), null, notes));
         }
         order.setCodStatus("HANDED_OVER");
-        order.setPaymentStatus("PAID");
         order.setUpdatedAt(Instant.now());
         orders.save(order);
         return null;

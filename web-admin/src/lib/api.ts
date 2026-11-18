@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import axios, { type AxiosError, type AxiosInstance, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 
 // Standard API response wrapper from backend
 export interface ApiResponse<T> {
@@ -7,7 +7,7 @@ export interface ApiResponse<T> {
   timestamp: string;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -15,6 +15,49 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Separate clients for raw services; the browser's map proxy doesn't need tenant credentials.
+export const mapsApi = axios.create();
+export const routingApi = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_ROUTING_URL || 'http://localhost:8084',
+});
+
+export class ApiError extends Error {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export const isRequestCancelled = (error: unknown): boolean =>
+  axios.isCancel(error) || (error instanceof Error && error.name === 'AbortError');
+
+function normalizeApiError(error: AxiosError): unknown {
+  if (isRequestCancelled(error)) return error;
+  const payload = error.response?.data as
+    | { error?: { message?: string } | string; message?: string }
+    | undefined;
+  const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message;
+  return new ApiError(
+    message || payload?.message || error.message || 'Lỗi kết nối máy chủ',
+    error.response?.status,
+  );
+}
+
+mapsApi.interceptors.response.use(undefined, (error: AxiosError) => Promise.reject(normalizeApiError(error)));
+
+const publicAuthPaths = new Set([
+  '/auth/login',
+  '/auth/register',
+  '/auth/email/verify',
+  '/auth/email/resend-public',
+  '/auth/invitations/preview',
+  '/auth/password/forgot',
+  '/auth/password/reset',
+]);
 
 // Mutex flag and queued requests to handle concurrent 401 errors cleanly
 let isRefreshing = false;
@@ -104,8 +147,8 @@ export async function refreshAccessToken(): Promise<string> {
 }
 
 // Request interceptor: Attach current access token and tenant ID from localStorage
-api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
+function attachSession(config: InternalAxiosRequestConfig) {
+  if (typeof window !== 'undefined' && !publicAuthPaths.has(config.url ?? '')) {
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -133,119 +176,101 @@ api.interceptors.request.use((config) => {
     }
   }
   return config;
-});
+}
+
+api.interceptors.request.use(attachSession);
+routingApi.interceptors.request.use(attachSession);
+
+// Gateway and routing requests use the same refresh queue and retry on their original client.
+async function retryAfterUnauthorized(client: AxiosInstance, error: AxiosError) {
+  if (isRequestCancelled(error)) {
+    return Promise.reject(error);
+  }
+
+  const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
+
+  const requestUrl = originalRequest?.url || '';
+  const isPublicAuthRequest = publicAuthPaths.has(requestUrl);
+
+  const status = error.response?.status;
+
+  // Handle 401 Unauthorized by attempting a token refresh
+  if (status === 401 && !isPublicAuthRequest && originalRequest && !originalRequest._retry) {
+    if (typeof window !== 'undefined') {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (!refreshToken) {
+        clearSessionAndRedirect();
+        return Promise.reject(normalizeApiError(error));
+      }
+
+      originalRequest._retry = true;
+      if (isRefreshing) {
+        // If refresh is already in progress, wait for the pending refresh to finish
+        return new Promise<AxiosResponse>((resolve, reject) => {
+          failedQueue.push({
+            resolve: (newToken: string) => {
+              originalRequest.headers.Authorization = `Bearer ${newToken}`;
+              resolve(client(originalRequest));
+            },
+            reject: (err: unknown) => {
+              reject(err);
+            },
+          });
+        });
+      }
+
+      isRefreshing = true;
+
+      try {
+        const newAccessToken = await refreshAccessToken();
+        processQueue(null, newAccessToken);
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return client(originalRequest);
+      } catch (refreshErr) {
+        const cause = axios.isAxiosError(refreshErr) ? normalizeApiError(refreshErr) : refreshErr;
+        processQueue(cause, null);
+        clearSessionAndRedirect();
+        return Promise.reject(cause);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+  }
+
+  return Promise.reject(normalizeApiError(error));
+}
 
 // Response interceptor: Unwrap API response and handle transparent token refresh on 401
 api.interceptors.response.use(
   (response: AxiosResponse<ApiResponse<unknown>>) => {
-    if (response.config.responseType === 'stream' || response.config.baseURL === '') {
-      const raw = response.data as { error?: unknown } | undefined;
-      if (response.config.baseURL === '' && raw && typeof raw === 'object' && 'error' in raw && raw.error) {
-        const msg =
-          typeof raw.error === 'string'
-            ? raw.error
-            : (raw.error as { message?: string }).message || 'Lỗi kết nối máy chủ';
-        return Promise.reject(new Error(msg));
-      }
+    if (response.config.responseType === 'stream' || response.config.responseType === 'blob') {
       return response;
     }
 
     const body = response.data;
     if (body?.error) {
-      return Promise.reject(new Error(body.error.message));
+      return Promise.reject(new ApiError(body.error.message, response.status));
     }
     // Return synthetic response where .data is the inner domain payload
-    return { ...response, data: body.data } as AxiosResponse;
+    return { ...response, data: body?.data } as AxiosResponse;
   },
-  async (error: AxiosError<ApiResponse<unknown>>) => {
-    if (axios.isCancel(error) || error.name === 'AbortError') {
-      return Promise.reject(error);
-    }
-
-    const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
-
-    const requestUrl = originalRequest?.url || '';
-    const isAuthEndpoint =
-      requestUrl.includes('/auth/login') ||
-      requestUrl.includes('/auth/refresh') ||
-      requestUrl.includes('/auth/register');
-
-    const status = error.response?.status;
-
-    // Handle 401 Unauthorized by attempting a token refresh
-    if (status === 401 && !isAuthEndpoint && originalRequest && !originalRequest._retry) {
-      if (typeof window !== 'undefined') {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (!refreshToken) {
-          clearSessionAndRedirect();
-          return Promise.reject(error);
-        }
-
-        if (isRefreshing) {
-          // If refresh is already in progress, wait for the pending refresh to finish
-          return new Promise<AxiosResponse>((resolve, reject) => {
-            failedQueue.push({
-              resolve: (newToken: string) => {
-                originalRequest.headers.Authorization = `Bearer ${newToken}`;
-                resolve(api(originalRequest));
-              },
-              reject: (err: unknown) => {
-                reject(err);
-              },
-            });
-          });
-        }
-
-        originalRequest._retry = true;
-        isRefreshing = true;
-
-        try {
-          const newAccessToken = await refreshAccessToken();
-          processQueue(null, newAccessToken);
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          return api(originalRequest);
-        } catch (refreshErr) {
-          processQueue(refreshErr, null);
-          clearSessionAndRedirect();
-          return Promise.reject(refreshErr);
-        } finally {
-          isRefreshing = false;
-        }
-      }
-    }
-
-    const errorPayload = error.response?.data as
-      | { error?: { message?: string } | string; message?: string }
-      | undefined;
-    const nestedMessage =
-      typeof errorPayload?.error === 'string' ? errorPayload.error : errorPayload?.error?.message;
-    const msg =
-      nestedMessage ||
-      errorPayload?.message ||
-      error.message ||
-      'Lỗi kết nối máy chủ';
-
-    const rejected = new Error(msg) as Error & { status?: number };
-    if (status !== undefined) {
-      rejected.status = status;
-    }
-    return Promise.reject(rejected);
-  }
+  (error: AxiosError) => retryAfterUnauthorized(api, error),
 );
+
+routingApi.interceptors.response.use(undefined, (error: AxiosError) => retryAfterUnauthorized(routingApi, error));
 
 /**
  * Open a Server-Sent Events stream through the shared Axios client
  * so auth headers, tenant context, and 401 token refresh stay centralized.
  */
-export async function streamSse(
-  path: string,
-  options: {
-    signal: AbortSignal;
-    headers?: Record<string, string>;
-    onOpen?: () => void | Promise<void>;
-    onEvent: (eventName: string, data: string) => void;
-  },
-): Promise<void> {
+export interface StreamOptions {
+  signal: AbortSignal;
+  headers?: Record<string, string>;
+  onOpen?: () => void | Promise<void>;
+  onEvent: (eventName: string, data: string) => void;
+}
+
+export async function streamSse(path: string, options: StreamOptions): Promise<void> {
   const response = await api.get<ReadableStream<Uint8Array>>(path, {
     adapter: 'fetch',
     responseType: 'stream',

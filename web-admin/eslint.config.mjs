@@ -11,6 +11,21 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
+  {
+    files: ["src/{app,application,components}/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        paths: [
+          { name: "axios", message: "Call a feature repository or the maps client." },
+          {
+            name: "@/lib/api",
+            importNames: ["default", "mapsApi", "routingApi", "streamSse", "API_BASE_URL"],
+            message: "Keep requests and endpoint paths in infrastructure modules.",
+          },
+        ],
+      }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

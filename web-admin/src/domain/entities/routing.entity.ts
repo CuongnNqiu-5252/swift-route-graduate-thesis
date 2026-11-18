@@ -8,7 +8,28 @@ export interface DispatchDepot extends LocationPoint {
   address: string;
   pickup_location_id?: string;
 }
+export interface MapOverviewRoute {
+  id: string;
+  label: string;
+  status: PlanStatus;
+  color: string;
+  depot: DispatchDepot;
+  stops: OptimizationStop[];
+  driverName?: string;
+}
 
+export interface MapPlanHighlight {
+  planId: string;
+  stopId?: string;
+}
+
+export interface MapDriverMarker {
+  id: string;
+  position: [number, number];
+  name?: string;
+  vehicle?: string;
+  signal?: 'live' | 'stale' | 'reconnecting' | 'waiting';
+}
 export interface OptimizationStop {
   id: string;
   location: LocationPoint;
@@ -46,10 +67,11 @@ export interface OptimizationResult {
   route_polyline?: string;
 }
 
-export type PlanStatus = 'DRAFT' | 'APPROVED' | 'DISPATCHED' | 'COMPLETED' | 'CANCELLED';
+export type PlanStatus = 'DRAFT' | 'APPROVED' | 'DISPATCHED' | 'COMPLETED';
 
 export interface DispatchPlanRecord {
   plan_id: string;
+  version?: number;
   tenant_id: string;
   plan_status: PlanStatus;
   driver_id?: string | null;
@@ -63,8 +85,6 @@ export interface DispatchPlanRecord {
   planned_at?: string | null;
   approved_at?: string | null;
   dispatched_at?: string | null;
-  cancelled_at?: string | null;
-  cancel_reason?: string | null;
   declined_at?: string | null;
   decline_reason?: string | null;
   reassignment_count?: number | null;

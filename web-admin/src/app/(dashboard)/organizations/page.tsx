@@ -3,7 +3,6 @@
 import { useLocale } from '@/i18n/provider';
 
 import { useEffect, useState } from 'react';
-import { BUSINESS_TYPE_LABEL } from '@/domain/entities/platform-verification.entity';
 import { MEMBER_ROLE_LABEL, MEMBER_STATUS_LABEL } from '@/domain/entities/member.entity';
 import type { TenantMembershipRole, TenantMembershipStatus } from '@/domain/entities/member.entity';
 import { useAuth } from '@/application/contexts/auth-context';
@@ -13,7 +12,8 @@ import {
   switchTenant,
   tenantWorkflow,
 } from '@/infrastructure/repositories/tenant-workflow.repository';
-import api from '@/lib/api';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
+import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,8 +34,8 @@ export default function OrganizationsPage() {
     tenantWorkflow.memberships().then(async (items) => {
       const named = await Promise.all(items.map(async (membership) => {
         try {
-          const response = await api.get<{ business_name: string }>(`/tenants/${membership.tenant_id}`);
-          return { ...membership, business_name: response.data.business_name };
+          const businessName = await tenantSettingsRepository.getBusinessName(membership.tenant_id);
+          return { ...membership, business_name: businessName };
         } catch { return membership; }
       }));
       setMemberships(named);
@@ -114,7 +114,7 @@ export default function OrganizationsPage() {
     setBusy(true);
     setError('');
     try {
-      await api.post('/auth/email/resend');
+      await authRepository.resendVerification();
       setNotice(t("Đã yêu cầu gửi email. Hãy kiểm tra hộp thư."));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("Gửi email thất bại"));
@@ -203,11 +203,6 @@ export default function OrganizationsPage() {
         <CardContent>
           <form onSubmit={create} className="space-y-4">
             <Input label={t("Tên doanh nghiệp")} name="business_name" required minLength={2} maxLength={255}/>
-            <label className="block text-sm font-medium text-gray-800">{t("Loại hình")}
-              <select name="business_type" className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2">
-                {['RESTAURANT', 'CAFE', 'RETAIL', 'PHARMACY', 'OTHER'].map((type) => <option key={type} value={type}>{t(BUSINESS_TYPE_LABEL[type])}</option>)}
-              </select>
-            </label>
             <Input label={t("Số điện thoại")} name="contact_phone" required minLength={9} maxLength={20}/>
             <Input label={t("Địa chỉ")} name="address" required minLength={5} maxLength={500}/>
             <Input label={t("Mã quốc gia")} name="country_code" defaultValue="VN" required pattern="[A-Z]{2}"/>

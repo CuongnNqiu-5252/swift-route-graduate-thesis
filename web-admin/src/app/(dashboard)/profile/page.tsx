@@ -6,7 +6,7 @@ import { accountRoleLabel } from '@/domain/entities/member.entity';
 import { BadgeCheck, CalendarDays, Mail, Shield, UserRound } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { useAuth } from '@/application/contexts/auth-context';
-import api from '@/lib/api';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -18,7 +18,7 @@ export default function ProfilePage() {
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage('');
     const data=new FormData(event.currentTarget as HTMLFormElement);
-    try { await api.put('/auth/me',{full_name:String(data.get('fullName')).trim(),phone_number:String(data.get('phoneNumber')).trim()}); await refreshProfile(); setMessage(t("Đã cập nhật hồ sơ.")); }
+    try { await authRepository.updateProfile({full_name:String(data.get('fullName')).trim(),phone_number:String(data.get('phoneNumber')).trim()}); await refreshProfile(); setMessage(t("Đã cập nhật hồ sơ.")); }
     catch(e){ setMessage(e instanceof Error?e.message:t("Không thể cập nhật hồ sơ")); }
     finally{ setBusy(false); }
   }

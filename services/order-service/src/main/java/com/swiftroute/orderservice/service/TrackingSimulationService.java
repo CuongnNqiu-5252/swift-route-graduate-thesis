@@ -43,6 +43,9 @@ public class TrackingSimulationService {
 
     private static final Duration SNAPSHOT_TTL = Duration.ofMinutes(10);
     private static final String DRIVER_KEY_PREFIX = "tracking:driver:";
+    private static final String FLEET_KEY_PREFIX = "tracking:fleet:";
+    private static final String DRIVER_SERVICE_GEO_PREFIX = "driver:locations:";
+    private static final String DRIVER_SERVICE_STATE_PREFIX = "driver:location:";
     private static final String STREAM_KEY_PREFIX = "tracking:stream:";
     private static final String SIM_WAYPOINTS_KEY_PREFIX = "tracking:sim:waypoints:";
     private static final String SIM_ACTIVE_KEY_PREFIX = "tracking:sim:active:";
@@ -59,7 +62,9 @@ public class TrackingSimulationService {
     ) {}
 
     private final Map<UUID, List<SseEmitter>> orderEmitters = new ConcurrentHashMap<>();
+    private final Map<UUID, List<SseEmitter>> fleetEmitters = new ConcurrentHashMap<>();
     private final Map<UUID, DriverPositionSnapshot> latestDriverPositions = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<UUID, DriverPositionSnapshot>> latestFleetPositions = new ConcurrentHashMap<>();
     private final Map<UUID, ScheduledFuture<?>> activeSimulations = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> simulationDrivers = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> pausePoints = new ConcurrentHashMap<>();
@@ -114,6 +119,45 @@ public class TrackingSimulationService {
             });
         } catch (IOException error) {
             removeEmitter(streamKey, emitter);
+        }
+        return emitter;
+    }
+
+    /**
+     * Subscribes to a tenant-wide SSE stream receiving initial snapshots and live GPS
+     * updates for every driver currently streaming in the tenant.
+     */
+    public SseEmitter subscribeFleet(UUID tenantId) {
+        SseEmitter emitter = new SseEmitter(1_800_000L);
+        List<SseEmitter> emitters = fleetEmitters.computeIfAbsent(tenantId, ignored -> new CopyOnWriteArrayList<>());
+        emitters.add(emitter);
+
+        emitter.onCompletion(() -> removeFromEmitters(fleetEmitters, tenantId, emitter));
+        emitter.onTimeout(() -> removeFromEmitters(fleetEmitters, tenantId, emitter));
+        emitter.onError(error -> removeFromEmitters(fleetEmitters, tenantId, emitter));
+
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("connected")
+                    .reconnectTime(3_000L)
+                    .data(Map.of(
+                            "tenant_id", tenantId.toString(),
+                            "status", "CONNECTED",
+                            "server_time", Instant.now().toString())));
+
+            Instant cutoff = Instant.now().minus(SNAPSHOT_TTL);
+            Map<UUID, DriverPositionSnapshot> mergedSnapshots = loadSavedFleetSnapshots(tenantId, cutoff);
+            List<Map<String, Object>> snapshots = new ArrayList<>();
+            for (DriverPositionSnapshot snapshot : mergedSnapshots.values()) {
+                snapshots.add(locationPayload(tenantId, snapshot, "SNAPSHOT", null, null));
+            }
+            if (!snapshots.isEmpty()) {
+                emitter.send(SseEmitter.event()
+                        .name("fleet_snapshot")
+                        .data(snapshots));
+            }
+        } catch (IOException error) {
+            removeFromEmitters(fleetEmitters, tenantId, emitter);
         }
         return emitter;
     }
@@ -294,6 +338,135 @@ public class TrackingSimulationService {
                 streamKey, driverId, lat, lng, accuracyM, speedMps, bearing, recordedAt, sequence, "LIVE", null, null);
     }
 
+    /**
+     * Records a driver's latest position for the tenant and pushes a live update
+     * to every dispatcher subscribed to the tenant fleet SSE stream.
+     */
+    public void broadcastFleetDriverLocation(
+            UUID tenantId,
+            UUID driverId,
+            double lat,
+            double lng,
+            Double accuracyM,
+            Double speedMps,
+            Double bearing,
+            Instant recordedAt,
+            long sequence) {
+        if (tenantId == null || driverId == null) return;
+        DriverPositionSnapshot snapshot = new DriverPositionSnapshot(
+                driverId, lat, lng, accuracyM, speedMps, bearing, recordedAt, sequence);
+        latestFleetPositions
+                .computeIfAbsent(tenantId, ignored -> new ConcurrentHashMap<>())
+                .put(driverId, snapshot);
+        writeFleetSnapshot(tenantId, driverId, snapshot);
+        Map<String, Object> payload = locationPayload(tenantId, snapshot, "LIVE", null, null);
+        sendToEmitters(fleetEmitters, tenantId, "location_update", payload);
+    }
+
+    private void writeFleetSnapshot(UUID tenantId, UUID driverId, DriverPositionSnapshot snapshot) {
+        try {
+            var hashOps = redis.opsForHash();
+            if (hashOps == null) return;
+            String key = FLEET_KEY_PREFIX + tenantId;
+            hashOps.put(key, driverId.toString(), objectMapper.writeValueAsString(snapshot));
+            redis.expire(key, SNAPSHOT_TTL);
+        } catch (JsonProcessingException | RuntimeException error) {
+            log.warn("Unable to persist fleet tracking snapshot for tenant {}: {}", tenantId, error.getMessage());
+        }
+    }
+
+    private Map<UUID, DriverPositionSnapshot> loadSavedFleetSnapshots(UUID tenantId, Instant cutoff) {
+        Map<UUID, DriverPositionSnapshot> merged = new LinkedHashMap<>();
+        Map<UUID, DriverPositionSnapshot> inMemory = latestFleetPositions.get(tenantId);
+        if (inMemory != null) {
+            inMemory.entrySet().removeIf(entry -> entry.getValue().recordedAt().isBefore(cutoff));
+            inMemory.forEach((driverId, snapshot) -> mergeNewest(merged, driverId, snapshot));
+        }
+
+        try {
+            var hashOps = redis.opsForHash();
+            if (hashOps != null) {
+                Map<Object, Object> persisted = hashOps.entries(FLEET_KEY_PREFIX + tenantId);
+                if (persisted != null) {
+                    for (Object rawValue : persisted.values()) {
+                        if (rawValue == null) continue;
+                        try {
+                            DriverPositionSnapshot snap = objectMapper.readValue(
+                                    rawValue.toString(), DriverPositionSnapshot.class);
+                            if (!snap.recordedAt().isBefore(cutoff)) {
+                                mergeNewest(merged, snap.driverId(), snap);
+                            }
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+            }
+
+            var zsetOps = redis.opsForZSet();
+            if (zsetOps != null) {
+                Set<String> memberIds = zsetOps.range(DRIVER_SERVICE_GEO_PREFIX + tenantId, 0, -1);
+                if (memberIds != null) {
+                    for (String memberId : memberIds) {
+                        try {
+                            UUID driverId = UUID.fromString(memberId);
+                            readDriverCacheSnapshot(driverId)
+                                    .filter(snap -> !snap.recordedAt().isBefore(cutoff))
+                                    .ifPresent(snap -> mergeNewest(merged, driverId, snap));
+                            readSnapshot(DRIVER_KEY_PREFIX + driverId)
+                                    .filter(snap -> !snap.recordedAt().isBefore(cutoff))
+                                    .ifPresent(snap -> mergeNewest(merged, driverId, snap));
+                        } catch (IllegalArgumentException ignored) {
+                        }
+                    }
+                }
+            }
+        } catch (RuntimeException error) {
+            log.debug("Unable to restore fleet snapshots from Redis for tenant {}: {}", tenantId, error.getMessage());
+        }
+        return merged;
+    }
+
+    private Optional<DriverPositionSnapshot> readDriverCacheSnapshot(UUID driverUserId) {
+        try {
+            var hashOps = redis.opsForHash();
+            if (hashOps == null) return Optional.empty();
+            Map<Object, Object> fields = hashOps.entries(DRIVER_SERVICE_STATE_PREFIX + driverUserId);
+            if (fields == null || fields.isEmpty() || fields.get("lat") == null || fields.get("lng") == null) {
+                return Optional.empty();
+            }
+            double lat = Double.parseDouble(fields.get("lat").toString());
+            double lng = Double.parseDouble(fields.get("lng").toString());
+            Double accuracy = parseOptionalDouble(fields.get("accuracy_m"));
+            Double speed = parseOptionalDouble(fields.get("speed_mps"));
+            Double bearing = parseOptionalDouble(fields.get("bearing"));
+            Instant recordedAt = fields.get("recorded_at") != null && !fields.get("recorded_at").toString().isBlank()
+                    ? Instant.parse(fields.get("recorded_at").toString())
+                    : Instant.now();
+            long sequence = fields.get("sequence") != null && !fields.get("sequence").toString().isBlank()
+                    ? Long.parseLong(fields.get("sequence").toString())
+                    : recordedAt.toEpochMilli();
+            return Optional.of(new DriverPositionSnapshot(
+                    driverUserId, lat, lng, accuracy, speed, bearing, recordedAt, sequence));
+        } catch (Exception error) {
+            log.debug("Unable to parse cached driver location for {}: {}", driverUserId, error.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private static void mergeNewest(
+            Map<UUID, DriverPositionSnapshot> target,
+            UUID driverId,
+            DriverPositionSnapshot candidate) {
+        target.merge(driverId, candidate, (existing, next) ->
+                next.sequence() >= existing.sequence() ? next : existing);
+    }
+
+    private static Double parseOptionalDouble(Object raw) {
+        if (raw == null) return null;
+        String text = raw.toString().trim();
+        return text.isEmpty() ? null : Double.parseDouble(text);
+    }
+
     private void broadcastDriverLocationWithStep(
             UUID streamKey,
             UUID driverId,
@@ -326,28 +499,47 @@ public class TrackingSimulationService {
 
     @Scheduled(fixedDelay = 20_000L)
     public void heartbeat() {
+        String serverTime = Instant.now().toString();
         orderEmitters.keySet().forEach(orderId -> send(orderId, "heartbeat", Map.of(
                 "order_id", orderId.toString(),
-                "server_time", Instant.now().toString())));
+                "server_time", serverTime)));
+        fleetEmitters.keySet().forEach(tenantId -> sendToEmitters(fleetEmitters, tenantId, "heartbeat", Map.of(
+                "tenant_id", tenantId.toString(),
+                "server_time", serverTime)));
     }
 
     private void send(UUID orderId, String eventName, Object payload) {
-        List<SseEmitter> emitters = orderEmitters.get(orderId);
+        sendToEmitters(orderEmitters, orderId, eventName, payload);
+    }
+
+    private void removeEmitter(UUID orderId, SseEmitter emitter) {
+        removeFromEmitters(orderEmitters, orderId, emitter);
+    }
+
+    private void sendToEmitters(
+            Map<UUID, List<SseEmitter>> emitterMap,
+            UUID key,
+            String eventName,
+            Object payload) {
+        List<SseEmitter> emitters = emitterMap.get(key);
         if (emitters == null) return;
         for (SseEmitter emitter : new ArrayList<>(emitters)) {
             try {
                 emitter.send(SseEmitter.event().name(eventName).data(payload));
             } catch (Exception error) {
-                removeEmitter(orderId, emitter);
+                removeFromEmitters(emitterMap, key, emitter);
             }
         }
     }
 
-    private void removeEmitter(UUID orderId, SseEmitter emitter) {
-        List<SseEmitter> emitters = orderEmitters.get(orderId);
+    private void removeFromEmitters(
+            Map<UUID, List<SseEmitter>> emitterMap,
+            UUID key,
+            SseEmitter emitter) {
+        List<SseEmitter> emitters = emitterMap.get(key);
         if (emitters == null) return;
         emitters.remove(emitter);
-        if (emitters.isEmpty()) orderEmitters.remove(orderId, emitters);
+        if (emitters.isEmpty()) emitterMap.remove(key, emitters);
     }
 
     private Map<String, Object> locationPayload(

@@ -1,8 +1,8 @@
 'use client';
 
-import axios from 'axios';
+import { isRequestCancelled } from '@/lib/api';
 import { useEffect, useState } from 'react';
-import { streamSse } from '@/lib/api';
+import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import type { TrackingSignal } from './use-order-live-tracking';
 
 type LocationEvent = {
@@ -38,10 +38,8 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
   }
 
   useEffect(() => {
-    if (!planId && !driverProfileId) return;
-    const streamPath = driverProfileId
-      ? `/orders/dispatch/drivers/${driverProfileId}/tracking/stream`
-      : `/orders/dispatch/plans/${planId}/tracking/stream`;
+    const target = driverProfileId ? { driverId: driverProfileId } : planId ? { planId } : null;
+    if (!target) return;
 
     let disposed = false;
     const controller = new AbortController();
@@ -96,13 +94,13 @@ export function usePlanLiveTracking(planId?: string, driverUserId?: string | nul
     const connect = async () => {
       while (!disposed) {
         try {
-          await streamSse(streamPath, {
+          await orderRepository.streamDispatchTracking(target, {
             signal: controller.signal,
             headers: tenantId ? { 'X-Tenant-Id': tenantId } : undefined,
             onEvent: handleEvent,
           });
         } catch (error) {
-          if (disposed || axios.isCancel(error) || controller.signal.aborted) return;
+          if (disposed || isRequestCancelled(error) || controller.signal.aborted) return;
           if (staleTimer) window.clearTimeout(staleTimer);
           setSignal('reconnecting');
         }

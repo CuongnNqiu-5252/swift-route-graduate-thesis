@@ -1,11 +1,16 @@
 import { Order, OrderStatus } from '@/domain/entities/order.entity';
 import { DispatchPlanRecord } from '@/domain/entities/routing.entity';
-import api from '@/lib/api';
+import api, { streamSse, type StreamOptions } from '@/lib/api';
 
 export interface OrderFilters {
   status?: OrderStatus;
   page?: number;
   size?: number;
+}
+
+interface DispatchPlanningResult {
+  outcome: 'PLANNED' | 'NO_ORDERS' | 'NO_ROUTES' | 'IN_PROGRESS';
+  plan_ids: string[];
 }
 
 export interface OrderListPage {
@@ -117,13 +122,43 @@ function mapOrder(raw: any): Order {
     delivery_fee: raw.deliveryFee ?? raw.delivery_fee,
     total_amount: raw.totalAmount ?? raw.total_amount,
     payer: raw.payer,
-    payment_status: raw.paymentStatus || raw.payment_status || 'COD_PENDING',
     created_at: raw.createdAt || raw.created_at || '',
     updated_at: raw.updatedAt || raw.updated_at || '',
   };
 }
 
 export const orderRepository = {
+  streamOrderTracking(orderId: string, options: StreamOptions) {
+    return streamSse(`/orders/${orderId}/tracking/stream`, options);
+  },
+
+  streamDispatchTracking(target: { driverId: string } | { planId: string }, options: StreamOptions) {
+    const path = 'driverId' in target ? `drivers/${target.driverId}` : `plans/${target.planId}`;
+    return streamSse(`/orders/dispatch/${path}/tracking/stream`, options);
+  },
+
+  streamFleetTracking(options: StreamOptions) {
+    return streamSse('/orders/dispatch/drivers/tracking/stream', options);
+  },
+
+  async startDriverSimulation(
+    driverId: string,
+    waypoints: { lat: number; lng: number }[],
+    pauseAtIndex?: number | null,
+  ): Promise<void> {
+    await api.post(`/orders/dispatch/drivers/${driverId}/tracking/simulate`, {
+      waypoints, interval_ms: 1000, pause_at_index: pauseAtIndex,
+    });
+  },
+
+  async stopDriverSimulation(driverId: string): Promise<void> {
+    await api.post(`/orders/dispatch/drivers/${driverId}/tracking/simulate/stop`);
+  },
+
+  async resumeDriverSimulation(driverId: string): Promise<void> {
+    await api.post(`/orders/dispatch/drivers/${driverId}/tracking/simulate/resume`);
+  },
+
   async getOrder(orderId: string, signal: AbortSignal): Promise<Order> {
     const { data } = await api.get<unknown>(`/orders/${encodeURIComponent(orderId)}`, { signal });
     return mapOrder(data);
@@ -230,8 +265,37 @@ export const orderRepository = {
     return response.data?.data ?? [];
   },
 
-  async triggerDispatchPlanning(): Promise<void> {
-    await api.post('/orders/dispatch/trigger');
+  async triggerDispatchPlanning(): Promise<DispatchPlanningResult> {
+    const response = await api.post<DispatchPlanningResult>('/orders/dispatch/trigger');
+    return response.data;
+  },
+
+  async reorderDraftStops(planId: string, version: number, orderedStopIds: string[]): Promise<DispatchPlanRecord> {
+    const response = await api.post<DispatchPlanRecord>(`/orders/dispatch/plans/${planId}/stop-order`, {
+      expected_version: version,
+      ordered_stop_ids: orderedStopIds,
+    });
+    return response.data;
+  },
+
+  async moveDraftStop(input: {
+    sourcePlan: DispatchPlanRecord;
+    targetPlan: DispatchPlanRecord;
+    orderId: string;
+    targetIndex: number;
+  }): Promise<{ source_plan: DispatchPlanRecord | null; target_plan: DispatchPlanRecord }> {
+    const response = await api.post<{ source_plan: DispatchPlanRecord | null; target_plan: DispatchPlanRecord }>(
+      '/orders/dispatch/plans/move-stop',
+      {
+        source_plan_id: input.sourcePlan.plan_id,
+        target_plan_id: input.targetPlan.plan_id,
+        order_id: input.orderId,
+        target_index: input.targetIndex,
+        expected_source_version: input.sourcePlan.version,
+        expected_target_version: input.targetPlan.version,
+      },
+    );
+    return response.data;
   },
 
   async approveDispatchPlan(planId: string, driverId?: string | null, notes?: string): Promise<DispatchPlanRecord> {
@@ -251,11 +315,6 @@ export const orderRepository = {
     const response = await api.post<{ data?: DispatchPlanRecord }>(`/orders/dispatch/plans/${planId}/cancel`, {
       reason: reason || 'Huỷ kế hoạch điều phối từ Web Admin',
     });
-    return (response.data?.data ?? response.data) as DispatchPlanRecord;
-  },
-
-  async reoptimizeDispatchPlan(planId: string): Promise<DispatchPlanRecord> {
-    const response = await api.post<{ data?: DispatchPlanRecord }>(`/orders/dispatch/plans/${planId}/reoptimize`);
     return (response.data?.data ?? response.data) as DispatchPlanRecord;
   },
 

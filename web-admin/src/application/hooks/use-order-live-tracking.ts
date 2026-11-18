@@ -1,8 +1,8 @@
 'use client';
 
-import axios from 'axios';
+import { isRequestCancelled } from '@/lib/api';
 import { useEffect, useState } from 'react';
-import { streamSse } from '@/lib/api';
+import { orderRepository } from '@/infrastructure/repositories/order.repository';
 
 export type TrackingSignal = 'waiting' | 'live' | 'stale' | 'reconnecting';
 
@@ -83,12 +83,12 @@ export function useOrderLiveTracking(orderId?: string, driverUserId?: string) {
     const connect = async () => {
       while (!disposed) {
         try {
-          await streamSse(`/orders/${orderId}/tracking/stream`, {
+          await orderRepository.streamOrderTracking(orderId, {
             signal: controller.signal,
             onEvent,
           });
         } catch (error) {
-          if (disposed || axios.isCancel(error) || controller.signal.aborted) return;
+          if (disposed || isRequestCancelled(error) || controller.signal.aborted) return;
           if (staleTimer) window.clearTimeout(staleTimer);
           setSignal('reconnecting');
         }
