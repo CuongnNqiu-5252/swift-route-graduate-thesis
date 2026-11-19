@@ -20,6 +20,28 @@ import com.swiftroute.orderservice.grpc.routing.RoutingGrpcProtocol;
 class RoutingEngineGrpcClientTest {
 
     @Test
+    void protobufPreservesExplicitZeroServiceTimeForStopsAndStates() {
+        LocationPoint point = new LocationPoint(10, 105, null);
+        StopItem absent = new StopItem("a", null, point, 0, null, null);
+        StopItem zero = new StopItem("a", null, point, 0, null, null, 0.0);
+        byte[] absentBatch = RoutingGrpcProtocol.encodeBatchRequest(
+                new BatchOptimizationRequest(point, List.of(absent), "ortools", 0.5, 0.5));
+        byte[] zeroBatch = RoutingGrpcProtocol.encodeBatchRequest(
+                new BatchOptimizationRequest(point, List.of(zero), "ortools", 0.5, 0.5));
+        assertThat(zeroBatch.length).isEqualTo(absentBatch.length + 9);
+        assertThat(zeroBatch).containsSequence(new byte[] {0x39, 0, 0, 0, 0, 0, 0, 0, 0});
+
+        RouteStopState absentState = new RouteStopState("a", null, point, 0, null, null, false);
+        RouteStopState zeroState = new RouteStopState("a", null, point, 0, null, null, false, 0.0);
+        byte[] absentInsert = RoutingGrpcProtocol.encodeInsertRequest(
+                new RouteInsertRequest(point, List.of(absentState), absent, 30, 0.5, 0.5));
+        byte[] zeroInsert = RoutingGrpcProtocol.encodeInsertRequest(
+                new RouteInsertRequest(point, List.of(zeroState), absent, 30, 0.5, 0.5));
+        assertThat(zeroInsert.length).isEqualTo(absentInsert.length + 9);
+        assertThat(zeroInsert).containsSequence(new byte[] {0x41, 0, 0, 0, 0, 0, 0, 0, 0});
+    }
+
+    @Test
     void protobufWireEncoding_roundTripsBatchRequestAndResponseAccurately() throws Exception {
         BatchOptimizationRequest request = new BatchOptimizationRequest(
                 new LocationPoint(10.0316, 105.7880, "Depot Can Tho"),

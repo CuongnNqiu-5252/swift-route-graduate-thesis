@@ -1,111 +1,174 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { ArrowRight, RefreshCw, Route } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useDrivers } from '@/application/hooks/use-drivers';
 import { useOperationsQueue } from '@/application/hooks/use-operations-queue';
+import { OverviewDispatchMetrics } from '@/components/overview/dispatch-metrics';
+import type { DispatchPlanRecord } from '@/domain/entities/routing.entity';
+import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n/provider';
-import type { OperationsQueue } from '@/infrastructure/repositories/order.repository';
 
-const groups = [
-  { key: 'ready_for_dispatch', label: 'Chờ điều phối', href: '/orders?status=READY_FOR_DISPATCH' },
-  { key: 'active', label: 'Đang thực hiện', href: '/orders' },
-  { key: 'intervention', label: 'Cần can thiệp', href: '/orders?status=FAILED' },
-] as const satisfies readonly { key: keyof OperationsQueue; label: string; href: string }[];
+const textLink = 'rounded-sm text-sm font-medium text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
+const panel = 'min-w-0 rounded-xl border border-slate-200 p-4 sm:p-6';
 
 export default function DashboardOverviewPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { t, intlLocale } = useLocale();
   const { queue, hasLoaded, isLoading, error, refetch } = useOperationsQueue();
   const { drivers, isLoading: driversLoading, error: driversError, refetch: refetchDrivers } = useDrivers();
 
   const number = new Intl.NumberFormat(intlLocale);
-  const chartData = groups.map(({ key, label, href }) => ({ label: t(label), count: queue[key].length, href }));
+  const queueGroups = [
+    { label: 'Chờ điều phối', count: queue.ready_for_dispatch.length },
+    { label: 'Đã lên lịch hoặc đang giao', count: queue.active.length },
+    { label: 'Cần can thiệp', count: queue.intervention.length },
+  ];
+  const queueTotal = queueGroups.reduce((total, group) => total + group.count, 0);
+  const needsAttention = queue.intervention.length;
+
+  const available = drivers.filter((driver) => driver.status === 'AVAILABLE').length;
+  const awaitingApproval = drivers.filter((driver) => driver.onboarding_status === 'PENDING_APPROVAL').length;
+  const availableShare = drivers.length ? available / drivers.length : 0;
+  const failedCount = queue.intervention.filter((order) => order.status === 'FAILED').length;
   const canLoadQueue = Boolean(user?.tenantId);
-  const showQueue = canLoadQueue && !error && hasLoaded;
+  const showQueue = hasLoaded && !error;
+  const showDrivers = !driversLoading && !driversError;
+
+  const tenantId = user?.tenantId;
+  const canReadPlans = Boolean(tenantId) && hasPermission(['dispatch:read', 'dispatch:execute']);
+  const [plansResult, setPlansResult] = useState<{ tenantId: typeof tenantId; plans: DispatchPlanRecord[]; error: boolean }>();
+  const [revision, setRevision] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const update = () => {
+      setNow(Date.now());
+      setRevision((value) => value + 1);
+    };
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    window.addEventListener('swiftroute:realtime-update', update);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('swiftroute:realtime-update', update);
+    };
+  }, []);
+  useEffect(() => {
+    if (!canReadPlans) return;
+    let active = true;
+    orderRepository.getDispatchPlans()
+      .then((plans) => { if (active) setPlansResult({ tenantId, plans, error: false }); })
+      .catch(() => { if (active) setPlansResult({ tenantId, plans: [], error: true }); });
+    return () => { active = false; };
+  }, [canReadPlans, tenantId, revision]);
+  const currentPlans = plansResult?.tenantId === tenantId ? plansResult : undefined;
+  const planState = !canReadPlans ? 'restricted' : !currentPlans ? 'loading' : currentPlans.error ? 'error' : 'ready';
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-5">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-950">{t('Tổng quan vận hành')}</h1>
-        </div>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">{t('Tổng quan vận hành')}</h1>
         <div className="flex flex-wrap gap-2">
           {canLoadQueue && (
-            <Button variant="outline" onClick={() => void Promise.all([refetch(), refetchDrivers()])} isLoading={isLoading || driversLoading}>
+            <Button variant="outline" onClick={() => {
+              setNow(Date.now());
+              setRevision((value) => value + 1);
+              void Promise.all([refetch(), refetchDrivers()]);
+            }} isLoading={isLoading || driversLoading}>
               <RefreshCw size={15} aria-hidden="true" />{t('Làm mới dữ liệu')}
             </Button>
           )}
-          <Link href={canLoadQueue ? '/dispatch' : '/organizations'} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-            <Route size={16} aria-hidden="true" />{t(canLoadQueue ? 'Mở điều phối' : 'Chọn doanh nghiệp')}
-          </Link>
+          {(!canLoadQueue || canReadPlans) && (
+            <Link href={canLoadQueue ? '/dispatch' : '/organizations'} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              <Route size={16} aria-hidden="true" />{t(canLoadQueue ? 'Mở điều phối' : 'Chọn doanh nghiệp')}
+            </Link>
+          )}
         </div>
       </header>
 
       {canLoadQueue ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_15rem]">
-          <section aria-labelledby="queue-chart-heading" className="min-w-0 rounded-xl border border-slate-200 p-4 sm:p-5">
-            <h2 id="queue-chart-heading" className="font-semibold text-slate-950">{t('Số đơn theo nhóm vận hành')}</h2>
-            {error ? (
-              <p className="mt-5 text-sm text-rose-700" role="alert">{t('Không thể tải hàng đợi vận hành')}</p>
-            ) : showQueue ? (
-              <>
-                <ul className="mt-4 grid grid-cols-3 gap-2 border-b border-slate-200 pb-4 sm:gap-4">
-                  {chartData.map(({ label, count, href }) => (
-                    <li key={label} className="min-w-0">
-                      <Link
-                        href={href}
-                        className="group block rounded-lg p-2 -m-2 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-                      >
-                        <p className="flex items-center gap-1 text-xs font-medium text-slate-600 group-hover:text-blue-700 sm:text-sm">
-                          <span>{label}</span>
-                          <ArrowRight size={13} className="opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
-                        </p>
-                        <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{number.format(count)}</p>
-                      </Link>
+        <div className="grid gap-5 xl:grid-cols-2">
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-4 xl:col-span-2">
+            {[{ label: 'Đơn đang vận hành', count: queueTotal }, ...queueGroups].map(({ label, count }) => (
+              <div key={label} className="min-w-0 bg-slate-50 px-4 py-3">
+                <dt className="text-xs font-medium text-slate-600">{t(label)}</dt>
+                <dd className="mt-1 text-xl font-semibold tabular-nums text-slate-950">{showQueue ? number.format(count) : '—'}</dd>
+              </div>
+            ))}
+          </dl>
+          <OverviewDispatchMetrics
+            queue={queue}
+            queueState={showQueue ? 'ready' : error ? 'error' : 'loading'}
+            plans={currentPlans?.plans ?? []}
+            planState={planState}
+            now={now}
+          />
+
+          <section aria-labelledby="exceptions-heading" className={panel}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="exceptions-heading" className="text-base font-semibold text-slate-950">{t('Đơn cần xử lý')}</h2>
+              {showQueue && needsAttention > 0 && (
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  <Link href="/orders?status=FAILED" className={textLink}>{t('Sự cố')} ({number.format(failedCount)})</Link>
+                  <Link href="/orders?status=RETURNING" className={textLink}>{t('Đang hoàn kho')} ({number.format(needsAttention - failedCount)})</Link>
+                </div>
+              )}
+            </div>
+            {showQueue && needsAttention > 0 ? (
+              <ul className="mt-3 divide-y divide-slate-100">
+                {queue.intervention.slice(0, 4).map((order) => {
+                  const failed = order.status === 'FAILED';
+                  return (
+                    <li key={order.id} className="grid gap-x-4 gap-y-1 py-3 text-sm sm:grid-cols-[minmax(7rem,auto)_minmax(0,1fr)_auto] sm:items-center">
+                      <span className="font-medium break-all text-slate-950">{order.order_code || order.id.slice(0, 8)}</span>
+                      <span className="break-words text-slate-600">{order.delivery_address}</span>
+                      <span className="font-medium text-amber-800">{t(failed ? 'Sự cố' : 'Đang hoàn kho')}</span>
                     </li>
-                  ))}
-                </ul>
-                {chartData.some(({ count }) => count > 0) && (
-                  <div className="mt-4 h-56 min-w-0">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 320, height: 208 }}>
-                      <BarChart data={chartData} layout="vertical" margin={{ top: 6, right: 12, bottom: 0, left: 0 }}>
-                        <CartesianGrid horizontal={false} stroke="#e2e8f0" />
-                        <YAxis type="category" dataKey="label" width={110} tickLine={false} axisLine={false} tick={{ fill: '#475569', fontSize: 11 }} />
-                        <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: '#475569', fontSize: 12 }} tickFormatter={(value: number) => number.format(value)} />
-                        <Tooltip cursor={{ fill: '#eff6ff' }} formatter={(value) => [number.format(Number(value)), t('Số đơn')]} />
-                        <Bar dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} maxBarSize={26} isAnimationActive="auto" animationDuration={400} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </>
+                  );
+                })}
+              </ul>
             ) : (
-              <p className="mt-5 text-sm text-slate-600" role="status">{t('Đang tải hàng đợi vận hành…')}</p>
+              <p className="mt-3 text-sm text-slate-600" role="status">
+                {t(error ? 'Chưa có dữ liệu đơn cần xử lý.' : showQueue ? 'Hiện không có đơn cần xử lý.' : 'Đang tải hàng đợi vận hành…')}
+              </p>
+            )}
+          </section>
+          <section aria-labelledby="fleet-heading" className={`${panel} xl:col-span-2`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="fleet-heading" className="text-base font-semibold text-slate-950">{t('Đội xe')}</h2>
+              <Link href="/drivers" className={textLink}>{t('Xem tài xế')} <ArrowRight size={14} className="inline" aria-hidden="true" /></Link>
+            </div>
+            {showDrivers ? (
+              <div className="mt-5">
+                <p className="text-sm text-slate-600">{t('Sẵn sàng nhận đơn')}</p>
+                <p className="mt-1 flex flex-wrap items-baseline gap-x-2 tabular-nums">
+                  <span className="text-3xl font-semibold leading-none text-slate-950">{number.format(available)}</span>
+                  <span className="text-sm text-slate-600">/ {number.format(drivers.length)} {t('tài xế')}</span>
+                </p>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
+                  <div className="h-full rounded-full bg-blue-600" style={{ width: `${availableShare * 100}%` }} />
+                </div>
+                <dl className="mt-4 divide-y divide-slate-100 text-sm text-slate-700">
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt>{t('Chờ duyệt')}</dt><dd className="tabular-nums">{number.format(awaitingApproval)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt>{t('Chưa thể nhận đơn khác')}</dt><dd className="tabular-nums">{number.format(drivers.length - available - awaitingApproval)}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : (
+              <p className="mt-5 text-sm text-slate-600" role={driversError ? 'alert' : 'status'}>
+                {t(driversError ? 'Không thể tải tài xế' : 'Đang tải tài xế…')}
+              </p>
             )}
           </section>
 
-          <section aria-labelledby="driver-count-heading" className="flex flex-col justify-between gap-5 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-            <div>
-              <h2 id="driver-count-heading" className="text-sm font-medium text-slate-700">{t('Hồ sơ tài xế')}</h2>
-              {driversError ? (
-                <p className="mt-2 text-sm text-rose-700" role="status">{t('Không thể tải tài xế')}</p>
-              ) : (
-                <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-950" aria-live="polite">
-                  {driversLoading ? '—' : number.format(drivers.length)}
-                </p>
-              )}
-            </div>
-            <Link href="/drivers" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline">
-              {t('Xem danh sách tài xế')}<ArrowRight size={15} aria-hidden="true" />
-            </Link>
-          </section>
         </div>
       ) : (
-        <p className="rounded-xl border border-slate-200 p-5 text-sm text-slate-600">{t('Chọn doanh nghiệp để xem dữ liệu vận hành.')}</p>
+        <p className={`${panel} text-sm text-slate-600`}>{t('Chọn doanh nghiệp để xem dữ liệu vận hành.')}</p>
       )}
     </div>
   );

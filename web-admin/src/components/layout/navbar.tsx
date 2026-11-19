@@ -11,12 +11,15 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Membership, switchTenant, tenantWorkflow } from '@/infrastructure/repositories/tenant-workflow.repository';
 import { NotificationBell } from '@/components/layout/notification-bell';
+import { WorkspaceAssistant } from '@/components/layout/workspace-assistant';
 import { CustomSelect } from '@/components/ui/select';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 
 export function Navbar() {
   const { t } = useLocale();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
+  const canUseAssistant = ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? user?.role ?? '')
+    && hasPermission(['order:read', 'dispatch:read', 'dispatch:execute']);
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<Array<Membership & { businessName?: string }>>([]);
 
@@ -67,9 +70,10 @@ export function Navbar() {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
         <LanguageSelect />
         <NotificationBell />
+        {user?.tenantId && canUseAssistant && <WorkspaceAssistant key={user.tenantId} tenantId={user.tenantId} />}
 
         <div className="flex items-center rounded-lg border border-gray-200 bg-white px-2 py-1.5">
           <Link href="/profile" className="flex items-center gap-2.5 px-1" aria-label={t("Mở hồ sơ cá nhân")}>

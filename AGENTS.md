@@ -21,9 +21,6 @@ Run commands from the indicated directory:
 
 Match surrounding files and keep changes scoped. Use four-space indentation for new Java/Python code and two spaces for Dart/TypeScript. Java classes use PascalCase and packages use lowercase; Python modules and Dart filenames use snake_case. Follow existing kebab-case TypeScript filenames. Use `dart format` and Flutter lints for Dart, and the configured ESLint rules for web code.
 
-## Testing Guidelines
-
-Add regression coverage for changed behavior. Follow existing Java `*Test`/`*Tests`, Python `test_*.py` (pytest), and Flutter `*_test.dart` conventions. The web package has no test script; report lint/build results and relevant manual checks. Report commands actually run and any required databases or services.
 
 ## Commit & Pull Request Guidelines
 

@@ -10,6 +10,7 @@ Supports:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Dict, List, Tuple
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
@@ -19,6 +20,11 @@ logger = logging.getLogger("uvicorn.error")
 # Cost matrix scaling factor to convert floating point costs to 64-bit integers for OR-Tools
 COST_SCALE = 1000
 DEMAND_SCALE = 100
+# Soft upper bound lateness penalties (per second) calibrated against COST_SCALE (1 km ~= 1000 units).
+# Achievable windows (~6 km equivalent/min) outweigh moderate detours without exploding on 1s differences;
+# already-overdue/unachievable stops (~0.3 km equivalent/min) never break achievable deadlines.
+LATE_PENALTY_PER_SECOND = max(1, COST_SCALE // 10)
+OVERDUE_LATE_PENALTY_PER_SECOND = max(1, COST_SCALE // 200)
 
 
 def ortools_tsp(
@@ -124,6 +130,9 @@ def ortools_vrp(
     start: int = 0,
     time_limit_seconds: float = 2.0,
     max_stops_per_vehicle: int | None = None,
+    time_matrix: List[List[float]] | None = None,
+    delivery_windows: List[Tuple[int, int] | None] | None = None,
+    service_times: List[float] | None = None,
 ) -> Dict[str, Any]:
     """
     Solve the Capacitated Vehicle Routing Problem (CVRP) using Google OR-Tools.
@@ -158,6 +167,13 @@ def ortools_vrp(
         raise ValueError(f"capacities count ({len(capacities)}) must match num_vehicles ({num_vehicles})")
     if len(demands) != n:
         raise ValueError(f"demands length ({len(demands)}) must match matrix size ({n})")
+
+    if service_times is None:
+        service_times = [0.0] * n
+    if len(service_times) != n or any(not math.isfinite(v) or v < 0 for v in service_times):
+        raise ValueError("service_times must contain one finite nonnegative duration per node")
+    service_seconds = [math.ceil(v * 60) for v in service_times]
+    service_seconds[start] = 0
 
     total_demand = sum(demands)
     total_capacity = sum(capacities)
@@ -221,6 +237,43 @@ def ortools_vrp(
     )
     stop_count_dimension = routing.GetDimensionOrDie("StopCount")
     stop_count_dimension.SetGlobalSpanCostCoefficient(COST_SCALE * 5)
+
+    if time_matrix is not None and delivery_windows is not None:
+        if len(time_matrix) != n:
+            raise ValueError(f"time_matrix size ({len(time_matrix)}) must match cost_matrix size ({n})")
+        if len(delivery_windows) != n:
+            raise ValueError(f"delivery_windows length ({len(delivery_windows)}) must match matrix size ({n})")
+
+        seconds = [[max(0, math.ceil(minutes * 60)) for minutes in row] for row in time_matrix]
+        max_window_start = max((max(0, window[0]) for window in delivery_windows if window), default=0)
+        max_edge_sec = max((max(row, default=0) for row in seconds), default=0)
+        horizon = max_window_start + n * max_edge_sec + sum(service_seconds) + 1
+
+        def travel_seconds(from_index: int, to_index: int) -> int:
+            source = manager.IndexToNode(from_index)
+            destination = manager.IndexToNode(to_index)
+            return service_seconds[source] + (0 if destination == start else seconds[source][destination])
+
+        time_index = routing.RegisterTransitCallback(travel_seconds)
+        routing.AddDimension(time_index, horizon, horizon, True, "ArrivalTime")
+        arrival = routing.GetDimensionOrDie("ArrivalTime")
+        arrival.SetSpanCostCoefficientForAllVehicles(1)
+        for node, window in enumerate(delivery_windows):
+            if window is None or node == start:
+                continue
+            index = manager.NodeToIndex(node)
+            win_start = max(0, window[0])
+            win_end = window[1]
+            arrival.CumulVar(index).SetMin(win_start)
+
+            earliest_possible = max(win_start, seconds[start][node])
+            if win_end >= earliest_possible:
+                # On-time delivery is achievable: prioritize meeting the window over moderate detours.
+                arrival.SetCumulVarSoftUpperBound(index, win_end, LATE_PENALTY_PER_SECOND)
+            else:
+                # Already overdue or unreachable on time: penalize only delay beyond earliest possible
+                # arrival with a gentle weight so it does not sacrifice achievable windows or mileage.
+                arrival.SetCumulVarSoftUpperBound(index, earliest_possible, OVERDUE_LATE_PENALTY_PER_SECOND)
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (

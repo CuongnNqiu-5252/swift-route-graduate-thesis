@@ -123,14 +123,26 @@ public class DispatchOrchestrationService {
         Instant now = Instant.now();
         for (var group : groups.entrySet()) {
             List<Order> driverOrders = group.getValue();
+            Map<String, Order> ordersById = new LinkedHashMap<>();
+            driverOrders.forEach(order -> ordersById.put(order.getId().toString(), order));
             Optional<BatchOptimizationResponse> routeOpt = Optional.empty();
             try {
                 routeOpt = routingEngineClient
-                        .optimizeBatch(buildRoutingRequest(tenant, driverOrders, 1, driverOrders.size()));
+                        .optimizeBatch(buildRoutingRequest(tenant, driverOrders, 1, driverOrders.size(), now))
+                        .filter(result -> result.orderedStops() != null
+                                && result.orderedStops().size() == ordersById.size()
+                                && new HashSet<>(result.orderedStops().stream()
+                                        .map(BatchOptimizationResponse.OrderedStop::stopId).toList())
+                                        .equals(ordersById.keySet()));
             } catch (Exception ex) {
                 log.warn("Fallback to local route metrics for manual assignment: {}", ex.getMessage());
             }
+            if (routeOpt.isEmpty() && driverOrders.stream().anyMatch(order -> order.getTimeWindowStart() != null)) {
+                throw new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE);
+            }
 
+            List<Order> ordered = routeOpt.map(result -> result.orderedStops().stream()
+                    .map(stop -> ordersById.get(stop.stopId())).toList()).orElse(driverOrders);
             double distanceKm = routeOpt.map(BatchOptimizationResponse::totalDistanceKm)
                     .orElseGet(() -> estimateRouteDistanceKm(tenant, driverOrders));
             int durationMin = routeOpt.map(r -> (int) Math.ceil(r.totalDurationMinutes()))
@@ -151,7 +163,7 @@ public class DispatchOrchestrationService {
                     .plannedAt(now)
                     .build());
             int index = 0;
-            for (Order order : driverOrders) {
+            for (Order order : ordered) {
                 plan.addOrder(order, index++);
                 order.setStatus(OrderStatus.PLANNED);
             }
@@ -201,10 +213,7 @@ public class DispatchOrchestrationService {
             return new CycleResult("NO_ORDERS", 0, List.of());
         }
 
-        int maxOrdersPerDriver = (tenant.getDispatchConfig() != null
-                && tenant.getDispatchConfig().getMaxOrdersPerDriver() != null)
-                        ? tenant.getDispatchConfig().getMaxOrdersPerDriver()
-                        : 5;
+        int maxOrdersPerDriver = resolveMaxOrdersPerDriver(tenant);
 
         // When triggered manually ("Chạy lập kế hoạch ngay"), process ALL warehouse
         // groups in a single run so no depot's pending orders are left behind.
@@ -231,7 +240,7 @@ public class DispatchOrchestrationService {
                     tenantId, triggerType, eligible.size(), vehicleCount);
 
             BatchOptimizationRequest routingRequest = buildRoutingRequest(
-                    tenant, eligible, vehicleCount, maxOrdersPerDriver);
+                    tenant, eligible, vehicleCount, maxOrdersPerDriver, now);
 
             Optional<BatchOptimizationResponse> routingResult = routingEngineClient.optimizeBatch(routingRequest);
             if (routingResult.isEmpty()) {
@@ -252,7 +261,8 @@ public class DispatchOrchestrationService {
             }
 
             for (BatchOptimizationResponse.VehicleRoute vRoute : vehicleRoutes) {
-                DispatchPlan savedPlan = persistDraftPlan(tenant, triggerType, routingResponse, vRoute, eligibleById, now);
+                DispatchPlan savedPlan = persistDraftPlan(tenant, triggerType, routingResponse, vRoute, eligibleById,
+                        now);
                 createdPlans.add(savedPlan);
             }
         }
@@ -337,7 +347,13 @@ public class DispatchOrchestrationService {
         if (driverId == null) {
             throw new AppException(ErrorCode.OPERATIONS_NOT_READY);
         }
-        Instant ackDeadline = Instant.now().plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L);
+        Instant now = Instant.now();
+        if (plan.getPlanStatus() == PlanStatus.APPROVED
+                && plan.getOrders().stream().anyMatch(order -> order.getTimeWindowStart() != null)) {
+            List<Order> orders = plan.getOrdersInStopOrder();
+            applyMeasuredRoute(plan, orders, measureDraftRoute(plan, orders, now));
+        }
+        Instant ackDeadline = now.plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L);
         try {
             plan.dispatch(ackDeadline);
         } catch (IllegalStateException ex) {
@@ -391,30 +407,17 @@ public class DispatchOrchestrationService {
         }
 
         List<Order> orderedOrders = requestedIds.stream().map(stops::get).toList();
-        BatchOptimizationResponse measured = routingEngineClient.measureOrderedRoute(
-                buildRoutingRequest(plan.getTenant(), orderedOrders, 1, orderedOrders.size()))
-                .orElseThrow(() -> new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE));
-        if (measured.orderedStops() == null || !measured.orderedStops().stream()
-                .map(BatchOptimizationResponse.OrderedStop::stopId).toList()
-                .equals(requestedIds.stream().map(UUID::toString).toList())) {
-            throw new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE);
-        }
-
-        for (int index = 0; index < requestedIds.size(); index++) {
-            stops.get(requestedIds.get(index)).setPlanStopIndex(index + 1);
-        }
-        plan.setRouteWaypoints(serializeStopWaypoints(measured.orderedStops()));
-        plan.setTotalDistanceKm(BigDecimal.valueOf(measured.totalDistanceKm()));
-        plan.setEstimatedDurationMinutes((int) Math.ceil(measured.totalDurationMinutes()));
-        plan.setUpdatedAt(Instant.now());
+        applyMeasuredRoute(plan, orderedOrders, measureDraftRoute(plan, orderedOrders));
         return dispatchPlanRepository.saveAndFlush(plan);
     }
 
-    public record MoveStopResult(DispatchPlan sourcePlan, DispatchPlan targetPlan) {}
+    public record MoveStopResult(DispatchPlan sourcePlan, DispatchPlan targetPlan) {
+    }
 
     /**
      * Moves one stop between two unassigned DRAFT plans of the same tenant and
-     * re-measures both routes so distance, duration and per-stop ETAs stay accurate.
+     * re-measures both routes so distance, duration and per-stop ETAs stay
+     * accurate.
      * A source plan left without stops is cancelled.
      */
     @Transactional
@@ -442,13 +445,19 @@ public class DispatchOrchestrationService {
                 .findFirst()
                 .orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
 
+        int maxOrdersPerDriver = resolveMaxOrdersPerDriver(target.getTenant());
+        if (target.getOrders().size() >= maxOrdersPerDriver) {
+            throw new AppException(ErrorCode.PLAN_MAX_ORDERS_EXCEEDED);
+        }
+
         List<Order> sourceRemaining = new ArrayList<>(source.getOrdersInStopOrder());
         sourceRemaining.remove(moved);
         List<Order> targetOrdered = new ArrayList<>(target.getOrdersInStopOrder());
         int insertAt = Math.min(request.targetIndex(), targetOrdered.size());
         targetOrdered.add(insertAt, moved);
 
-        // Measure both routes before touching any state so a routing failure changes nothing.
+        // Measure both routes before touching any state so a routing failure changes
+        // nothing.
         BatchOptimizationResponse targetMeasured = measureDraftRoute(target, targetOrdered);
         BatchOptimizationResponse sourceMeasured = sourceRemaining.isEmpty()
                 ? null
@@ -467,8 +476,12 @@ public class DispatchOrchestrationService {
     }
 
     private BatchOptimizationResponse measureDraftRoute(DispatchPlan plan, List<Order> ordered) {
+        return measureDraftRoute(plan, ordered, plan.getPlannedAt());
+    }
+
+    private BatchOptimizationResponse measureDraftRoute(DispatchPlan plan, List<Order> ordered, Instant departure) {
         BatchOptimizationResponse measured = routingEngineClient.measureOrderedRoute(
-                buildRoutingRequest(plan.getTenant(), ordered, 1, ordered.size()))
+                buildRoutingRequest(plan.getTenant(), ordered, 1, ordered.size(), departure))
                 .orElseThrow(() -> new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE));
         List<String> expected = ordered.stream().map(order -> order.getId().toString()).toList();
         if (measured.orderedStops() == null || !measured.orderedStops().stream()
@@ -516,7 +529,8 @@ public class DispatchOrchestrationService {
     }
 
     /**
-     * Cancels and removes a non-completed plan, returning its stops to the dispatch queue.
+     * Cancels and removes a non-completed plan, returning its stops to the dispatch
+     * queue.
      *
      * @param planId UUID of the plan
      * @param reason cancellation reason for logs/audit
@@ -646,7 +660,8 @@ public class DispatchOrchestrationService {
             return saved;
         }
 
-        // Max retries reached or no alternative driver available -> discard plan & escalate
+        // Max retries reached or no alternative driver available -> discard plan &
+        // escalate
         discardPlan(plan, false);
         log.warn("Plan {} discarded after {} reassignment attempts.", planId, nextCount);
         return plan;
@@ -669,7 +684,8 @@ public class DispatchOrchestrationService {
 
     private void releasePlanStops(DispatchPlan plan) {
         List<Order> released = plan.getOrders().stream()
-                .filter(order -> order.getStatus() == OrderStatus.PLANNED || order.getStatus() == OrderStatus.IN_TRANSIT)
+                .filter(order -> order.getStatus() == OrderStatus.PLANNED
+                        || order.getStatus() == OrderStatus.IN_TRANSIT)
                 .toList();
         for (Order order : released) {
             plan.removeOrder(order);
@@ -946,6 +962,9 @@ public class DispatchOrchestrationService {
         }
 
         Tenant tenant = plan.getTenant();
+        if (plan.getOrders().size() >= resolveMaxOrdersPerDriver(tenant)) {
+            throw new AppException(ErrorCode.PLAN_MAX_ORDERS_EXCEEDED);
+        }
         LocationPoint driverLoc = resolvePlanOrigin(plan, driverLat, driverLng);
 
         List<RouteStopState> currentStops = buildCurrentStopStates(plan);
@@ -1085,8 +1104,8 @@ public class DispatchOrchestrationService {
 
         Set<String> returnedIds = new HashSet<>();
         if (orderedStops == null || orderedStops.size() != ordersById.size()
-                || orderedStops.stream().anyMatch(stop ->
-                        !ordersById.containsKey(stop.stopId()) || !returnedIds.add(stop.stopId()))) {
+                || orderedStops.stream()
+                        .anyMatch(stop -> !ordersById.containsKey(stop.stopId()) || !returnedIds.add(stop.stopId()))) {
             throw new AppException(ErrorCode.OPERATIONS_NOT_READY);
         }
 
@@ -1135,6 +1154,14 @@ public class DispatchOrchestrationService {
             log.warn("Could not fetch candidate driver for tenant {}: {}", tenantId, ex.getMessage());
         }
         return null;
+    }
+
+    private int resolveMaxOrdersPerDriver(Tenant tenant) {
+        return (tenant != null
+                && tenant.getDispatchConfig() != null
+                && tenant.getDispatchConfig().getMaxOrdersPerDriver() != null)
+                        ? tenant.getDispatchConfig().getMaxOrdersPerDriver()
+                        : 5;
     }
 
     private DispatchPlan loadPlan(UUID planId) {
@@ -1239,10 +1266,7 @@ public class DispatchOrchestrationService {
     }
 
     private BatchOptimizationRequest buildRoutingRequest(
-            Tenant tenant,
-            List<Order> orders,
-            int vehicleCount,
-            int maxStopsPerVehicle) {
+            Tenant tenant, List<Order> orders, int vehicleCount, int maxStopsPerVehicle, Instant departure) {
         LocationPoint depot = resolveDepot(tenant, orders);
 
         List<StopItem> stops = orders.stream().map(o -> new StopItem(
@@ -1271,7 +1295,8 @@ public class DispatchOrchestrationService {
                 timeWeight,
                 costWeight,
                 Math.max(1, vehicleCount),
-                Math.max(1, maxStopsPerVehicle));
+                Math.max(1, maxStopsPerVehicle),
+                departure != null ? departure.toString() : null);
     }
 
     private String serializeStopWaypoints(List<BatchOptimizationResponse.OrderedStop> stops) {

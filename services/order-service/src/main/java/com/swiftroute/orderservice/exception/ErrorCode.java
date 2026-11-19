@@ -60,6 +60,7 @@ public enum ErrorCode {
     // ===== Lỗi nghiệp vụ Dispatch Plan =====
     PLAN_NOT_FOUND(404, "Không tìm thấy kế hoạch điều phối", HttpStatus.NOT_FOUND),
     INVALID_PLAN_STATUS(400, "Trạng thái kế hoạch không hợp lệ hoặc không thể chuyển đổi", HttpStatus.BAD_REQUEST),
+    PLAN_MAX_ORDERS_EXCEEDED(422, "Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến", HttpStatus.UNPROCESSABLE_ENTITY),
 
     // ===== Lỗi nghiệp vụ Pickup Locations =====
     PICKUP_LOCATION_NOT_FOUND(404, "Điểm lấy hàng không tồn tại hoặc không thuộc doanh nghiệp của bạn", HttpStatus.NOT_FOUND),

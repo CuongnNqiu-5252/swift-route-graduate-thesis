@@ -41,6 +41,7 @@ import com.swiftroute.orderservice.service.planning.PlanningTriggerScheduler;
 
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -107,7 +108,7 @@ public class DispatchController {
     // Commands
     // -------------------------------------------------------------------------
 
-    @PostMapping({ "/trigger" })
+    @PostMapping("/trigger")
     @Operation(summary = "Create unassigned draft routes for eligible orders and return the planning result")
     public ResponseEntity<ApiResponse<ManualPlanningResult>> triggerManual(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {

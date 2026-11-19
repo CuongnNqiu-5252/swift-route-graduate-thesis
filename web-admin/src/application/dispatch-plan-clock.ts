@@ -26,3 +26,25 @@ export function formatClockMinute(totalMinutes: number): string {
   const time = `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
   return minutes >= 1440 ? `${time} (+${Math.floor(minutes / 1440)})` : time;
 }
+
+export function readPlanStopTimings(raw?: string | null): Map<string, { eta: number; lateBy?: number }> {
+  const timings = new Map<string, { eta: number; lateBy?: number }>();
+  if (!raw) return timings;
+  try {
+    const points: unknown = JSON.parse(raw);
+    if (!Array.isArray(points)) return timings;
+    let previousEta = 0;
+    for (const point of points) {
+      const eta: unknown = point?.estimated_arrival_minutes;
+      if (typeof point?.stop_id === 'string' && typeof eta === 'number' && Number.isFinite(eta) && eta >= previousEta) {
+        const lateBy = point.late_by_minutes;
+        timings.set(point.stop_id, { eta,
+          lateBy: typeof lateBy === 'number' && Number.isFinite(lateBy) && lateBy >= 0 ? lateBy : undefined });
+        previousEta = eta;
+      }
+    }
+  } catch {
+    // A legacy snapshot can omit usable times. Those stops are displayed in sequence below the axis.
+  }
+  return timings;
+}

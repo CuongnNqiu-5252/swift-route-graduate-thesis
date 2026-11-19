@@ -36,6 +36,12 @@ _Avoid_: Cấp workspace, sẵn sàng vận hành
 Kết quả tính từ trạng thái phê duyệt và các điều kiện nghiệp vụ thực tế như điểm lấy hàng, phương thức giao và năng lực tài xế.
 _Avoid_: Subscription entitlement, tenant approval
 
+## Điều phối giao hàng
+
+**Kế hoạch điều phối**:
+Một tuyến gồm các đơn giao theo thứ tự điểm dừng. Mỗi đơn thuộc tối đa một kế hoạch. Đơn đủ điều kiện trở về hàng đợi sẽ bỏ liên kết. Đơn đã giao vẫn thuộc kế hoạch đã giao đơn đó.
+_Avoid_: Một đợt lập tuyến, một kết quả tối ưu
+
 ## Tài chính vận hành
 
 **Cước giao hàng**:

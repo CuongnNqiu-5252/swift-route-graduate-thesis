@@ -1,7 +1,7 @@
 'use client';
 
-import { clockMinutes, dispatchDay, formatClockMinute, getPlanStartTime } from '@/application/dispatch-plan-clock';
-import { DispatchRouteSequence, readPlanStopTimings } from '@/components/dispatch/dispatch-route-sequence';
+import { clockMinutes, dispatchDay, formatClockMinute, getPlanStartTime, readPlanStopTimings } from '@/application/dispatch-plan-clock';
+import { DispatchRouteSequence } from '@/components/dispatch/dispatch-route-sequence';
 import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +15,7 @@ import type { Driver } from '@/domain/entities/driver.entity';
 import type { Order } from '@/domain/entities/order.entity';
 import type { DispatchPlanRecord, MapPlanHighlight } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
+import { formatVNDate } from '@/lib/utils';
 import { Check, Clock, Package, Play, Plus, RefreshCw, Truck, UserPlus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -29,6 +30,7 @@ interface PlanApprovalPanelProps {
   isTriggering: boolean;
   selectedPlanId: string | null;
   editingPlanId: string | null;
+  maxOrdersPerDriver?: number;
   initialFilter?: PlanFilter;
   onSelectPlan: (planId: string | null) => void;
   onHighlightPlan: (highlight: MapPlanHighlight | null) => void;
@@ -67,7 +69,7 @@ function matchesFilter(plan: DispatchPlanRecord, filter: PlanFilter): boolean {
 
 export function PlanApprovalPanel({
   plans, drivers, orders, routeColors, eligibleOrders, canExecute, isLoading, isTriggering,
-  selectedPlanId, editingPlanId, initialFilter, onSelectPlan, onHighlightPlan, onClose, onRefresh, onTriggerPlanning,
+  selectedPlanId, editingPlanId, maxOrdersPerDriver, initialFilter, onSelectPlan, onHighlightPlan, onClose, onRefresh, onTriggerPlanning,
   onApprovePlan, onDispatchPlan, onCancelPlan, onInsertOrderIntoPlan, onReorderStops, onMoveStop,
 }: PlanApprovalPanelProps) {
   const { t } = useLocale();
@@ -92,15 +94,22 @@ export function PlanApprovalPanel({
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .map((plan) => {
       const timings = readPlanStopTimings(plan.route_waypoints);
+      const startsAt = getPlanStartTime(plan);
       const stops = (plan.ordered_stop_ids ?? []).map((id) => {
         const order = ordersById.get(id);
+        const timing = timings.get(id);
+        const deadline = order?.time_window_end ? Date.parse(order.time_window_end) : NaN;
+        const legacyLateness = Number.isFinite(deadline) && startsAt !== undefined && timing
+          ? Math.max(0, Math.ceil((startsAt + timing.eta * 60_000 - deadline) / 60_000)) : undefined;
+        const appointment = order && (order.time_window_start && order.time_window_end
+          ? `${formatVNDate(order.time_window_start)} – ${formatVNDate(order.time_window_end)}` : null);
         return {
           id, label: order?.order_code || id.slice(0, 8), address: order?.delivery_address,
-          eta: timings.get(id), delivered: order?.status === 'DELIVERED'
+          eta: timing?.eta, lateBy: timing?.lateBy ?? legacyLateness, appointment,
+          delivered: order?.status === 'DELIVERED'
         };
       });
       const completeData = stops.length === plan.order_count && stops.every((stop) => ordersById.has(stop.id));
-      const startsAt = getPlanStartTime(plan);
       const departureMinute = startsAt === undefined ? undefined : clockMinutes(startsAt);
       const lastEta = stops.reduce<number | undefined>((latest, stop) =>
         stop.eta === undefined ? latest : Math.max(latest ?? 0, stop.eta), undefined);
@@ -108,6 +117,7 @@ export function PlanApprovalPanel({
       return {
         plan,
         stops,
+        lateStops: stops.filter((stop) => !stop.delivered && Boolean(stop.lateBy)).length,
         departureMinute,
         day: startsAt === undefined ? undefined : dispatchDay(startsAt),
         arrivalMinute: departureMinute === undefined || duration === undefined ? undefined : departureMinute + duration,
@@ -190,7 +200,7 @@ export function PlanApprovalPanel({
               </div>
             </div>
 
-            {rows.map(({ plan, stops, color, delivered, departureMinute, arrivalMinute, day }) => {
+            {rows.map(({ plan, stops, color, delivered, lateStops, departureMinute, arrivalMinute, day }) => {
               const id = plan.plan_id;
               const selected = selectedPlanId === id;
               const busy = busyPlanId !== null || editingPlanId === id;
@@ -270,7 +280,7 @@ export function PlanApprovalPanel({
                         <span className="whitespace-nowrap text-slate-500">{Number(plan.total_distance_km).toFixed(1)} km</span>
                       )}
                     </div>
-                    {day && day !== today && <p className="mt-1 text-[11px] tabular-nums text-slate-500">{day}</p>}
+                    {lateStops > 0 && <p className="mt-1 text-xs font-semibold text-amber-800">{t('Điểm dự kiến trễ')} · {lateStops}</p>}
                   </div>
 
                   <div className="relative min-w-0">
@@ -310,7 +320,12 @@ export function PlanApprovalPanel({
                         {canExecute && plan.plan_status === 'DISPATCHED' && eligibleOrders.length > 0 && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button size="sm" variant="outline" disabled={busy}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy || (typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver)}
+                                title={typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver ? t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.') : undefined}
+                              >
                                 <UserPlus size={13} aria-hidden="true" />
                                 {t('Chèn đơn')} ({eligibleOrders.length})
                               </Button>

@@ -521,6 +521,9 @@ public final class RoutingGrpcProtocol {
         w.writeDouble(4, item.demandKg());
         w.writeString(5, item.timeWindowStart());
         w.writeString(6, item.timeWindowEnd());
+        if (item.serviceTime() != null) {
+            w.writePresentDouble(7, item.serviceTime());
+        }
         return w.toByteArray();
     }
 
@@ -535,6 +538,9 @@ public final class RoutingGrpcProtocol {
         w.writeString(5, item.timeWindowStart());
         w.writeString(6, item.timeWindowEnd());
         w.writeBool(7, item.isCompleted());
+        if (item.serviceTime() != null) {
+            w.writePresentDouble(8, item.serviceTime());
+        }
         return w.toByteArray();
     }
 
@@ -545,6 +551,7 @@ public final class RoutingGrpcProtocol {
         BatchOptimizationResponse.LocationPoint location = null;
         double cumulativeDist = 0.0;
         double estArrival = 0.0;
+        int lateByMinutes = 0;
         while (!r.isAtEnd()) {
             int tag = r.readTag();
             switch (tag >>> 3) {
@@ -553,10 +560,11 @@ public final class RoutingGrpcProtocol {
                 case 3 -> location = decodeResponseLocation(r.readBytes());
                 case 4 -> cumulativeDist = r.readDouble();
                 case 5 -> estArrival = r.readDouble();
+                case 6 -> lateByMinutes = r.readInt32();
                 default -> r.skipField(tag);
             }
         }
-        return new OrderedStop(stopIndex, stopId, location, cumulativeDist, estArrival);
+        return new OrderedStop(stopIndex, stopId, location, cumulativeDist, estArrival, lateByMinutes);
     }
 
     public static byte[] encodeBatchRequest(BatchOptimizationRequest req) {
@@ -582,6 +590,7 @@ public final class RoutingGrpcProtocol {
         if (req.maxStopsPerVehicle() != null) {
             w.writeInt32(8, req.maxStopsPerVehicle());
         }
+        w.writeString(9, req.plannedDepartureAt());
         return w.toByteArray();
     }
 

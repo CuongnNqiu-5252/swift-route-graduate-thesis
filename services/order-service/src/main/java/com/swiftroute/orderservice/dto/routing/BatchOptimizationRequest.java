@@ -15,8 +15,13 @@ public record BatchOptimizationRequest(
         @JsonProperty("time_weight") Double timeWeight,
         @JsonProperty("cost_weight") Double costWeight,
         @JsonProperty("vehicle_count") Integer vehicleCount,
-        @JsonProperty("max_stops_per_vehicle") Integer maxStopsPerVehicle
+        @JsonProperty("max_stops_per_vehicle") Integer maxStopsPerVehicle,
+        @JsonProperty("planned_departure_at") String plannedDepartureAt
 ) {
+    public BatchOptimizationRequest(LocationPoint depot, List<StopItem> stops, String algorithm,
+            Double timeWeight, Double costWeight, Integer vehicleCount, Integer maxStopsPerVehicle) {
+        this(depot, stops, algorithm, timeWeight, costWeight, vehicleCount, maxStopsPerVehicle, null);
+    }
 
     public BatchOptimizationRequest(
             LocationPoint depot,
@@ -40,7 +45,13 @@ public record BatchOptimizationRequest(
             @JsonProperty("location") LocationPoint location,
             @JsonProperty("demand_kg") double demandKg,
             @JsonProperty("time_window_start") String timeWindowStart,
-            @JsonProperty("time_window_end") String timeWindowEnd
-    ) {}
+            @JsonProperty("time_window_end") String timeWindowEnd,
+            @JsonProperty("service_time") Double serviceTime
+    ) {
+        public StopItem(String id, String name, LocationPoint location, double demandKg,
+                String timeWindowStart, String timeWindowEnd) {
+            this(id, name, location, demandKg, timeWindowStart, timeWindowEnd, null);
+        }
+    }
 }
 

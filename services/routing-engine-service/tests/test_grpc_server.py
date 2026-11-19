@@ -1,6 +1,6 @@
 # tests/test_grpc_server.py
 """
-Integration tests for the RoutingEngineGrpcService (OptimizeBatch, OptimizeInsert, OptimizeReoptimize, SimulateWhatIf).
+Integration tests for the RoutingEngineGrpcService (OptimizeBatch, OptimizeInsert, OptimizeReoptimize).
 """
 from __future__ import annotations
 
@@ -8,7 +8,22 @@ import grpc
 import pytest
 
 from api.grpc_gen import routing_pb2, routing_pb2_grpc
-from service.grpc_server import start_grpc_server, stop_grpc_server
+from service.grpc_server import start_grpc_server, stop_grpc_server, _verify_internal_auth
+
+pytestmark = pytest.mark.usefixtures("goong_stub")
+
+
+def test_grpc_reports_missing_road_data_as_unavailable(grpc_channel, monkeypatch):
+    monkeypatch.setenv("GOONG_API_KEY", "")
+    stub = routing_pb2_grpc.RoutingEngineGrpcServiceStub(grpc_channel)
+    request = routing_pb2.BatchOptimizationGrpcRequest(
+        depot=routing_pb2.LocationPointProto(lat=10, lng=105),
+        stops=[routing_pb2.StopItemProto(id="a", location=routing_pb2.LocationPointProto(lat=11, lng=106))],
+    )
+    with pytest.raises(grpc.RpcError) as caught:
+        stub.OptimizeBatch(request, timeout=3)
+    assert caught.value.code() == grpc.StatusCode.UNAVAILABLE
+    assert "GOONG_API_KEY" in caught.value.details()
 
 
 @pytest.fixture(scope="module")
@@ -109,4 +124,64 @@ def test_grpc_optimize_reoptimize(grpc_channel):
     response = stub.OptimizeReoptimize(request, timeout=10.0)
     assert response.algorithm_used == "ortools"
     assert len(response.ordered_stops) == 2
+
+
+class DummyContext:
+    def __init__(self, metadata):
+        self._metadata = metadata
+        self.aborted = False
+        self.abort_code = None
+        self.abort_details = None
+
+    def invocation_metadata(self):
+        return self._metadata
+
+    def abort(self, code, details):
+        self.aborted = True
+        self.abort_code = code
+        self.abort_details = details
+
+
+def test_verify_internal_auth_empty_key_with_header_aborts(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "")
+    ctx = DummyContext([("x-internal-key", "bypass-key")])
+    result = _verify_internal_auth(ctx)
+    assert result is False
+    assert ctx.aborted is True
+    assert ctx.abort_code == grpc.StatusCode.UNAUTHENTICATED
+
+
+def test_verify_internal_auth_empty_key_no_header_passes(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "")
+    ctx = DummyContext([])
+    result = _verify_internal_auth(ctx)
+    assert result is True
+    assert ctx.aborted is False
+
+
+def test_verify_internal_auth_expected_key_matching_header_passes(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "secret-grpc-key")
+    ctx = DummyContext([("x-internal-key", "secret-grpc-key")])
+    result = _verify_internal_auth(ctx)
+    assert result is True
+    assert ctx.aborted is False
+
+
+def test_verify_internal_auth_expected_key_missing_header_aborts(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "secret-grpc-key")
+    ctx = DummyContext([])
+    result = _verify_internal_auth(ctx)
+    assert result is False
+    assert ctx.aborted is True
+    assert ctx.abort_code == grpc.StatusCode.UNAUTHENTICATED
+
+
+def test_verify_internal_auth_expected_key_mismatching_header_aborts(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "secret-grpc-key")
+    ctx = DummyContext([("x-internal-key", "wrong-key")])
+    result = _verify_internal_auth(ctx)
+    assert result is False
+    assert ctx.aborted is True
+    assert ctx.abort_code == grpc.StatusCode.UNAUTHENTICATED
+
 

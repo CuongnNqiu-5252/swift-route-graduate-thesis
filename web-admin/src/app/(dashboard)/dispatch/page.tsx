@@ -24,6 +24,7 @@ import { useLocale } from '@/i18n/provider';
 import { ApiError } from '@/lib/api';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
+import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import { ClipboardList, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -43,6 +44,7 @@ export default function DispatchPage() {
   const [isPlansOpen, setIsPlansOpen] = useState(false);
   const [highlightedPlan, setHighlightedPlan] = useState<MapPlanHighlight | null>(null);
   const [linkedPlanId, setLinkedPlanId] = useState<string | null>(null);
+  const [maxOrdersPerDriver, setMaxOrdersPerDriver] = useState<number | undefined>(undefined);
   const plansButtonRef = useRef<HTMLButtonElement | null>(null);
   const plans = useMemo(() => {
     const ordersById = new Map(orders.map((order) => [order.id, order]));
@@ -58,6 +60,25 @@ export default function DispatchPage() {
   }, [fetchedPlans, orders]);
 
   const selectedPlan = plans.find((plan) => plan.plan_id === selectedPlanId) ?? null;
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('swiftroute:assistant-plan', { detail: { planId: selectedPlanId ?? undefined } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('swiftroute:assistant-plan', { detail: {} }));
+    };
+  }, [selectedPlanId]);
+
+  useEffect(() => {
+    const openPlan = (event: Event) => {
+      const { planId } = (event as CustomEvent<{ planId: string }>).detail;
+      if (!plans.some((plan) => plan.plan_id === planId)) return;
+      setLinkedPlanId(planId);
+      setSelectedPlanId(planId);
+      setIsPlansOpen(true);
+    };
+    window.addEventListener('swiftroute:assistant-open-plan', openPlan);
+    return () => window.removeEventListener('swiftroute:assistant-open-plan', openPlan);
+  }, [plans]);
   const selectedDriverId = selectedPlan?.driver_id ?? null;
   const isSelectedPlanDispatched = selectedPlan?.plan_status === 'DISPATCHED';
 
@@ -149,6 +170,10 @@ export default function DispatchPage() {
   }, [activeDriverPosition, drivers, fleetTracking.positions, selectedDriver, selectedDriverId, t]);
 
   const loadPlans = useCallback(async () => {
+    tenantSettingsRepository
+      .getSettings()
+      .then((s) => setMaxOrdersPerDriver(s.dispatch_config.max_orders_per_driver))
+      .catch(() => {});
     try {
       const list = await orderRepository.getDispatchPlans();
       setPlans(list);
@@ -161,6 +186,12 @@ export default function DispatchPage() {
 
   useEffect(() => {
     let active = true;
+    tenantSettingsRepository
+      .getSettings()
+      .then((s) => {
+        if (active) setMaxOrdersPerDriver(s.dispatch_config.max_orders_per_driver);
+      })
+      .catch(() => {});
     pickupLocationRepository
       .getPickupLocations('ACTIVE')
       .then((locations) => {
@@ -240,10 +271,8 @@ export default function DispatchPage() {
       } else {
         toast.warning(t('Chưa tạo được tuyến từ các đơn đang chờ.'));
       }
-    } catch (err) {
-      toast.error(err instanceof ApiError && err.status === 404
-        ? t('Order Service đang dùng phiên bản lập kế hoạch cũ.')
-        : err instanceof Error ? err.message : t('Không thể chạy lập kế hoạch. Vui lòng thử lại.'));
+    } catch {
+      toast.error(t('Không thể chạy lập kế hoạch. Vui lòng thử lại.'));
     } finally {
       setIsTriggeringPlan(false);
     }
@@ -260,7 +289,8 @@ export default function DispatchPage() {
       return updated;
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
-        throw new Error(t('Order Service đang dùng phiên bản lập kế hoạch cũ.'));
+        await loadPlans();
+        throw new Error(t('Không thể cập nhật điểm giao. Hãy thử tải lại kế hoạch.'));
       }
       if (error instanceof ApiError && (error.status === 409 || error.status === 400)) {
         await loadPlans();
@@ -282,6 +312,12 @@ export default function DispatchPage() {
     if (!targetPlan || typeof sourcePlan.version !== 'number' || typeof targetPlan.version !== 'number') {
       throw new Error(t('Hãy tải lại tuyến trước khi chỉnh sửa.'));
     }
+    const targetStopCount = targetPlan.ordered_stop_ids?.length ?? targetPlan.order_count;
+    if (typeof maxOrdersPerDriver === 'number' && targetStopCount >= maxOrdersPerDriver) {
+      const msg = t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.');
+      toast.error(msg);
+      throw new Error(msg);
+    }
     setEditingPlanId(sourcePlan.plan_id);
     try {
       const result = await orderRepository.moveDraftStop({ sourcePlan, targetPlan, orderId, targetIndex });
@@ -298,11 +334,18 @@ export default function DispatchPage() {
       await refetchOrders();
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
-        throw new Error(t('Order Service đang dùng phiên bản lập kế hoạch cũ.'));
+        await loadPlans();
+        throw new Error(t('Không thể cập nhật điểm giao. Hãy thử tải lại kế hoạch.'));
       }
       if (error instanceof ApiError && (error.status === 409 || error.status === 400)) {
         await loadPlans();
         throw new Error(t('Tuyến đã thay đổi. Hãy kiểm tra lại trước khi di chuyển điểm.'));
+      }
+      if (error instanceof ApiError && error.status === 422) {
+        await loadPlans();
+        const msg = t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.');
+        toast.error(msg);
+        throw new Error(msg);
       }
       throw error;
     } finally {
@@ -582,6 +625,7 @@ export default function DispatchPage() {
           onReorderStops={handleReorderStops}
           onMoveStop={handleMoveStop}
           editingPlanId={editingPlanId}
+          maxOrdersPerDriver={maxOrdersPerDriver}
         />
       </section>
     </div>

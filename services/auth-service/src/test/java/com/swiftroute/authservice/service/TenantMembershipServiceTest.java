@@ -153,4 +153,30 @@ class TenantMembershipServiceTest {
 
         verify(tenantMembershipRepository, never()).save(any());
     }
+
+    @Test
+    void suspendedV1TenantUpdatesMembershipStatus() {
+        UUID eventId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        User owner = User.builder().id(ownerId).status("ACTIVE").build();
+        TenantMembership membership = TenantMembership.builder()
+                .tenantId(tenantId)
+                .user(owner)
+                .status(TenantMembershipStatus.ACTIVE)
+                .lastEventVersion(2L)
+                .build();
+
+        when(processedEventRepository.insertIfNotExists(eq(eventId), eq(TenantMembershipService.CONSUMER_NAME))).thenReturn(1);
+        when(userRepository.findById(ownerId)).thenReturn(Optional.of(owner));
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, ownerId)).thenReturn(Optional.of(membership));
+
+        tenantMembershipService.applyTenantEvent(
+                new TenantEvent(eventId, "tenant.suspended.v1", tenantId, ownerId, Instant.now(), 3L));
+
+        ArgumentCaptor<TenantMembership> captor = ArgumentCaptor.forClass(TenantMembership.class);
+        verify(tenantMembershipRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(TenantMembershipStatus.SUSPENDED);
+        assertThat(captor.getValue().getLastEventVersion()).isEqualTo(3L);
+    }
 }

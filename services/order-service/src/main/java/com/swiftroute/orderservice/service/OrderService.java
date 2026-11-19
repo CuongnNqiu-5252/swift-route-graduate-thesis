@@ -119,7 +119,7 @@ public class OrderService {
         operationalReadiness.requireCreation(tenant);
 
         // Validate time window: end must be strictly after start
-        if (!request.timeWindowEnd().isAfter(request.timeWindowStart())) {
+        if (!request.hasValidTimeWindow()) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
 

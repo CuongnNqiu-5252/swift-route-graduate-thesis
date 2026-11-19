@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ import com.swiftroute.driverservice.entity.enums.DriverStatus;
 import com.swiftroute.driverservice.entity.enums.DriverType;
 import com.swiftroute.driverservice.entity.enums.VehicleType;
 import com.swiftroute.driverservice.exception.AppException;
+import com.swiftroute.driverservice.exception.ErrorCode;
 import com.swiftroute.driverservice.repository.DriverRepository;
 import com.swiftroute.driverservice.repository.OutboxEventRepository;
 import com.swiftroute.driverservice.service.DriverLocationCache;
@@ -140,5 +142,43 @@ class DriverServiceTest {
 
         UpdateAvailabilityRequest request = new UpdateAvailabilityRequest(true);
         assertThrows(AppException.class, () -> driverService.updateMyAvailability(sampleUserId, request));
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - throws ACCESS_DENIED when tenantId is null and role is null (internal service bypass prevention)")
+    void getAllDrivers_NullTenantNullRole_ThrowsAccessDenied() {
+        AppException ex = assertThrows(AppException.class, () -> driverService.getAllDrivers(null, null));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - throws ACCESS_DENIED when tenantId is null and role is not SYSTEM_ADMIN")
+    void getAllDrivers_NullTenantOperatorRole_ThrowsAccessDenied() {
+        AppException ex = assertThrows(AppException.class, () -> driverService.getAllDrivers(null, "OPERATOR"));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - succeeds when tenantId is specified")
+    void getAllDrivers_WithTenantId_Success() {
+        when(driverRepository.findAllByTenantId(sampleTenantId)).thenReturn(List.of(sampleDriver));
+
+        List<DriverResponse> responses = driverService.getAllDrivers(sampleTenantId, "OPERATOR");
+
+        assertNotNull(responses);
+        assertEquals(1, responses.size());
+        assertEquals(sampleDriverId, responses.get(0).id());
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - succeeds when tenantId is null and role is SYSTEM_ADMIN")
+    void getAllDrivers_NullTenantSystemAdmin_Success() {
+        when(driverRepository.findAll()).thenReturn(List.of(sampleDriver));
+
+        List<DriverResponse> responses = driverService.getAllDrivers(null, "SYSTEM_ADMIN");
+
+        assertNotNull(responses);
+        assertEquals(1, responses.size());
+        assertEquals(sampleDriverId, responses.get(0).id());
     }
 }

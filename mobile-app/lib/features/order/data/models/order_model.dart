@@ -143,8 +143,8 @@ class OrderModel {
   final double deliveryLng;
   final String pickupAddress;
   final String deliveryAddress;
-  final DateTime timeWindowStart;
-  final DateTime timeWindowEnd;
+  final DateTime? timeWindowStart;
+  final DateTime? timeWindowEnd;
   final double weightKg;
   final String? packageDescription;
   final String? notes;
@@ -255,12 +255,12 @@ class OrderModel {
       deliveryLng: (json['delivery_lng'] as num?)?.toDouble() ?? 0.0,
       pickupAddress: json['pickup_address'] as String? ?? '',
       deliveryAddress: json['delivery_address'] as String? ?? '',
-      timeWindowStart:
-          DateTime.tryParse(json['time_window_start'] as String? ?? '') ??
-          DateTime.now(),
-      timeWindowEnd:
-          DateTime.tryParse(json['time_window_end'] as String? ?? '') ??
-          DateTime.now().add(const Duration(hours: 4)),
+      timeWindowStart: DateTime.tryParse(
+        (json['time_window_start'] ?? json['timeWindowStart']) as String? ?? '',
+      ),
+      timeWindowEnd: DateTime.tryParse(
+        (json['time_window_end'] ?? json['timeWindowEnd']) as String? ?? '',
+      ),
       weightKg: (json['weight_kg'] as num?)?.toDouble() ?? 1.0,
       packageDescription: json['package_description'] as String?,
       notes: json['notes'] as String?,
@@ -307,8 +307,8 @@ class OrderModel {
     'delivery_lng': deliveryLng,
     'pickup_address': pickupAddress,
     'delivery_address': deliveryAddress,
-    'time_window_start': timeWindowStart.toUtc().toIso8601String(),
-    'time_window_end': timeWindowEnd.toUtc().toIso8601String(),
+    'time_window_start': timeWindowStart?.toUtc().toIso8601String(),
+    'time_window_end': timeWindowEnd?.toUtc().toIso8601String(),
     'weight_kg': weightKg,
     'package_description': packageDescription,
     'notes': notes,

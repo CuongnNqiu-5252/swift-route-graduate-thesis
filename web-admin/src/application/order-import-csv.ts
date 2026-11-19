@@ -13,8 +13,8 @@ export async function readOrderCsv(file: File) {
   return { name: file.name, ...parseOrderCsv(text) };
 }
 
-const required = ['externalOrderCode', 'recipientName', 'recipientPhone', 'timeWindowStart', 'timeWindowEnd', 'weightKg'];
-const columns = [...required, 'deliveryAddress', 'deliveryLat', 'deliveryLng', 'codAmount', 'notes'];
+const required = ['externalOrderCode', 'recipientName', 'recipientPhone', 'weightKg'];
+const columns = [...required, 'timeWindowStart', 'timeWindowEnd', 'deliveryAddress', 'deliveryLat', 'deliveryLng', 'codAmount', 'notes'];
 
 function records(csv: string) {
   const input = csv.replace(/^\uFEFF/, '');
@@ -62,6 +62,7 @@ export function parseOrderCsv(csv: string) {
     };
     const time = (name: string) => {
       const raw = value(name);
+      if (!raw) return null;
       const validShape = /^\d{4}-\d\d-\d\dT(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:Z|[+-](?:0\d|1[0-8]):[0-5]\d)$/.test(raw);
       const day = new Date(raw.slice(0, 10));
       if (!validShape || !Number.isFinite(Date.parse(raw)) || !Number.isFinite(day.valueOf())
@@ -78,11 +79,17 @@ export function parseOrderCsv(csv: string) {
       const deliveryLng = number('deliveryLng');
       const validPoint = deliveryLat !== null && deliveryLng !== null
         && Math.abs(deliveryLat) <= 90 && Math.abs(deliveryLng) <= 180;
+      const timeWindowStart = time('timeWindowStart');
+      const timeWindowEnd = time('timeWindowEnd');
+      if ((timeWindowStart === null) !== (timeWindowEnd === null)
+          || (timeWindowStart && timeWindowEnd && Date.parse(timeWindowEnd) <= Date.parse(timeWindowStart))) {
+        throw new Error('Chọn đủ giờ hẹn và đặt giờ kết thúc sau giờ bắt đầu.');
+      }
       rows.push({
         line, externalOrderCode, recipientName: value('recipientName'), recipientPhone: value('recipientPhone'),
         deliveryAddress: value('deliveryAddress'), deliveryLat: validPoint ? deliveryLat : null,
-        deliveryLng: validPoint ? deliveryLng : null, timeWindowStart: time('timeWindowStart'),
-        timeWindowEnd: time('timeWindowEnd'), weightKg: number('weightKg'), codAmount: codAmount || null,
+        deliveryLng: validPoint ? deliveryLng : null, timeWindowStart,
+        timeWindowEnd, weightKg: number('weightKg'), codAmount: codAmount || null,
         notes: value('notes'),
       });
     } catch (error) {

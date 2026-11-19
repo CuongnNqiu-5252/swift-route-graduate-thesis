@@ -44,7 +44,7 @@ export interface OperationsQueue {
 
 export interface CreateOrderPayload {
   recipientName:string; recipientPhone:string; pickupLocationId:string; pickupLat:number; pickupLng:number; pickupAddress:string;
-  deliveryLat:number; deliveryLng:number; deliveryAddress:string; timeWindowStart:string; timeWindowEnd:string; weightKg:number;
+  deliveryLat:number; deliveryLng:number; deliveryAddress:string; timeWindowStart:string | null; timeWindowEnd:string | null; weightKg:number;
   packageCategory:string; priority:string; codAmount:number;
 }
 
@@ -58,8 +58,8 @@ interface CreateOrderRequest {
   delivery_lat: number;
   delivery_lng: number;
   delivery_address: string;
-  time_window_start: string;
-  time_window_end: string;
+  time_window_start: string | null;
+  time_window_end: string | null;
   weight_kg: number;
   package_category: string;
   priority: string;

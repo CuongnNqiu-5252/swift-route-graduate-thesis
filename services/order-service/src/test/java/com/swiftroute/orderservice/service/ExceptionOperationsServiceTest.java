@@ -27,7 +27,6 @@ import com.swiftroute.orderservice.dto.request.CreateIncidentRequest;
 import com.swiftroute.orderservice.dto.request.ReportReturnDiscrepancyRequest;
 import com.swiftroute.orderservice.dto.request.ResolveIncidentRequest;
 import com.swiftroute.orderservice.dto.response.DeliveryIncidentResponse;
-import com.swiftroute.orderservice.dto.response.PackageUnitResponse;
 import com.swiftroute.orderservice.dto.response.ReturnRequestResponse;
 import com.swiftroute.orderservice.entity.DeliveryAttempt;
 import com.swiftroute.orderservice.entity.DeliveryIncident;
@@ -115,7 +114,6 @@ class ExceptionOperationsServiceTest {
                 .deliveryAddress("123 Le Loi, Q1")
                 .pickupLocation(defaultDepot)
                 .assignedDriverId(driverId)
-                .packageCount(2)
                 .status(OrderStatus.IN_TRANSIT)
                 .codAmount(BigDecimal.ZERO)
                 .build();
@@ -231,20 +229,8 @@ class ExceptionOperationsServiceTest {
                 .status("OPEN")
                 .build();
 
-        PackageUnitResponse custodyPkg = new PackageUnitResponse(
-                UUID.randomUUID(),
-                orderId,
-                "ORD-1001",
-                1,
-                "PKG-1",
-                "IN_CUSTODY",
-                driverId,
-                0L,
-                Instant.now());
-
         when(incidents.findByIdAndTenantId(incidentId, tenantId)).thenReturn(Optional.of(incident));
-        when(custody.packagesForOrder(orderId, tenantId, operatorId, "OPERATOR"))
-                .thenReturn(List.of(custodyPkg));
+        when(custody.holdsOrder(order)).thenReturn(true);
 
         ResolveIncidentRequest resolveReq = new ResolveIncidentRequest(
                 "REASSIGN_DRIVER",
@@ -330,7 +316,6 @@ class ExceptionOperationsServiceTest {
                 .currentHolderId(driverId)
                 .reason("CUSTOMER_REFUSED")
                 .status("REQUESTED")
-                .packageCount(2)
                 .build();
 
         when(returns.findByIdAndTenantId(returnId, tenantId)).thenReturn(Optional.of(rr));
@@ -341,6 +326,7 @@ class ExceptionOperationsServiceTest {
                 returnId, tenantId, operatorId, "OPERATOR",
                 new ApproveReturnRequest(null, driverId, "Approve RTS"));
         assertThat(approved.status()).isEqualTo("IN_EXECUTION");
+        verify(execution).completeDeliveryPlanIfFinished(order);
 
         // 2. Driver arrives at return location
         ReturnRequestResponse arrived = service.arriveReturnLocation(returnId, tenantId, driverId, "DRIVER");
@@ -355,11 +341,11 @@ class ExceptionOperationsServiceTest {
         // 4. Warehouse staff confirms physical receipt
         UUID warehouseStaffId = UUID.randomUUID();
         ReturnRequestResponse completed = service.confirmReturnReceipt(
-                returnId, tenantId, warehouseStaffId, "WAREHOUSE_STAFF", "Đã kiểm đủ 2 kiện nguyên vẹn");
+                returnId, tenantId, warehouseStaffId, "WAREHOUSE_STAFF", "Đã kiểm đủ kiện nguyên vẹn");
         assertThat(completed.status()).isEqualTo("COMPLETED");
         assertThat(order.getStatus()).isEqualTo(OrderStatus.RETURNED);
         assertThat(linkedIncident.getStatus()).isEqualTo("RESOLVED");
-        verify(custody).receiveReturn(order, warehouseStaffId, "Đã kiểm đủ 2 kiện nguyên vẹn");
+        verify(custody).receiveReturn(order, warehouseStaffId, "Đã kiểm đủ kiện nguyên vẹn");
         var events = org.mockito.ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEvents, org.mockito.Mockito.atLeastOnce()).save(events.capture());
         var resolution = events.getAllValues().stream()
@@ -381,15 +367,14 @@ class ExceptionOperationsServiceTest {
                 .currentHolderId(driverId)
                 .reason("CUSTOMER_REFUSED")
                 .status("AWAITING_RECEIPT")
-                .packageCount(2)
                 .build();
 
         when(returns.findByIdAndTenantId(returnId, tenantId)).thenReturn(Optional.of(rr));
 
         ReportReturnDiscrepancyRequest discReq = new ReportReturnDiscrepancyRequest(
                 "MISSING_PACKAGE",
-                1,
-                "Chỉ bàn giao 1/2 kiện hàng",
+                0,
+                "Thiếu kiện hàng",
                 "https://res.cloudinary.com/demo/discrepancy.jpg");
 
         ReturnRequestResponse res = service.reportReturnDiscrepancy(
@@ -397,7 +382,7 @@ class ExceptionOperationsServiceTest {
 
         assertThat(res.status()).isEqualTo("DISCREPANCY");
         assertThat(res.discrepancyType()).isEqualTo("MISSING_PACKAGE");
-        assertThat(res.actualQuantity()).isEqualTo(1);
+        assertThat(res.actualQuantity()).isZero();
         verify(incidents).save(any(DeliveryIncident.class));
     }
 }

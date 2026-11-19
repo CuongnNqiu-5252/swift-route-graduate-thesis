@@ -224,5 +224,52 @@ class JwtAuthenticationFilterTest {
 
         verify(chain).doFilter(request, response);
     }
+
+    @Test
+    void granularPermissionsRevocationBlocksEndpointAndLiveSyncOverridesStaleToken() throws Exception {
+        TenantPermissionRegistry.clearCache();
+        try {
+            Instant now = Instant.now();
+            String tokenWithoutDriverManage = "Bearer " + Jwts.builder()
+                    .subject(userId.toString())
+                    .claim("system_role", "USER")
+                    .claim("tenant_id", tenantId.toString())
+                    .claim("tenant_role", "OPERATOR")
+                    .claim("perm_ver", 1L)
+                    .claim("permissions", java.util.List.of("driver:read"))
+                    .issuedAt(Date.from(now))
+                    .expiration(Date.from(now.plusSeconds(3600)))
+                    .signWith(signingKey)
+                    .compact();
+
+            MockHttpServletRequest postReq = new MockHttpServletRequest("POST", "/api/drivers");
+            postReq.addHeader("Authorization", tokenWithoutDriverManage);
+            MockHttpServletResponse postRes = new MockHttpServletResponse();
+            FilterChain postChain = mock(FilterChain.class);
+
+            filter.doFilter(postReq, postRes, postChain);
+            assertThat(postRes.getStatus()).isEqualTo(403);
+            verifyNoInteractions(postChain);
+
+            // Live sync grants driver:manage at version 2 -> same token (perm_ver=1) now succeeds
+            TenantPermissionRegistry.recordLiveSnapshot(
+                    tenantId,
+                    userId,
+                    "OPERATOR",
+                    "ACTIVE",
+                    java.util.Set.of("driver:read", "driver:manage"),
+                    2L);
+
+            MockHttpServletRequest postReqAfterSync = new MockHttpServletRequest("POST", "/api/drivers");
+            postReqAfterSync.addHeader("Authorization", tokenWithoutDriverManage);
+            MockHttpServletResponse postResAfterSync = new MockHttpServletResponse();
+            FilterChain postChainAfterSync = mock(FilterChain.class);
+
+            filter.doFilter(postReqAfterSync, postResAfterSync, postChainAfterSync);
+            verify(postChainAfterSync).doFilter(postReqAfterSync, postResAfterSync);
+        } finally {
+            TenantPermissionRegistry.clearCache();
+        }
+    }
 }
 

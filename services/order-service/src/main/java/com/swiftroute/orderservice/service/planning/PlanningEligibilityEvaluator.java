@@ -1,6 +1,7 @@
 package com.swiftroute.orderservice.service.planning;
 
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 @Slf4j
 public class PlanningEligibilityEvaluator {
+
+    static final ZoneId OPERATING_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final OrderRepository orderRepository;
 
@@ -65,7 +68,10 @@ public class PlanningEligibilityEvaluator {
         }
 
         List<Order> pendingOrders = orderRepository.findAllByTenantIdAndStatus(
-                tenant.getId(), OrderStatus.READY_FOR_DISPATCH);
+                tenant.getId(), OrderStatus.READY_FOR_DISPATCH).stream()
+                .filter(Order::canJoinDispatchPlan)
+                .filter(order -> isDueByPlanningDay(order, now))
+                .toList();
 
         if (pendingOrders.isEmpty()) {
             return Optional.empty();
@@ -119,6 +125,7 @@ public class PlanningEligibilityEvaluator {
         return orderRepository.findAllByTenantIdAndStatus(tenantId, OrderStatus.READY_FOR_DISPATCH)
                 .stream()
                 .filter(Order::canJoinDispatchPlan)
+                .filter(order -> isDueByPlanningDay(order, now))
                 .sorted((a, b) -> {
                     // URGENT first, then HIGH, then NORMAL; within same priority sort by creation
                     // time
@@ -128,5 +135,12 @@ public class PlanningEligibilityEvaluator {
                     return a.getCreatedAt().compareTo(b.getCreatedAt());
                 })
                 .toList();
+    }
+
+    private boolean isDueByPlanningDay(Order order, Instant departure) {
+        return order.getTimeWindowStart() == null
+                || order.getTimeWindowStart().toInstant().isBefore(
+                        departure.atZone(OPERATING_ZONE).toLocalDate().plusDays(1)
+                                .atStartOfDay(OPERATING_ZONE).toInstant());
     }
 }

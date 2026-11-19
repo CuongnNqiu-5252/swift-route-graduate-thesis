@@ -73,8 +73,7 @@ tenants 1 ──▶ N onboarding_progress
 tenants 1 ──▶ N pickup_locations
 tenants 1 ──▶ N orders
 pickup_locations 1 ──▶ N orders
-orders 1 ──▶ N dispatch_plan_orders
-dispatch_plans 1 ──▶ N dispatch_plan_orders
+dispatch_plans 1 ──▶ N orders (orders.plan_id, có thể trống)
 orders 1 ──▶ N delivery_tasks
 orders 1 ──▶ N package_units
 orders 1 ──▶ N cod_collections
@@ -90,7 +89,7 @@ Cột chính:
 - pickup_locations: pickup_location_id (uuid, PK), tenant_id (uuid, FK), name (varchar 255), address (varchar 500), lat và lng (double), is_default (boolean), status (varchar 20)
 - orders: order_id (uuid, PK), tenant_id (uuid, FK), external_order_code (varchar 100), tracking_token (varchar 64, UK), sender_name, sender_phone, recipient_name, recipient_phone, pickup_location_id (uuid, FK), delivery_lat và delivery_lng (double), delivery_address (varchar 500), time_window_start và time_window_end (timestamptz), weight_kg (double), package_count (int), package_category (varchar 30), cod_amount, declared_value, delivery_fee (decimal 12,2), payer (SENDER, RECIPIENT), priority (NORMAL, HIGH, URGENT), status (CREATED, READY_FOR_DISPATCH, ASSIGNED, PICKED_UP, IN_TRANSIT, DELIVERED, FAILED, RETURNED, CANCELLED), assigned_driver_id (uuid), created_at và updated_at (timestamptz)
 - dispatch_plans: plan_id (uuid, PK), tenant_id (uuid, FK), driver_id (uuid), plan_status (DRAFT, APPROVED, DISPATCHED, COMPLETED, CANCELLED), total_distance_km, estimated_duration_minutes, created_at (timestamptz)
-- dispatch_plan_orders: plan_id (uuid, FK), order_id (uuid, FK), stop_index (int), estimated_arrival_time (timestamptz)
+- Liên kết kế hoạch nằm trên `orders`. Khóa ngoại `(tenant_id, plan_id)` trỏ tới kế hoạch cùng doanh nghiệp. `plan_stop_index` lưu thứ tự giao và chỉ có giá trị khi đơn thuộc một kế hoạch. Khi hủy tuyến, các đơn đủ điều kiện về hàng đợi bỏ liên kết. Đơn đã giao giữ kế hoạch đã giao đơn đó.
 - delivery_tasks: task_id (uuid, PK), order_id (uuid, FK), driver_id (uuid), task_type (PICKUP, DELIVERY, RETURN), status (ASSIGNED, ARRIVED, COMPLETED, FAILED)
 - cod_collections: collection_id (uuid, PK), order_id (uuid, FK), tenant_id (uuid), driver_id (uuid), collected_amount (decimal 12,2), status (COLLECTED, DECLARED, VERIFIED, DISCREPANCY)
 

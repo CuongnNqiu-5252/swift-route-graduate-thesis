@@ -59,3 +59,70 @@ def test_stateless_jwt_rejects_invalid_signature() -> None:
     client = TestClient(_make_app())
     res = client.post("/api/v1/optimize/batch", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 401
+
+
+def test_empty_internal_key_blocks_x_internal_key_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "")
+    client = TestClient(_make_app())
+    res = client.post("/api/v1/optimize/batch", headers={"x-internal-key": "any-attempted-key"})
+    assert res.status_code == 401
+    assert "Invalid internal key" in res.json()["detail"]
+
+
+def test_valid_internal_key_allows_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "expected-secret-key")
+    client = TestClient(_make_app())
+    res = client.post("/api/v1/optimize/batch", headers={"x-internal-key": "expected-secret-key"})
+    assert res.status_code == 200
+    assert res.json() == {"ok": True}
+
+
+def test_invalid_internal_key_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TENANT_INTERNAL_KEY", "expected-secret-key")
+    client = TestClient(_make_app())
+    res = client.post("/api/v1/optimize/batch", headers={"x-internal-key": "wrong-secret-key"})
+    assert res.status_code == 401
+    assert "Invalid internal key" in res.json()["detail"]
+
+
+def test_viewer_role_blocked_from_optimization() -> None:
+    token = jwt.encode(
+        {
+            "sub": "viewer-user",
+            "system_role": "USER",
+            "tenant_id": "tenant-1",
+            "tenant_role": "VIEWER",
+        },
+        DEFAULT_JWT_SECRET,
+        algorithm="HS256",
+    )
+    client = TestClient(_make_app())
+    res = client.post(
+        "/api/v1/optimize/batch",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tenant_id": "tenant-1"},
+    )
+    assert res.status_code == 403
+    assert "Read-only membership" in res.json()["detail"]
+
+
+def test_driver_role_allowed_for_optimization() -> None:
+    token = jwt.encode(
+        {
+            "sub": "driver-user",
+            "system_role": "USER",
+            "tenant_id": "tenant-1",
+            "tenant_role": "DRIVER",
+        },
+        DEFAULT_JWT_SECRET,
+        algorithm="HS256",
+    )
+    client = TestClient(_make_app())
+    res = client.post(
+        "/api/v1/optimize/batch",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tenant_id": "tenant-1"},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"ok": True}
+

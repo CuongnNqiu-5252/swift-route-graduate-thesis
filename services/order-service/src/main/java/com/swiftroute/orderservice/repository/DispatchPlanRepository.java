@@ -2,6 +2,7 @@ package com.swiftroute.orderservice.repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -20,6 +21,8 @@ public interface DispatchPlanRepository extends JpaRepository<DispatchPlan, UUID
         Page<DispatchPlan> findByTenantId(UUID tenantId, Pageable pageable);
 
         List<DispatchPlan> findAllByTenantIdOrderByCreatedAtDesc(UUID tenantId);
+
+        Optional<DispatchPlan> findByIdAndTenantId(UUID id, UUID tenantId);
 
         /** Active (non-terminal) plans for a tenant. */
         List<DispatchPlan> findAllByTenantIdAndPlanStatusIn(UUID tenantId, List<PlanStatus> statuses);

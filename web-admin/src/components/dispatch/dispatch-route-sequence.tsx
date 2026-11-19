@@ -1,7 +1,7 @@
 'use client';
 
 import { type PointerEvent, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Undo2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, TriangleAlert, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
@@ -12,27 +12,9 @@ export interface PlanTimelineStop {
   label: string;
   address?: string;
   eta?: number;
+  lateBy?: number;
+  appointment?: string | null;
   delivered: boolean;
-}
-
-export function readPlanStopTimings(raw?: string | null): Map<string, number> {
-  const timings = new Map<string, number>();
-  if (!raw) return timings;
-  try {
-    const points: unknown = JSON.parse(raw);
-    if (!Array.isArray(points)) return timings;
-    let previousEta = 0;
-    for (const point of points) {
-      const eta: unknown = point?.estimated_arrival_minutes;
-      if (typeof point?.stop_id === 'string' && typeof eta === 'number' && Number.isFinite(eta) && eta >= previousEta) {
-        timings.set(point.stop_id, eta);
-        previousEta = eta;
-      }
-    }
-  } catch {
-    // A legacy snapshot can omit usable times. Those stops are displayed in sequence below the axis.
-  }
-  return timings;
 }
 
 export function DispatchRouteSequence({
@@ -199,7 +181,9 @@ export function DispatchRouteSequence({
   }
 
   function stopButton(stop: PlanTimelineStop, index: number) {
-    const label = `${index + 1}. ${stop.label} · ${formatEta(stop.eta)}`;
+    const late = !stop.delivered && Boolean(stop.lateBy);
+    const lateLabel = late ? `${t('Dự kiến trễ')} ${stop.lateBy} ${t('phút')}` : '';
+    const label = `${index + 1}. ${stop.label} · ${formatEta(stop.eta)}${late ? ` · ${lateLabel}` : ''}`;
     const selected = selectedId === stop.id;
     const target = targetId === stop.id && draggedIndex !== index;
     return (
@@ -255,9 +239,10 @@ export function DispatchRouteSequence({
         <span
           aria-hidden="true"
           className={`grid size-4 place-items-center rounded-full border-2 ${selected ? 'ring-2 ring-slate-600 ring-offset-2' : ''} ${stop.delivered ? 'text-white' : 'bg-white'}`}
-          style={{ borderColor: color, backgroundColor: stop.delivered || selected ? color : undefined }}
+          style={{ borderColor: color, backgroundColor: stop.delivered || (selected && !late) ? color : undefined }}
         >
           {stop.delivered && <Check size={10} strokeWidth={3} />}
+          {late && <TriangleAlert size={10} strokeWidth={2.5} className="text-amber-800" />}
         </span>
       </button>
     );
@@ -291,6 +276,14 @@ export function DispatchRouteSequence({
             {selectedStop.address && ` · ${selectedStop.address}`}
             {selectedStop.eta !== undefined && ` · ${formatEta(selectedStop.eta)}`}
             {selectedStop.delivered && ` · ${t('Đã giao')}`}
+            {!selectedStop.delivered && Boolean(selectedStop.lateBy) && (
+              <span className="ml-2 font-semibold text-amber-800">{t('Dự kiến trễ')} {selectedStop.lateBy} {t('phút')}</span>
+            )}
+            {selectedStop.appointment !== undefined && (
+              <span className="block text-slate-600">
+                {selectedStop.appointment ? `${t('Khung giờ hẹn')} · ${selectedStop.appointment}` : t('Giao linh hoạt')}
+              </span>
+            )}
           </span>
           {editable && (
             <div className="flex items-center gap-1">

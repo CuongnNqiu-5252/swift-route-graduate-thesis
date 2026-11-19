@@ -56,6 +56,14 @@ class NotificationAuthorizationTest {
     }
 
     @Test
+    void tenantScopedViewerJwtAuthorizesRequestedTenant() {
+        String bearer = signToken("USER", tenantId.toString(), "VIEWER");
+        authorization.requireOperator(bearer, tenantId);
+        UUID resolvedTenantId = authorization.resolveOperatorTenantId(bearer, tenantId);
+        assertThat(resolvedTenantId).isEqualTo(tenantId);
+    }
+
+    @Test
     void systemAdminJwtAuthorizesAnyTenant() {
         String bearer = signToken("SYSTEM_ADMIN", null, null);
         authorization.requireOperator(bearer, tenantId);
@@ -138,5 +146,41 @@ class NotificationAuthorizationTest {
         assertThatThrownBy(() -> authorization.requireOperator(null, tenantId))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED));
+    }
+
+    @Test
+    void revokedNotificationReadPermissionInJwtOrLiveSyncIsRejectedWithForbidden() {
+        NotificationAuthorization.clearCache();
+        try {
+            Instant now = Instant.now();
+            String tokenWithNotificationRead = "Bearer " + Jwts.builder()
+                    .subject(userId.toString())
+                    .claim("system_role", "USER")
+                    .claim("tenant_id", tenantId.toString())
+                    .claim("tenant_role", "OPERATOR")
+                    .claim("perm_ver", 1L)
+                    .claim("permissions", java.util.List.of("order:read", "notification:read"))
+                    .issuedAt(Date.from(now))
+                    .expiration(Date.from(now.plusSeconds(3600)))
+                    .signWith(signingKey)
+                    .compact();
+
+            authorization.requireOperator(tokenWithNotificationRead, tenantId);
+
+            // Live sync revokes notification:read at version 2
+            NotificationAuthorization.recordLiveSnapshot(
+                    tenantId,
+                    userId,
+                    "OPERATOR",
+                    "ACTIVE",
+                    java.util.Set.of("order:read"),
+                    2L);
+
+            assertThatThrownBy(() -> authorization.requireOperator(tokenWithNotificationRead, tenantId))
+                    .isInstanceOfSatisfying(ResponseStatusException.class,
+                            ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        } finally {
+            NotificationAuthorization.clearCache();
+        }
     }
 }

@@ -13,6 +13,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from core.road_matrix import RoadMatrixError
 
 from api.routes import router
 from service.grpc_server import start_grpc_server, stop_grpc_server
@@ -62,6 +64,11 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+@app.exception_handler(RoadMatrixError)
+async def road_matrix_error_handler(request, exc: RoadMatrixError):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
 
 # Allow calls from API Gateway, Swagger UI, and mobile app during local development
 app.add_middleware(

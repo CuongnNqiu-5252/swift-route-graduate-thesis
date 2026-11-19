@@ -265,13 +265,17 @@ routingApi.interceptors.response.use(undefined, (error: AxiosError) => retryAfte
  */
 export interface StreamOptions {
   signal: AbortSignal;
+  body?: unknown;
   headers?: Record<string, string>;
   onOpen?: () => void | Promise<void>;
   onEvent: (eventName: string, data: string) => void;
 }
 
 export async function streamSse(path: string, options: StreamOptions): Promise<void> {
-  const response = await api.get<ReadableStream<Uint8Array>>(path, {
+  const response = await api.request<ReadableStream<Uint8Array>>({
+    url: path,
+    method: options.body === undefined ? 'GET' : 'POST',
+    data: options.body,
     adapter: 'fetch',
     responseType: 'stream',
     headers: options.headers,
@@ -289,25 +293,30 @@ export async function streamSse(path: string, options: StreamOptions): Promise<v
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (!options.signal.aborted) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
+  try {
+    while (!options.signal.aborted) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
 
-    buffer += decoder.decode(chunk.value, { stream: true }).replaceAll('\r\n', '\n');
-    const blocks = buffer.split('\n\n');
-    buffer = blocks.pop() ?? '';
+      buffer = (buffer + decoder.decode(chunk.value, { stream: true })).replaceAll('\r\n', '\n');
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() ?? '';
 
-    for (const block of blocks) {
-      let eventName = 'message';
-      const dataLines: string[] = [];
-      for (const line of block.split('\n')) {
-        if (line.startsWith('event:')) eventName = line.slice(6).trim();
-        if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-      }
-      if (dataLines.length > 0) {
-        options.onEvent(eventName, dataLines.join('\n'));
+      for (const block of blocks) {
+        let eventName = 'message';
+        const dataLines: string[] = [];
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+        }
+        if (dataLines.length > 0) {
+          options.onEvent(eventName, dataLines.join('\n'));
+        }
       }
     }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
 

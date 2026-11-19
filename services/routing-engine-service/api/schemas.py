@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 
 
 class LocationPoint(BaseModel):
@@ -23,12 +23,13 @@ class StopItem(BaseModel):
     name: Optional[str] = None
     location: LocationPoint
     demand_kg: float = Field(0.0, ge=0.0)
+    service_time: float = Field(5.0, ge=0.0, allow_inf_nan=False, description="Service duration in minutes")
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
 
 
 class BatchOptimizationRequest(BaseModel):
-    depot: LocationPoint
+    depot: Optional[LocationPoint] = Field(None, description="Optional starting depot; if omitted, a virtual free-start depot is used")
     stops: List[StopItem] = Field(..., min_length=1)
     algorithm: str = Field("auto", description="auto | ortools")
     time_weight: Optional[float] = Field(0.5, ge=0.0, le=1.0, description="Weight for delivery time in multi-objective function")
@@ -36,6 +37,7 @@ class BatchOptimizationRequest(BaseModel):
     vehicle_count: int = Field(1, ge=1, le=50, description="Number of available delivery vehicles/drivers for CVRP partitioning")
     vehicle_capacities: Optional[List[float]] = Field(None, description="Optional cargo capacity (kg) per vehicle")
     max_stops_per_vehicle: Optional[int] = Field(None, ge=1, le=100, description="Optional maximum stops per vehicle")
+    planned_departure_at: Optional[AwareDatetime] = None
 
     @field_validator("algorithm")
     @classmethod
@@ -55,6 +57,7 @@ class OrderedStop(BaseModel):
     location: LocationPoint
     cumulative_distance_km: float
     estimated_arrival_minutes: float
+    late_by_minutes: int = 0
 
 
 class VehicleRoute(BaseModel):
@@ -76,35 +79,12 @@ class BatchOptimizationResponse(BaseModel):
     timestamp: str
 
 
-class WhatIfOptimizationRequest(BatchOptimizationRequest):
-    """A dry-run comparison that never persists or dispatches a route."""
-
-    baseline_driver_count: int = Field(3, ge=1, le=50)
-    scenario_driver_count: int = Field(2, ge=1, le=50)
-    max_shift_minutes: float = Field(150.0, gt=0.0, le=1_440.0)
-
-
-class WhatIfScenario(BaseModel):
-    driver_count: int
-    total_distance_km: float
-    completion_minutes: float
-    late_risk_orders: int
-    algorithm_used: str
-
-
-class WhatIfOptimizationResponse(BaseModel):
-    baseline: WhatIfScenario
-    scenario: WhatIfScenario
-    distance_delta_percent: float
-    completion_delta_percent: float
-    late_risk_delta: int
-
-
 class RouteStopState(BaseModel):
     id: str = Field(..., description="Stop / order UUID")
     name: Optional[str] = None
     location: LocationPoint
     demand_kg: float = Field(0.0, ge=0.0)
+    service_time: float = Field(5.0, ge=0.0, allow_inf_nan=False, description="Service duration in minutes")
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
     is_completed: bool = Field(False, description="True if driver already completed this stop")

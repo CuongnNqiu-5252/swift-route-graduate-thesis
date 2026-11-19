@@ -25,8 +25,16 @@ abstract final class AppFormatters {
     return _timeFormat.format(dt.toLocal());
   }
 
-  static String timeWindow(DateTime start, DateTime end) {
-    return '${time(start)} – ${time(end)}';
+  static String timeWindow(DateTime? start, DateTime? end) {
+    if (start == null || end == null) return 'Giao linh hoạt';
+    final from = start.toUtc().add(const Duration(hours: 7));
+    final until = end.toUtc().add(const Duration(hours: 7));
+    final fromDay = _dateFormat.format(from);
+    final untilDay = _dateFormat.format(until);
+    final endLabel = fromDay == untilDay
+        ? _timeFormat.format(until)
+        : _dateTimeFormat.format(until);
+    return '$fromDay · ${_timeFormat.format(from)} – $endLabel';
   }
 
   static String dateTime(DateTime dt) {

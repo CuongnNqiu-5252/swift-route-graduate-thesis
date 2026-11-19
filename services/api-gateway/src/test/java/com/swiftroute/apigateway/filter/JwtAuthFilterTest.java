@@ -189,4 +189,60 @@ class JwtAuthFilterTest {
         assertThat(forwarded.getFirst("X-Tenant-Id")).isNull();
         assertThat(forwarded.getFirst("X-System-Role")).isEqualTo("USER");
     }
+
+    @Test
+    @DisplayName("Email verification resend-public endpoint is public")
+    void resendPublicEndpointIsPublic() {
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+
+        jwtAuthFilter.filter(MockServerWebExchange.from(
+                MockServerHttpRequest.post("/api/auth/email/resend-public").build()), chain).block();
+
+        verify(chain).filter(any(ServerWebExchange.class));
+        verifyNoInteractions(jwtVerifier);
+    }
+
+    @Test
+    @DisplayName("User without tenant claim cannot supply arbitrary X-Tenant-Id header (rejected with 403 Forbidden)")
+    void userWithoutTenantClaimCannotSupplyTenantHeader() {
+        UUID spoofedTenant = UUID.randomUUID();
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/api/orders/test")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer valid.jwt.token")
+                .header("X-Tenant-Id", spoofedTenant.toString())
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        when(jwtVerifier.verify("valid.jwt.token"))
+                .thenReturn(Mono.just(new JwtClaims("customer-1", "USER", null, null)));
+
+        jwtAuthFilter.filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("SYSTEM_ADMIN without tenant claim can supply X-Tenant-Id header and is forwarded")
+    void systemAdminWithoutTenantClaimCanSupplyTenantHeader() {
+        UUID targetTenant = UUID.randomUUID();
+
+        MockServerHttpRequest request = MockServerHttpRequest.get("/api/orders/test")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer valid.jwt.token")
+                .header("X-Tenant-Id", targetTenant.toString())
+                .build();
+        MockServerWebExchange exchange = MockServerWebExchange.from(request);
+
+        when(jwtVerifier.verify("valid.jwt.token"))
+                .thenReturn(Mono.just(new JwtClaims("sysadmin-1", "SYSTEM_ADMIN", null, null)));
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+
+        jwtAuthFilter.filter(exchange, chain).block();
+
+        ArgumentCaptor<ServerWebExchange> captor = ArgumentCaptor.forClass(ServerWebExchange.class);
+        verify(chain).filter(captor.capture());
+        HttpHeaders forwarded = captor.getValue().getRequest().getHeaders();
+        assertThat(forwarded.getFirst("X-Tenant-Id")).isEqualTo(targetTenant.toString());
+        assertThat(forwarded.getFirst("X-User-Id")).isEqualTo("sysadmin-1");
+        assertThat(forwarded.getFirst("X-System-Role")).isEqualTo("SYSTEM_ADMIN");
+    }
 }

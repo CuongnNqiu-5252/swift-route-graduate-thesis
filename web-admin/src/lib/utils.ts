@@ -18,3 +18,6 @@ export function formatVNDate(isoString: string): string {
   }).format(new Date(isoString));
 }
 
+export function parseVNDateTimeInput(value: string): number {
+  return value ? Date.parse(`${value}+07:00`) : NaN;
+}

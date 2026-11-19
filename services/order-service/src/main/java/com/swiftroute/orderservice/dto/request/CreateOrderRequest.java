@@ -52,9 +52,7 @@ public record CreateOrderRequest(
         @Size(max = 500) String deliveryAddress,
 
         // Allowed delivery window (UTC ISO-8601 OffsetDateTime)
-        @NotNull(message = "Khung giờ bắt đầu giao không được để trống")
         OffsetDateTime timeWindowStart,
-        @NotNull(message = "Khung giờ kết thúc giao không được để trống")
         OffsetDateTime timeWindowEnd,
 
         // Parcel specs
@@ -71,6 +69,13 @@ public record CreateOrderRequest(
         @DecimalMin("0.0") BigDecimal deliveryFee,
         String payer
 ) {
+    public boolean hasValidTimeWindow() {
+        if (timeWindowStart == null || timeWindowEnd == null) {
+            return timeWindowStart == null && timeWindowEnd == null;
+        }
+        return timeWindowEnd.isAfter(timeWindowStart);
+    }
+
     public CreateOrderRequest {
         if (priority == null) {
             priority = OrderPriority.NORMAL;

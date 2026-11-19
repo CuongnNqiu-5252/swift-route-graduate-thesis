@@ -182,8 +182,8 @@ public class OrderImportService {
                 || request.codAmount().compareTo(new BigDecimal("1000000000000")) >= 0) {
             throw new AppException(ErrorCode.VALIDATION_ERROR, "codAmount: yêu cầu số nguyên tối đa 12 chữ số");
         }
-        if (!request.timeWindowEnd().isAfter(request.timeWindowStart())) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR, "timeWindowEnd: phải sau giờ bắt đầu");
+        if (!request.hasValidTimeWindow()) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR, "Khung giờ hẹn cần đủ hai mốc và giờ kết thúc phải sau giờ bắt đầu");
         }
     }
 }

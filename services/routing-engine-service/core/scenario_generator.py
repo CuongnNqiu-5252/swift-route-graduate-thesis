@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from core.distance import build_distance_matrix, build_time_matrix
+from core.road_matrix import build_road_matrices
 
 
 @dataclass
@@ -43,11 +43,10 @@ class DeliveryScenario:
             locs.append((s.lat, s.lon))
         return locs
 
-    def build_matrices(self, avg_speed_kmh: float = 28.0) -> Tuple[List[List[float]], List[List[float]]]:
+    def build_matrices(self) -> Tuple[List[List[float]], List[List[float]]]:
         """Build both distance matrix (km) and travel time matrix (minutes)."""
         locs = self.get_locations()
-        dist_mat = build_distance_matrix(locs)
-        time_mat = build_time_matrix(dist_mat, avg_speed_kmh)
+        dist_mat, time_mat, _ = build_road_matrices(locs)
         return dist_mat, time_mat
 
 

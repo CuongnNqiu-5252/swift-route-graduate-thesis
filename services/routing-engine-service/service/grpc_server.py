@@ -1,7 +1,7 @@
 # service/grpc_server.py
 """
 gRPC Server implementation for the SwiftRoute Routing Engine.
-Exposes OptimizeBatch, OptimizeInsert, OptimizeReoptimize, and SimulateWhatIf
+Exposes OptimizeBatch, OptimizeInsert, and OptimizeReoptimize
 over binary Protocol Buffers on port 50051 alongside the FastAPI server.
 """
 from __future__ import annotations
@@ -12,6 +12,7 @@ import os
 from typing import Optional
 
 import grpc
+from core.road_matrix import RoadMatrixError
 
 from api.grpc_gen import routing_pb2, routing_pb2_grpc
 from api.schemas import (
@@ -22,10 +23,8 @@ from api.schemas import (
     RouteReoptimizeRequest,
     RouteStopState,
     StopItem,
-    WhatIfOptimizationRequest,
 )
 from service.optimizer_service import (
-    simulate_what_if,
     solve_batch,
     solve_insert,
     solve_reoptimize,
@@ -56,6 +55,7 @@ def _to_stop_item_schema(proto_stop: routing_pb2.StopItemProto) -> StopItem:
         name=proto_stop.name if proto_stop.name else None,
         location=_to_location_schema(proto_stop.location),
         demand_kg=proto_stop.demand_kg,
+        service_time=proto_stop.service_time if proto_stop.HasField("service_time") else 5.0,
         time_window_start=proto_stop.time_window_start if proto_stop.time_window_start else None,
         time_window_end=proto_stop.time_window_end if proto_stop.time_window_end else None,
     )
@@ -67,6 +67,7 @@ def _to_route_stop_state_schema(proto_state: routing_pb2.RouteStopStateProto) ->
         name=proto_state.name if proto_state.name else None,
         location=_to_location_schema(proto_state.location),
         demand_kg=proto_state.demand_kg,
+        service_time=proto_state.service_time if proto_state.HasField("service_time") else 5.0,
         time_window_start=proto_state.time_window_start if proto_state.time_window_start else None,
         time_window_end=proto_state.time_window_end if proto_state.time_window_end else None,
         is_completed=proto_state.is_completed,
@@ -80,6 +81,7 @@ def _to_ordered_stop_proto(stop: OrderedStop) -> routing_pb2.OrderedStopProto:
         location=_to_location_proto(stop.location),
         cumulative_distance_km=stop.cumulative_distance_km,
         estimated_arrival_minutes=stop.estimated_arrival_minutes,
+        late_by_minutes=stop.late_by_minutes,
     )
 
 
@@ -97,6 +99,13 @@ def _verify_internal_auth(context: grpc.ServicerContext) -> bool:
         context.abort(grpc.StatusCode.UNAUTHENTICATED, "Internal key required")
         return False
     return True
+
+
+def _solve_with_road_errors(solver, request, context):
+    try:
+        return solver(request)
+    except RoadMatrixError as exc:
+        context.abort(grpc.StatusCode.UNAVAILABLE, str(exc))
 
 
 class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
@@ -117,15 +126,16 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
             request.tenant_id or "system",
         )
         schema_req = BatchOptimizationRequest(
-            depot=_to_location_schema(request.depot),
+            depot=_to_location_schema(request.depot) if request.HasField("depot") else None,
             stops=[_to_stop_item_schema(s) for s in request.stops],
             algorithm=request.algorithm if request.algorithm else "auto",
             time_weight=request.time_weight if request.HasField("time_weight") else 0.5,
             cost_weight=request.cost_weight if request.HasField("cost_weight") else 0.5,
             vehicle_count=request.vehicle_count or 1,
             max_stops_per_vehicle=request.max_stops_per_vehicle or None,
+            planned_departure_at=request.planned_departure_at or None,
         )
-        res = solve_batch(schema_req)
+        res = _solve_with_road_errors(solve_batch, schema_req, context)
         return routing_pb2.BatchOptimizationGrpcResponse(
             job_id=res.job_id,
             algorithm_used=res.algorithm_used,
@@ -166,10 +176,10 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
                 if request.max_added_duration_minutes > 0
                 else 30.0
             ),
-            time_weight=request.time_weight if request.time_weight > 0 else 0.5,
-            cost_weight=request.cost_weight if request.cost_weight > 0 else 0.5,
+            time_weight=request.time_weight,
+            cost_weight=request.cost_weight,
         )
-        res = solve_insert(schema_req)
+        res = _solve_with_road_errors(solve_insert, schema_req, context)
         return routing_pb2.RouteInsertGrpcResponse(
             job_id=res.job_id,
             algorithm_used=res.algorithm_used,
@@ -208,7 +218,7 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
             time_weight=request.time_weight if request.time_weight > 0 else 0.5,
             cost_weight=request.cost_weight if request.cost_weight > 0 else 0.5,
         )
-        res = solve_reoptimize(schema_req)
+        res = _solve_with_road_errors(solve_reoptimize, schema_req, context)
         return routing_pb2.RouteReoptimizeGrpcResponse(
             job_id=res.job_id,
             algorithm_used=res.algorithm_used,
@@ -220,47 +230,6 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
             execution_time_ms=res.execution_time_ms,
             timestamp=res.timestamp,
         )
-
-    def SimulateWhatIf(
-        self,
-        request: routing_pb2.WhatIfGrpcRequest,
-        context: grpc.ServicerContext,
-    ) -> routing_pb2.WhatIfGrpcResponse:
-        _verify_internal_auth(context)
-        if not request.stops:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "stops must not be empty")
-
-        schema_req = WhatIfOptimizationRequest(
-            depot=_to_location_schema(request.depot),
-            stops=[_to_stop_item_schema(s) for s in request.stops],
-            algorithm=request.algorithm if request.algorithm else "auto",
-            time_weight=request.time_weight if request.time_weight > 0 else 0.5,
-            cost_weight=request.cost_weight if request.cost_weight > 0 else 0.5,
-            baseline_driver_count=request.baseline_driver_count if request.baseline_driver_count > 0 else 3,
-            scenario_driver_count=request.scenario_driver_count if request.scenario_driver_count > 0 else 2,
-            max_shift_minutes=request.max_shift_minutes if request.max_shift_minutes > 0 else 150.0,
-        )
-        res = simulate_what_if(schema_req)
-        return routing_pb2.WhatIfGrpcResponse(
-            baseline=routing_pb2.WhatIfScenarioProto(
-                driver_count=res.baseline.driver_count,
-                total_distance_km=res.baseline.total_distance_km,
-                completion_minutes=res.baseline.completion_minutes,
-                late_risk_orders=res.baseline.late_risk_orders,
-                algorithm_used=res.baseline.algorithm_used,
-            ),
-            scenario=routing_pb2.WhatIfScenarioProto(
-                driver_count=res.scenario.driver_count,
-                total_distance_km=res.scenario.total_distance_km,
-                completion_minutes=res.scenario.completion_minutes,
-                late_risk_orders=res.scenario.late_risk_orders,
-                algorithm_used=res.scenario.algorithm_used,
-            ),
-            distance_delta_percent=res.distance_delta_percent,
-            completion_delta_percent=res.completion_delta_percent,
-            late_risk_delta=res.late_risk_delta,
-        )
-
 
 _grpc_server_instance: Optional[grpc.Server] = None
 

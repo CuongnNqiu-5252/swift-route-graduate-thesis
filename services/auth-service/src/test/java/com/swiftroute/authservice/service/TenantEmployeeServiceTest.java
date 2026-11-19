@@ -35,6 +35,7 @@ import com.swiftroute.authservice.entity.enums.TenantMembershipRole;
 import com.swiftroute.authservice.entity.enums.TenantMembershipStatus;
 import com.swiftroute.authservice.exception.AppException;
 import com.swiftroute.authservice.exception.ErrorCode;
+import com.swiftroute.authservice.repository.RefreshTokenRepository;
 import com.swiftroute.authservice.repository.TenantInvitationRepository;
 import com.swiftroute.authservice.repository.TenantMembershipRepository;
 import com.swiftroute.authservice.repository.UserRepository;
@@ -50,6 +51,9 @@ class TenantEmployeeServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private RefreshTokenRepository refreshTokenRepository;
 
     @Mock
     private PasswordEncoder passwordEncoder;
@@ -195,6 +199,213 @@ class TenantEmployeeServiceTest {
         assertThat(res.role()).isEqualTo(TenantMembershipRole.OPERATOR);
         assertThat(res.status()).isEqualTo(TenantMembershipStatus.ACTIVE);
         assertThat(inv.getStatus()).isEqualTo(TenantInvitationStatus.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("TENANT_ADMIN cannot invite a user with OWNER role (rejected with ACCESS_DENIED)")
+    void tenantAdminCannotInviteOwner() {
+        UUID adminUserId = UUID.randomUUID();
+        User adminUser = User.builder().id(adminUserId).email("admin@swiftroute.vn").build();
+        TenantMembership adminMembership = TenantMembership.builder()
+                .id(UUID.randomUUID())
+                .tenantId(tenantId)
+                .user(adminUser)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, adminUserId))
+                .thenReturn(Optional.of(adminMembership));
+
+        InviteMemberRequest req = new InviteMemberRequest("newowner@swiftroute.vn", TenantMembershipRole.OWNER);
+
+        assertThatThrownBy(() -> tenantEmployeeService.inviteMember(tenantId, adminUserId, req))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("TENANT_ADMIN cannot suspend an OWNER member (rejected with ACCESS_DENIED)")
+    void tenantAdminCannotSuspendOwner() {
+        UUID adminUserId = UUID.randomUUID();
+        User adminUser = User.builder().id(adminUserId).email("admin@swiftroute.vn").build();
+        TenantMembership adminMembership = TenantMembership.builder()
+                .id(UUID.randomUUID())
+                .tenantId(tenantId)
+                .user(adminUser)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        UUID targetMembershipId = ownerMembership.getId();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, adminUserId))
+                .thenReturn(Optional.of(adminMembership));
+        when(tenantMembershipRepository.findByIdAndTenantId(targetMembershipId, tenantId))
+                .thenReturn(Optional.of(ownerMembership));
+
+        UpdateMemberStatusRequest req = new UpdateMemberStatusRequest(TenantMembershipStatus.SUSPENDED);
+
+        assertThatThrownBy(() -> tenantEmployeeService.updateMemberStatus(tenantId, targetMembershipId, req, adminUserId))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("TENANT_ADMIN cannot suspend themselves (rejected with ACCESS_DENIED)")
+    void tenantAdminCannotSuspendSelf() {
+        UUID adminUserId = UUID.randomUUID();
+        User adminUser = User.builder().id(adminUserId).email("admin@swiftroute.vn").build();
+        UUID adminMembershipId = UUID.randomUUID();
+        TenantMembership adminMembership = TenantMembership.builder()
+                .id(adminMembershipId)
+                .tenantId(tenantId)
+                .user(adminUser)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, adminUserId))
+                .thenReturn(Optional.of(adminMembership));
+        when(tenantMembershipRepository.findByIdAndTenantId(adminMembershipId, tenantId))
+                .thenReturn(Optional.of(adminMembership));
+
+        UpdateMemberStatusRequest req = new UpdateMemberStatusRequest(TenantMembershipStatus.SUSPENDED);
+
+        assertThatThrownBy(() -> tenantEmployeeService.updateMemberStatus(tenantId, adminMembershipId, req, adminUserId))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
+    }
+
+    @Test
+    @DisplayName("Suspending member revokes all refresh tokens and synchronizes user status to SUSPENDED")
+    void suspendingMemberRevokesTokensAndSyncsStatus() {
+        UUID targetUserId = UUID.randomUUID();
+        User targetUser = User.builder().id(targetUserId).email("staff@swiftroute.vn").status("ACTIVE").build();
+        UUID targetMembershipId = UUID.randomUUID();
+        TenantMembership targetMembership = TenantMembership.builder()
+                .id(targetMembershipId)
+                .tenantId(tenantId)
+                .user(targetUser)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, ownerUserId))
+                .thenReturn(Optional.of(ownerMembership));
+        when(tenantMembershipRepository.findByIdAndTenantId(targetMembershipId, tenantId))
+                .thenReturn(Optional.of(targetMembership));
+        when(tenantMembershipRepository.save(any(TenantMembership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateMemberStatusRequest req = new UpdateMemberStatusRequest(TenantMembershipStatus.SUSPENDED);
+        tenantEmployeeService.updateMemberStatus(tenantId, targetMembershipId, req, ownerUserId);
+
+        verify(refreshTokenRepository).revokeAllByUserId(targetUserId);
+        assertThat(targetUser.getStatus()).isEqualTo("SUSPENDED");
+        verify(userRepository).save(targetUser);
+    }
+
+    @Test
+    @DisplayName("Reactivating member synchronizes user status to ACTIVE")
+    void reactivatingMemberSyncsUserStatusToActive() {
+        UUID targetUserId = UUID.randomUUID();
+        User targetUser = User.builder().id(targetUserId).email("staff@swiftroute.vn").status("SUSPENDED").build();
+        UUID targetMembershipId = UUID.randomUUID();
+        TenantMembership targetMembership = TenantMembership.builder()
+                .id(targetMembershipId)
+                .tenantId(tenantId)
+                .user(targetUser)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.SUSPENDED)
+                .build();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, ownerUserId))
+                .thenReturn(Optional.of(ownerMembership));
+        when(tenantMembershipRepository.findByIdAndTenantId(targetMembershipId, tenantId))
+                .thenReturn(Optional.of(targetMembership));
+        when(tenantMembershipRepository.save(any(TenantMembership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateMemberStatusRequest req = new UpdateMemberStatusRequest(TenantMembershipStatus.ACTIVE);
+        tenantEmployeeService.updateMemberStatus(tenantId, targetMembershipId, req, ownerUserId);
+
+        assertThat(targetUser.getStatus()).isEqualTo("ACTIVE");
+        verify(userRepository).save(targetUser);
+    }
+
+    @Test
+    @DisplayName("OWNER can customize per-member granted and revoked permissions and bump permissionsVersion")
+    void ownerCanCustomizeMemberPermissions() {
+        UUID targetUserId = UUID.randomUUID();
+        User targetUser = User.builder().id(targetUserId).email("op@swiftroute.vn").status("ACTIVE").build();
+        UUID targetMembershipId = UUID.randomUUID();
+        TenantMembership targetMembership = TenantMembership.builder()
+                .id(targetMembershipId)
+                .tenantId(tenantId)
+                .user(targetUser)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.ACTIVE)
+                .permissionsVersion(1L)
+                .build();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, ownerUserId))
+                .thenReturn(Optional.of(ownerMembership));
+        when(tenantMembershipRepository.findByIdAndTenantId(targetMembershipId, tenantId))
+                .thenReturn(Optional.of(targetMembership));
+        when(tenantMembershipRepository.save(any(TenantMembership.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        var req = new com.swiftroute.authservice.dto.request.UpdateMemberPermissionsRequest(
+                java.util.List.of("billing:read", "apikey:read"),
+                java.util.List.of("order:cancel"));
+
+        TenantMemberResponse res = tenantEmployeeService.updateMemberPermissions(
+                tenantId, targetMembershipId, req, ownerUserId);
+
+        assertThat(res.permissionsVersion()).isEqualTo(2L);
+        assertThat(res.grantedPermissions()).containsExactly("billing:read", "apikey:read");
+        assertThat(res.revokedPermissions()).containsExactly("order:cancel");
+        assertThat(res.effectivePermissions()).contains("billing:read", "apikey:read", "order:read");
+        assertThat(res.effectivePermissions()).doesNotContain("order:cancel");
+        verify(refreshTokenRepository).revokeAllByUserId(targetUserId);
+    }
+
+    @Test
+    @DisplayName("TENANT_ADMIN cannot modify permissions of another TENANT_ADMIN or grant billing:manage")
+    void tenantAdminHierarchyAndGrantCeilingEnforced() {
+        UUID adminUserId = UUID.randomUUID();
+        User adminUser = User.builder().id(adminUserId).email("admin@swiftroute.vn").build();
+        TenantMembership adminMembership = TenantMembership.builder()
+                .id(UUID.randomUUID())
+                .tenantId(tenantId)
+                .user(adminUser)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        UUID operatorUserId = UUID.randomUUID();
+        User operatorUser = User.builder().id(operatorUserId).email("op@swiftroute.vn").build();
+        UUID operatorMembershipId = UUID.randomUUID();
+        TenantMembership operatorMembership = TenantMembership.builder()
+                .id(operatorMembershipId)
+                .tenantId(tenantId)
+                .user(operatorUser)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        when(tenantMembershipRepository.findByTenantIdAndUser_Id(tenantId, adminUserId))
+                .thenReturn(Optional.of(adminMembership));
+        when(tenantMembershipRepository.findByIdAndTenantId(operatorMembershipId, tenantId))
+                .thenReturn(Optional.of(operatorMembership));
+
+        // TENANT_ADMIN does not hold billing:manage by default -> must fail grant ceiling
+        var overGrantReq = new com.swiftroute.authservice.dto.request.UpdateMemberPermissionsRequest(
+                java.util.List.of("billing:manage"),
+                java.util.List.of());
+
+        assertThatThrownBy(() -> tenantEmployeeService.updateMemberPermissions(
+                tenantId, operatorMembershipId, overGrantReq, adminUserId))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ACCESS_DENIED);
     }
 }
 

@@ -8,6 +8,8 @@ import { DispatchDepot, DispatchPlanRecord, OptimizationStop } from '@/domain/en
 import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n/provider';
+import { getPlanStartTime } from '@/application/dispatch-plan-clock';
+import { formatVNDate } from '@/lib/utils';
 
 interface DispatchStopTimelineProps {
   plan: DispatchPlanRecord;
@@ -22,6 +24,7 @@ interface DispatchStopTimelineProps {
 interface WaypointTiming {
   cumulativeDistanceKm?: number;
   estimatedArrivalMinutes?: number;
+  lateBy?: number;
 }
 
 const ORDER_STATUS_STYLES: Record<OrderStatus, string> = {
@@ -43,6 +46,7 @@ function parseWaypointTimings(raw?: string | null): Map<string, WaypointTiming> 
       stop_id?: string;
       cumulative_distance_km?: number;
       estimated_arrival_minutes?: number;
+      late_by_minutes?: number;
     }>;
     if (!Array.isArray(parsed)) return map;
     parsed.forEach((wp, index) => {
@@ -55,6 +59,7 @@ function parseWaypointTimings(raw?: string | null): Map<string, WaypointTiming> 
           typeof wp.estimated_arrival_minutes === 'number' && Number.isFinite(wp.estimated_arrival_minutes)
             ? wp.estimated_arrival_minutes
             : undefined,
+        lateBy: wp.late_by_minutes,
       };
       if (wp.stop_id) map.set(wp.stop_id, timing);
       map.set(`idx:${index}`, timing);
@@ -79,11 +84,7 @@ export function DispatchStopTimeline({
   const ordersById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
   const waypointTimings = useMemo(() => parseWaypointTimings(plan.route_waypoints), [plan.route_waypoints]);
 
-  const departureMs = useMemo(() => {
-    const raw = plan.dispatched_at;
-    const ms = raw ? Date.parse(raw) : NaN;
-    return Number.isFinite(ms) ? ms : null;
-  }, [plan.dispatched_at]);
+  const departureMs = getPlanStartTime(plan) ?? null;
 
   const formatTime = (ms: number) =>
     new Date(ms).toLocaleTimeString(intlLocale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
@@ -241,8 +242,11 @@ export function DispatchStopTimeline({
                     )}
                     {matchedOrder?.time_window_start && matchedOrder?.time_window_end && (
                       <span className="tabular-nums text-slate-600">
-                        {t('Khung giờ')}: {matchedOrder.time_window_start}–{matchedOrder.time_window_end}
+                        {t('Khung giờ')}: {formatVNDate(matchedOrder.time_window_start)} – {formatVNDate(matchedOrder.time_window_end)}
                       </span>
+                    )}
+                    {Boolean(timing?.lateBy) && matchedOrder?.status !== 'DELIVERED' && (
+                      <span className="font-semibold text-amber-800">{t('Dự kiến trễ')} {timing?.lateBy} {t('phút')}</span>
                     )}
                   </div>
                 </div>

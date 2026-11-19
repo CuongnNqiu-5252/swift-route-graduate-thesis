@@ -6,17 +6,12 @@ import pytest
 from core.road_matrix import MAX_CHUNK_SIZE, build_road_matrices
 
 
-def test_build_road_matrices_falls_back_when_api_key_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_road_matrices_rejects_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GOONG_API_KEY", raising=False)
     coords = [(10.0371, 105.7828), (10.0299, 105.7706)]
 
-    dist_m, time_m, source = build_road_matrices(coords, api_key="")
-
-    assert source == "HAVERSINE_FALLBACK"
-    assert len(dist_m) == 2
-    assert dist_m[0][0] == 0.0
-    assert dist_m[0][1] > 1.0
-    assert pytest.approx(time_m[0][1], rel=1e-4) == dist_m[0][1] * (60.0 / 28.0)
+    with pytest.raises(RuntimeError, match="GOONG_API_KEY"):
+        build_road_matrices(coords, api_key="")
 
 
 def test_build_road_matrices_uses_goong_asymmetric_bike_distances(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +98,7 @@ def test_build_road_matrices_chunks_large_location_lists(monkeypatch: pytest.Mon
     assert time_m[0][n - 1] == 5.0
 
 
-def test_build_road_matrices_falls_back_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_road_matrices_rejects_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": "upstream unavailable"})
 
@@ -117,8 +112,5 @@ def test_build_road_matrices_falls_back_on_http_error(monkeypatch: pytest.Monkey
     monkeypatch.setattr(httpx, "Client", mock_client)
 
     coords = [(10.0371, 105.7828), (10.0299, 105.7706)]
-    dist_m, time_m, source = build_road_matrices(coords, api_key="test-key")
-
-    assert source == "HAVERSINE_FALLBACK"
-    assert dist_m[0][1] > 0.0
-    assert time_m[0][1] > 0.0
+    with pytest.raises(RuntimeError, match="request failed"):
+        build_road_matrices(coords, api_key="test-key")

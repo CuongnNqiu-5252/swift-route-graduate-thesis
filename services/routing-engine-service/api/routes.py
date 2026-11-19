@@ -14,12 +14,9 @@ from api.schemas import (
     RouteInsertResponse,
     RouteReoptimizeRequest,
     RouteReoptimizeResponse,
-    WhatIfOptimizationRequest,
-    WhatIfOptimizationResponse,
 )
 from service.optimizer_service import (
     measure_ordered_route,
-    simulate_what_if,
     solve_batch,
     solve_insert,
     solve_reoptimize,
@@ -58,16 +55,6 @@ def optimize_batch(request: BatchOptimizationRequest) -> BatchOptimizationRespon
 )
 def measure_route(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     return measure_ordered_route(request)
-
-
-@router.post(
-    "/optimize/what-if",
-    response_model=WhatIfOptimizationResponse,
-    summary="Stateless What-If staffing comparison",
-)
-def optimize_what_if(request: WhatIfOptimizationRequest) -> WhatIfOptimizationResponse:
-    """Compares two routing scenarios entirely in memory; no plan is saved."""
-    return simulate_what_if(request)
 
 
 @router.post(

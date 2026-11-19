@@ -33,6 +33,7 @@ message StopItemProto {
   double demand_kg = 4;
   string time_window_start = 5;
   string time_window_end = 6;
+  optional double service_time = 7; // Minutes; absent defaults to 5 in Routing Engine.
 }
 
 message RouteStopStateProto {
@@ -43,6 +44,7 @@ message RouteStopStateProto {
   string time_window_start = 5;
   string time_window_end = 6;
   bool is_completed = 7;
+  optional double service_time = 8;
 }
 
 message OrderedStopProto {
@@ -51,6 +53,7 @@ message OrderedStopProto {
   LocationPointProto location = 3;
   double cumulative_distance_km = 4;
   double estimated_arrival_minutes = 5;
+  int32 late_by_minutes = 6;
 }
 
 message BatchOptimizationGrpcRequest {
@@ -62,6 +65,7 @@ message BatchOptimizationGrpcRequest {
   string tenant_id = 6;
   int32 vehicle_count = 7;
   int32 max_stops_per_vehicle = 8;
+  string planned_departure_at = 9;
 }
 
 message BatchOptimizationGrpcResponse {

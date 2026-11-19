@@ -1,17 +1,14 @@
 import pytest
-from core.distance import build_distance_matrix, build_time_matrix, build_multi_objective_matrix
+from core.distance import build_multi_objective_matrix
 from api.schemas import BatchOptimizationRequest, LocationPoint, StopItem
 from service.optimizer_service import solve_batch
 
+pytestmark = pytest.mark.usefixtures("goong_stub")
+
 
 def test_multi_objective_matrix_properties():
-    locations = [
-        (10.0371, 105.7828),  # Depot
-        (10.0400, 105.7850),  # Stop 1
-        (10.0500, 105.7900),  # Stop 2
-    ]
-    dist_mat = build_distance_matrix(locations)
-    time_mat = build_time_matrix(dist_mat, avg_speed_kmh=30.0)
+    dist_mat = [[0, 2, 4], [3, 0, 1], [5, 2, 0]]
+    time_mat = [[0, 5, 3], [6, 0, 2], [4, 7, 0]]
 
     # Time-heavy weights
     mat_time = build_multi_objective_matrix(dist_mat, time_mat, time_weight=0.9, cost_weight=0.1)
@@ -72,5 +69,48 @@ def test_solve_batch_multi_vehicle_cvrp_partitions_stops():
     for vr in res.vehicle_routes:
         assert vr.total_distance_km > 0.0
         assert vr.total_duration_minutes > 0.0
+        assert vr.total_distance_km == vr.ordered_stops[-1].cumulative_distance_km
+        assert vr.total_duration_minutes == vr.ordered_stops[-1].estimated_arrival_minutes + 5
 
 
+def test_solve_batch_uses_open_route_from_depot(monkeypatch):
+    """Verify open-route ordering & total distance omit any forced return-to-depot leg."""
+    depot = LocationPoint(lat=10.0300, lng=105.7800, address="Depot")
+    stops = [
+        StopItem(id="far", location=LocationPoint(lat=10.0600, lng=105.7800)),
+        StopItem(id="mid", location=LocationPoint(lat=10.0450, lng=105.7800)),
+        StopItem(id="near", location=LocationPoint(lat=10.0350, lng=105.7800)),
+    ]
+
+    from service import optimizer_service
+    matrix = [[0, 6, 3, 1], [0, 0, 3, 5], [0, 3, 0, 2], [0, 5, 2, 0]]
+    monkeypatch.setattr(optimizer_service, "build_open_road_matrices", lambda _origin, _stops: (matrix, matrix, "test"))
+    res = solve_batch(BatchOptimizationRequest(depot=depot, stops=stops, algorithm="ortools"))
+
+    assert [s.stop_id for s in res.ordered_stops] == ["near", "mid", "far"]
+    assert res.total_distance_km == res.ordered_stops[-1].cumulative_distance_km
+    assert res.total_duration_minutes == res.ordered_stops[-1].estimated_arrival_minutes + 5
+
+
+
+def test_measure_ordered_route_keeps_input_order_and_sums_open_path(monkeypatch):
+    from api.schemas import BatchOptimizationRequest, LocationPoint, StopItem
+    from service import optimizer_service
+
+    monkeypatch.setattr(optimizer_service, "build_open_road_matrices", lambda _origin, _stops: (
+        [[0, 2, 1], [0, 0, 4], [0, 4, 0]],
+        [[0, 5, 2], [0, 0, 8], [0, 8, 0]],
+        "test",
+    ))
+    request = BatchOptimizationRequest(
+        depot=LocationPoint(lat=10, lng=105),
+        stops=[
+            StopItem(id="B", location=LocationPoint(lat=10.03, lng=105)),
+            StopItem(id="A", location=LocationPoint(lat=10.01, lng=105)),
+        ],
+    )
+    result = optimizer_service.measure_ordered_route(request)
+    assert [stop.stop_id for stop in result.ordered_stops] == ["B", "A"]
+    assert [stop.estimated_arrival_minutes for stop in result.ordered_stops] == [5, 18]
+    assert result.total_distance_km == 6
+    assert result.total_duration_minutes == 23

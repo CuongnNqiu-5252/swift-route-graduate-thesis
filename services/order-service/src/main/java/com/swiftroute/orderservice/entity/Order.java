@@ -96,11 +96,11 @@ public class Order {
     private String deliveryAddress;
 
     /** UTC timestamp — start of the allowed delivery window */
-    @Column(name = "time_window_start", nullable = false, columnDefinition = "TIMESTAMPTZ")
+    @Column(name = "time_window_start", columnDefinition = "TIMESTAMPTZ")
     private OffsetDateTime timeWindowStart;
 
     /** UTC timestamp — end of the allowed delivery window */
-    @Column(name = "time_window_end", nullable = false, columnDefinition = "TIMESTAMPTZ")
+    @Column(name = "time_window_end", columnDefinition = "TIMESTAMPTZ")
     private OffsetDateTime timeWindowEnd;
 
     @Column(name = "weight_kg", nullable = false)

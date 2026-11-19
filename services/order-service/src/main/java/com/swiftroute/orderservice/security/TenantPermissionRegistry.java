@@ -162,6 +162,10 @@ public class TenantPermissionRegistry {
         }
 
         // 3. Dispatch & Route Optimization (open to dispatch:read / dispatch:execute, which DRIVER also holds)
+        if (path.equals("/api/orders/assistant/query")) {
+            return Set.of("order:read", "dispatch:read", "dispatch:execute");
+        }
+
         if (path.startsWith("/api/orders/dispatch")) {
             if ("GET".equals(m)) {
                 return Set.of("dispatch:read", "order:read");

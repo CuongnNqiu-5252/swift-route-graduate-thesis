@@ -26,13 +26,16 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.response.LoginResponseDTO;
+import com.swiftroute.authservice.entity.RefreshToken;
 import com.swiftroute.authservice.entity.TenantMembership;
 import com.swiftroute.authservice.entity.User;
 import com.swiftroute.authservice.entity.enums.Role;
 import com.swiftroute.authservice.entity.enums.TenantMembershipRole;
 import com.swiftroute.authservice.entity.enums.TenantMembershipStatus;
 import com.swiftroute.authservice.exception.EmailAlreadyExistsException;
+import com.swiftroute.authservice.exception.InvalidCredentialsException;
 import com.swiftroute.authservice.repository.UserRepository;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImplTest {
@@ -48,6 +51,9 @@ class AuthServiceImplTest {
 
     @Mock
     private JwtService jwtService;
+
+    @Mock
+    private com.swiftroute.authservice.config.JwtConfig jwtConfig;
 
     @InjectMocks
     private AuthserviceImpl authService; // The class under test
@@ -179,5 +185,161 @@ class AuthServiceImplTest {
         assertEquals(Role.SYSTEM_ADMIN, response.getUser().accountRole());
         assertEquals("SYSTEM_ADMIN", response.getUser().role());
         assertNull(response.getUser().tenantId());
+    }
+
+    @Test
+    @DisplayName("Refreshing access token with suspended/inactive user fails with InvalidCredentialsException")
+    void refreshAccessToken_InactiveUser_ThrowsInvalidCredentials() {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).status("SUSPENDED").build();
+        RefreshToken refreshToken = RefreshToken.builder().user(user).build();
+
+        when(jwtService.validateAndRotate(any(), any())).thenReturn(refreshToken);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        assertThrows(InvalidCredentialsException.class, () -> authService.refreshAccessToken("valid-refresh-token", request));
+    }
+
+    @Test
+    @DisplayName("Refreshing access token retains requested tenant session via X-Tenant-Id header")
+    void refreshAccessToken_RetainsActiveTenantSession_ViaHeader() {
+        UUID userId = UUID.randomUUID();
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+
+        User user = User.builder()
+                .id(userId)
+                .email("user@multitenant.vn")
+                .role(Role.USER)
+                .status("ACTIVE")
+                .build();
+
+        TenantMembership membershipA = TenantMembership.builder()
+                .tenantId(tenantA)
+                .user(user)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        TenantMembership membershipB = TenantMembership.builder()
+                .tenantId(tenantB)
+                .user(user)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        RefreshToken refreshToken = RefreshToken.builder().user(user).build();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-Tenant-Id", tenantB.toString());
+
+        when(jwtConfig.getAccessTokenExpiryMinutes()).thenReturn(15L);
+        when(jwtService.validateAndRotate("refresh-b", request)).thenReturn(refreshToken);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(tenantMembershipRepository.findByUser_IdAndStatus(userId, TenantMembershipStatus.ACTIVE))
+                .thenReturn(List.of(membershipA, membershipB));
+        when(jwtService.generateTenantAccessToken(user, tenantB, "TENANT_ADMIN", 15L)).thenReturn("token-tenant-b");
+        when(jwtService.generateAndStoreRefreshToken(user, request)).thenReturn("new-refresh-token");
+
+        LoginResponseDTO response = authService.refreshAccessToken("refresh-b", request);
+
+        assertEquals("token-tenant-b", response.getAccessToken());
+        assertEquals("new-refresh-token", response.getRefreshToken());
+        assertEquals(tenantB, response.getUser().tenantId());
+        assertEquals("TENANT_ADMIN", response.getUser().role());
+    }
+
+    @Test
+    @DisplayName("Refreshing access token retains active tenant session via expired Bearer token in Authorization header")
+    void refreshAccessToken_RetainsActiveTenantSession_ViaBearerToken() {
+        UUID userId = UUID.randomUUID();
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+
+        User user = User.builder()
+                .id(userId)
+                .email("user@multitenant.vn")
+                .role(Role.USER)
+                .status("ACTIVE")
+                .build();
+
+        TenantMembership membershipA = TenantMembership.builder()
+                .tenantId(tenantA)
+                .user(user)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        TenantMembership membershipB = TenantMembership.builder()
+                .tenantId(tenantB)
+                .user(user)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        RefreshToken refreshToken = RefreshToken.builder().user(user).build();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer expired.jwt.with.tenantB");
+
+        when(jwtService.extractTenantId("expired.jwt.with.tenantB")).thenReturn(tenantB.toString());
+        when(jwtConfig.getAccessTokenExpiryMinutes()).thenReturn(15L);
+        when(jwtService.validateAndRotate("refresh-b", request)).thenReturn(refreshToken);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(tenantMembershipRepository.findByUser_IdAndStatus(userId, TenantMembershipStatus.ACTIVE))
+                .thenReturn(List.of(membershipA, membershipB));
+        when(jwtService.generateTenantAccessToken(user, tenantB, "TENANT_ADMIN", 15L)).thenReturn("token-tenant-b");
+        when(jwtService.generateAndStoreRefreshToken(user, request)).thenReturn("new-refresh-token");
+
+        LoginResponseDTO response = authService.refreshAccessToken("refresh-b", request);
+
+        assertEquals("token-tenant-b", response.getAccessToken());
+        assertEquals(tenantB, response.getUser().tenantId());
+        assertEquals("TENANT_ADMIN", response.getUser().role());
+    }
+
+    @Test
+    @DisplayName("Refreshing access token falls back to primary active membership if no tenant context requested")
+    void refreshAccessToken_FallbackToPrimaryMembership() {
+        UUID userId = UUID.randomUUID();
+        UUID tenantA = UUID.randomUUID();
+        UUID tenantB = UUID.randomUUID();
+
+        User user = User.builder()
+                .id(userId)
+                .email("user@multitenant.vn")
+                .role(Role.USER)
+                .status("ACTIVE")
+                .build();
+
+        TenantMembership membershipA = TenantMembership.builder()
+                .tenantId(tenantA)
+                .user(user)
+                .membershipRole(TenantMembershipRole.OPERATOR)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        TenantMembership membershipB = TenantMembership.builder()
+                .tenantId(tenantB)
+                .user(user)
+                .membershipRole(TenantMembershipRole.TENANT_ADMIN)
+                .status(TenantMembershipStatus.ACTIVE)
+                .build();
+
+        RefreshToken refreshToken = RefreshToken.builder().user(user).build();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        when(jwtConfig.getAccessTokenExpiryMinutes()).thenReturn(15L);
+        when(jwtService.validateAndRotate("refresh-raw", request)).thenReturn(refreshToken);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(tenantMembershipRepository.findByUser_IdAndStatus(userId, TenantMembershipStatus.ACTIVE))
+                .thenReturn(List.of(membershipA, membershipB));
+        when(jwtService.generateTenantAccessToken(user, tenantA, "OPERATOR", 15L)).thenReturn("token-tenant-a");
+        when(jwtService.generateAndStoreRefreshToken(user, request)).thenReturn("new-refresh-token");
+
+        LoginResponseDTO response = authService.refreshAccessToken("refresh-raw", request);
+
+        assertEquals("token-tenant-a", response.getAccessToken());
+        assertEquals(tenantA, response.getUser().tenantId());
+        assertEquals("OPERATOR", response.getUser().role());
     }
 }

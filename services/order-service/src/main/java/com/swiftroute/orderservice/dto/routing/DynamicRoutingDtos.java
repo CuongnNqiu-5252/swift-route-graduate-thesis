@@ -21,8 +21,14 @@ public final class DynamicRoutingDtos {
             @JsonProperty("demand_kg") double demandKg,
             @JsonProperty("time_window_start") String timeWindowStart,
             @JsonProperty("time_window_end") String timeWindowEnd,
-            @JsonProperty("is_completed") boolean isCompleted
-    ) {}
+            @JsonProperty("is_completed") boolean isCompleted,
+            @JsonProperty("service_time") Double serviceTime
+    ) {
+        public RouteStopState(String id, String name, LocationPoint location, double demandKg,
+                String timeWindowStart, String timeWindowEnd, boolean isCompleted) {
+            this(id, name, location, demandKg, timeWindowStart, timeWindowEnd, isCompleted, null);
+        }
+    }
 
     public record RouteInsertRequest(
             @JsonProperty("driver_location") LocationPoint driverLocation,

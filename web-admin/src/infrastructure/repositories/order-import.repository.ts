@@ -11,8 +11,8 @@ export interface ImportRow extends ImportAddress {
   externalOrderCode: string;
   recipientName: string;
   recipientPhone: string;
-  timeWindowStart: string;
-  timeWindowEnd: string;
+  timeWindowStart: string | null;
+  timeWindowEnd: string | null;
   weightKg: number | null;
   codAmount: string | null;
   notes: string;

@@ -13,6 +13,7 @@ import { PickupLocation } from '@/domain/entities/pickup-location.entity';
 import { deliveryZoneRepository } from '@/infrastructure/repositories/delivery-zone.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
+import { parseVNDateTimeInput } from '@/lib/utils';
 
 function numberToVietnameseWords(num: number): string {
   if (!num || num <= 0) return '';
@@ -70,6 +71,8 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
   const [lat, setLat] = useState(10.03);
   const [lng, setLng] = useState(105.78);
   const [weight, setWeight] = useState('1');
+  const [appointmentStart, setAppointmentStart] = useState('');
+  const [appointmentEnd, setAppointmentEnd] = useState('');
   const [hasCod, setHasCod] = useState(false);
   const [codThousands, setCodThousands] = useState('');
   const [busy, setBusy] = useState(false);
@@ -176,9 +179,14 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
       return toast.error(t("Tiền thu hộ COD phải là số nguyên lớn hơn 0."));
     }
 
+    const hasAppointment = Boolean(appointmentStart || appointmentEnd);
+    const start = parseVNDateTimeInput(appointmentStart);
+    const end = parseVNDateTimeInput(appointmentEnd);
+    if (hasAppointment && (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)) {
+      return toast.error(t('Chọn đủ giờ hẹn và đặt giờ kết thúc sau giờ bắt đầu.'));
+    }
+
     setBusy(true);
-    const start = new Date(Date.now() + 60 * 60 * 1000);
-    const end = new Date(Date.now() + 5 * 60 * 60 * 1000);
     try {
       await orderRepository.createOrder({
         recipientName: recipient,
@@ -190,8 +198,8 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         deliveryLat: lat,
         deliveryLng: lng,
         deliveryAddress: address.trim(),
-        timeWindowStart: start.toISOString(),
-        timeWindowEnd: end.toISOString(),
+        timeWindowStart: hasAppointment ? new Date(start).toISOString() : null,
+        timeWindowEnd: hasAppointment ? new Date(end).toISOString() : null,
         weightKg: Number(weight),
         packageCategory: 'PARCEL',
         priority: 'NORMAL',
@@ -230,6 +238,21 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         <label className="text-xs font-semibold text-slate-700">{t("Người nhận")}<input required value={recipient} onChange={(event) => setRecipient(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
         <label className="text-xs font-semibold text-slate-700">{t("Số điện thoại")}<input required value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
       </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-slate-900">{t('Khung giờ giao hàng (tùy chọn)')}</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="min-w-0 text-xs font-semibold text-slate-700">{t('Bắt đầu khung giờ hẹn')}
+            <input type="datetime-local" value={appointmentStart} onChange={(event) => setAppointmentStart(event.target.value)}
+              className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-2 text-sm" />
+          </label>
+          <label className="min-w-0 text-xs font-semibold text-slate-700">{t('Kết thúc khung giờ hẹn')}
+            <input type="datetime-local" min={appointmentStart || undefined} value={appointmentEnd}
+              onChange={(event) => setAppointmentEnd(event.target.value)}
+              className="mt-1 min-h-10 w-full rounded-md border border-slate-300 px-2 text-sm" />
+          </label>
+        </div>
+        <p className="text-xs text-slate-600">{t('Giờ Việt Nam. Để trống cả hai ô nếu giao linh hoạt.')}</p>
+      </fieldset>
       <fieldset className="rounded-xl border border-slate-200 bg-white p-4">
         <label className="flex min-h-11 cursor-pointer items-center gap-3">
           <input

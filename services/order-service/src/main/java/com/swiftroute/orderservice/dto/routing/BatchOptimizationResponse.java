@@ -44,8 +44,14 @@ public record BatchOptimizationResponse(
             @JsonProperty("stop_id") String stopId,
             @JsonProperty("location") LocationPoint location,
             @JsonProperty("cumulative_distance_km") double cumulativeDistanceKm,
-            @JsonProperty("estimated_arrival_minutes") double estimatedArrivalMinutes
-    ) {}
+            @JsonProperty("estimated_arrival_minutes") double estimatedArrivalMinutes,
+            @JsonProperty("late_by_minutes") int lateByMinutes
+    ) {
+        public OrderedStop(int stopIndex, String stopId, LocationPoint location,
+                double cumulativeDistanceKm, double estimatedArrivalMinutes) {
+            this(stopIndex, stopId, location, cumulativeDistanceKm, estimatedArrivalMinutes, 0);
+        }
+    }
 
     public record LocationPoint(
             @JsonProperty("lat") double lat,

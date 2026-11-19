@@ -1,6 +1,7 @@
 package com.swiftroute.orderservice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
@@ -18,14 +19,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.swiftroute.orderservice.dto.request.BatchDeliveryTaskActionRequest;
+import com.swiftroute.orderservice.dto.request.UpdateDeliveryTaskRequest;
 import com.swiftroute.orderservice.dto.response.DriverDeliveryTaskResponse;
 import com.swiftroute.orderservice.entity.DeliveryTask;
 import com.swiftroute.orderservice.entity.DispatchPlan;
 import com.swiftroute.orderservice.entity.Order;
+import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.entity.enums.PlanStatus;
+import com.swiftroute.orderservice.exception.AppException;
+import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.AuditLogRepository;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryTaskRepository;
@@ -108,6 +113,22 @@ class DeliveryExecutionFastTrackTest {
     }
 
     @Test
+    void updateRejectsAnOldTaskAfterItsOrderReturnsToTheDispatchQueue() {
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ASSIGNED);
+        task.setDispatchPlanId(UUID.randomUUID());
+        task.getOrder().setAssignedDriverId(null);
+        task.getOrder().setStatus(OrderStatus.READY_FOR_DISPATCH);
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+        var request = new UpdateDeliveryTaskRequest(DeliveryTaskStatus.ACCEPTED, null, null, null);
+
+        assertThatThrownBy(() -> service.update(task.getId(), driverId, "DRIVER", request))
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_ORDER_STATUS);
+        assertThat(task.getOrder().getPlanId()).isNull();
+        assertThat(task.getStatus()).isEqualTo(DeliveryTaskStatus.ASSIGNED);
+    }
+
+    @Test
     void update_completesDispatchPlan_whenAllTasksAreCompleted() {
         UUID planId = UUID.randomUUID();
         DeliveryTask task = sampleTask(DeliveryTaskStatus.OUT_FOR_DELIVERY);
@@ -120,6 +141,7 @@ class DeliveryExecutionFastTrackTest {
                 .driverId(driverId)
                 .planStatus(PlanStatus.DISPATCHED)
                 .build();
+        plan.addOrder(task.getOrder(), 0);
 
         when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
         when(dispatchPlans.findById(planId)).thenReturn(Optional.of(plan));
@@ -136,6 +158,65 @@ class DeliveryExecutionFastTrackTest {
         assertThat(plan.getPlanStatus()).isEqualTo(PlanStatus.COMPLETED);
         verify(dispatchPlans).save(plan);
         verify(outboxEvents, atLeastOnce()).save(any());
+    }
+
+    @Test
+    void createReturnTask_startsReturnWithoutDriverPickupConfirmation() {
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ASSIGNED);
+        when(tasks.save(any(DeliveryTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DeliveryTask result = service.createReturnTask(task.getOrder(), driverId);
+
+        assertThat(result.getStatus()).isEqualTo(DeliveryTaskStatus.OUT_FOR_DELIVERY);
+    }
+
+    @Test
+    void completeDeliveryPlanIfFinished_closesRouteAfterItsLastDeliveryMovesToReturn() {
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.FAILED);
+        UUID planId = UUID.randomUUID();
+        DispatchPlan plan = DispatchPlan.builder()
+                .id(planId)
+                .tenant(task.getOrder().getTenant())
+                .driverId(driverId)
+                .planStatus(PlanStatus.DISPATCHED)
+                .build();
+        plan.addOrder(task.getOrder(), 0);
+        DeliveryTask remaining = sampleTask(DeliveryTaskStatus.OUT_FOR_DELIVERY);
+        when(dispatchPlans.findById(planId)).thenReturn(Optional.of(plan));
+        when(tasks.findByDispatchPlanId(planId)).thenReturn(List.of(task, remaining));
+
+        service.completeDeliveryPlanIfFinished(task.getOrder());
+        assertThat(plan.getPlanStatus()).isEqualTo(PlanStatus.DISPATCHED);
+
+        remaining.setStatus(DeliveryTaskStatus.COMPLETED);
+        service.completeDeliveryPlanIfFinished(task.getOrder());
+        assertThat(plan.getPlanStatus()).isEqualTo(PlanStatus.COMPLETED);
+        verify(dispatchPlans).save(plan);
+    }
+
+    @Test
+    void legacyAssignedReturnCanBeHandedOverDirectlyAndRetryDoesNotReopenReceipt() {
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ASSIGNED);
+        task.setTaskType("RETURN");
+        Order order = task.getOrder();
+        order.setStatus(OrderStatus.RETURNING);
+        ReturnRequest request = ReturnRequest.builder().status("IN_EXECUTION").build();
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+        when(returnRequests.findByReturnTask_Id(task.getId())).thenReturn(Optional.of(request));
+        var handover = new UpdateDeliveryTaskRequest(DeliveryTaskStatus.COMPLETED, null, "Đã bàn giao", null);
+
+        service.update(task.getId(), driverId, "DRIVER", handover);
+
+        assertThat(request.getStatus()).isEqualTo("AWAITING_RECEIPT");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.RETURNING);
+        verify(custody).requireReturnCustody(order, driverId);
+
+        request.setStatus("COMPLETED");
+        order.setStatus(OrderStatus.RETURNED);
+        service.update(task.getId(), driverId, "DRIVER", handover);
+
+        assertThat(request.getStatus()).isEqualTo("COMPLETED");
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.RETURNED);
     }
 
     private DeliveryTask sampleTask(DeliveryTaskStatus status) {
