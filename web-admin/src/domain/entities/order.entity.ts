@@ -13,6 +13,7 @@ export type PackageCategory = 'DOCUMENT' | 'PARCEL' | 'FRAGILE' | 'PERISHABLE';
 export interface Order {
   id: string;
   order_code: string;
+  tracking_token?: string;
   tenant_id: string;
   tenant_name?: string;
   customer_id: string;
@@ -39,10 +40,7 @@ export interface Order {
   cod_amount: number;
   cod_status?: string;
   cod_collected_at?: string;
-  declared_value?: number;
-  delivery_fee?: number;
   total_amount?: number;
-  payer?: string;
   created_at: string;
   updated_at: string;
 }
@@ -68,3 +66,76 @@ export const ORDER_STATUS_COLOR: Record<OrderStatus, string> = {
   CANCELLED: 'bg-gray-100 text-gray-800',
   RETURNED: 'bg-amber-100 text-amber-800',
 };
+
+export type OrderTimelineCategory =
+  | 'STATUS'
+  | 'DELIVERY'
+  | 'INCIDENT'
+  | 'HANDOVER'
+  | 'RETURN'
+  | 'COD';
+
+export interface OrderTimelineEvent {
+  id: string;
+  event_type: string;
+  category: OrderTimelineCategory | string;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  from_status?: string | null;
+  to_status?: string | null;
+  actor_id?: string | null;
+  actor_role?: string | null;
+  proof_url?: string | null;
+  evidence_urls: string[];
+  occurred_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OrderTimeline {
+  order_id: string;
+  order_code: string;
+  tracking_token?: string | null;
+  current_status: OrderStatus;
+  assigned_driver_id?: string | null;
+  custodian_driver_id?: string | null;
+  dispatch_plan_id?: string | null;
+  latest_proof_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  events: OrderTimelineEvent[];
+}
+
+export interface PublicTrackingMilestone {
+  id: string;
+  event_type: string;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  proof_url?: string | null;
+  occurred_at: string;
+}
+
+export interface PublicOrderTracking {
+  tracking_token: string;
+  order_code: string;
+  carrier_name: string;
+  status: OrderStatus;
+  progress_step: number;
+  masked_sender_name: string;
+  masked_pickup_area: string;
+  masked_recipient_name: string;
+  masked_recipient_phone: string;
+  masked_delivery_area: string;
+  package_category: PackageCategory;
+  package_description?: string | null;
+  weight_kg: number;
+  cod_amount: number;
+  cod_status?: string | null;
+  time_window_start?: string | null;
+  time_window_end?: string | null;
+  latest_proof_url?: string | null;
+  created_at: string;
+  updated_at: string;
+  milestones: PublicTrackingMilestone[];
+}

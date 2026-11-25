@@ -1,13 +1,14 @@
 package com.swiftroute.notificationservice;
 
-import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -25,29 +26,34 @@ public class NotificationSseService {
 
     private static final long SSE_TIMEOUT_MS = 30 * 60 * 1000L; // 30 minutes
     private final Map<UUID, List<SseEmitter>> tenantEmitters = new ConcurrentHashMap<>();
+    private final List<SseEmitter> platformEmitters = new CopyOnWriteArrayList<>();
 
     public SseEmitter subscribe(UUID tenantId) {
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
         List<SseEmitter> emitters = tenantEmitters.computeIfAbsent(tenantId, k -> new CopyOnWriteArrayList<>());
+        return subscribeTo(emitters, SSE_TIMEOUT_MS, Map.of("status", "CONNECTED", "tenant_id", tenantId.toString(),
+                "timestamp", Instant.now()), emitter -> removeEmitter(tenantId, emitter));
+    }
+
+    /** A distinct channel, never addressable through a tenant UUID or tenant permissions. */
+    public synchronized SseEmitter subscribePlatform(long tokenLifetimeMillis) {
+        if (platformEmitters.size() >= 128) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS);
+        return subscribeTo(platformEmitters, Math.max(1, Math.min(SSE_TIMEOUT_MS, tokenLifetimeMillis)),
+                Map.of("status", "CONNECTED", "scope", "platform", "timestamp", Instant.now()), platformEmitters::remove);
+    }
+
+    private SseEmitter subscribeTo(List<SseEmitter> emitters, long timeout, Map<String, Object> connected,
+            Consumer<SseEmitter> remove) {
+        SseEmitter emitter = new SseEmitter(timeout);
         emitters.add(emitter);
-
-        emitter.onCompletion(() -> removeEmitter(tenantId, emitter));
-        emitter.onTimeout(() -> removeEmitter(tenantId, emitter));
-        emitter.onError(e -> removeEmitter(tenantId, emitter));
-
+        emitter.onCompletion(() -> remove.accept(emitter));
+        emitter.onTimeout(() -> { remove.accept(emitter); emitter.complete(); });
+        emitter.onError(e -> remove.accept(emitter));
         try {
-            emitter.send(SseEmitter.event()
-                    .name("connect")
-                    .data(Map.of(
-                            "status", "CONNECTED",
-                            "tenant_id", tenantId.toString(),
-                            "timestamp", Instant.now().toString()
-                    )));
-        } catch (IOException ex) {
-            removeEmitter(tenantId, emitter);
+            emitter.send(SseEmitter.event().name("connect").data(connected));
+        } catch (Exception ex) {
+            remove.accept(emitter);
+            emitter.completeWithError(ex);
         }
-
-        log.info("SSE client connected for tenant {} (total listeners: {})", tenantId, emitters.size());
         return emitter;
     }
 
@@ -57,43 +63,29 @@ public class NotificationSseService {
             return;
         }
 
-        List<SseEmitter> deadEmitters = new ArrayList<>();
+        broadcastTo(emitters, eventName, data);
+        if (emitters.isEmpty()) tenantEmitters.remove(tenantId, emitters);
+    }
+
+    public void broadcastPlatform(String eventName, Object data) {
+        broadcastTo(platformEmitters, eventName, data);
+    }
+
+    private void broadcastTo(List<SseEmitter> emitters, String eventName, Object data) {
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event().name(eventName).data(data));
             } catch (Exception ex) {
-                deadEmitters.add(emitter);
-            }
-        }
-
-        if (!deadEmitters.isEmpty()) {
-            emitters.removeAll(deadEmitters);
-            if (emitters.isEmpty()) {
-                tenantEmitters.remove(tenantId);
+                emitters.remove(emitter);
+                emitter.completeWithError(ex);
             }
         }
     }
 
     @Scheduled(fixedRate = 25000)
     public void sendHeartbeat() {
-        for (Map.Entry<UUID, List<SseEmitter>> entry : tenantEmitters.entrySet()) {
-            UUID tenantId = entry.getKey();
-            List<SseEmitter> emitters = entry.getValue();
-            List<SseEmitter> dead = new ArrayList<>();
-            for (SseEmitter emitter : emitters) {
-                try {
-                    emitter.send(SseEmitter.event().name("ping").data("heartbeat"));
-                } catch (Exception ex) {
-                    dead.add(emitter);
-                }
-            }
-            if (!dead.isEmpty()) {
-                emitters.removeAll(dead);
-                if (emitters.isEmpty()) {
-                    tenantEmitters.remove(tenantId);
-                }
-            }
-        }
+        for (UUID tenantId : tenantEmitters.keySet()) broadcast(tenantId, "ping", "heartbeat");
+        broadcastPlatform("ping", "heartbeat");
     }
 
     private void removeEmitter(UUID tenantId, SseEmitter emitter) {

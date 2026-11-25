@@ -320,8 +320,30 @@ public class TrackingSimulationService {
     }
 
     public Optional<DriverPositionSnapshot> getLatestDriverPosition(UUID driverId) {
+        if (driverId == null) {
+            return Optional.empty();
+        }
+        Instant cutoff = Instant.now().minus(SNAPSHOT_TTL);
+        Map<UUID, DriverPositionSnapshot> candidates = new LinkedHashMap<>();
+
         DriverPositionSnapshot local = latestDriverPositions.get(driverId);
-        return local != null ? Optional.of(local) : readSnapshot(DRIVER_KEY_PREFIX + driverId);
+        if (local != null) {
+            if (local.recordedAt() != null && !local.recordedAt().isBefore(cutoff)) {
+                mergeNewest(candidates, driverId, local);
+            } else {
+                latestDriverPositions.remove(driverId, local);
+            }
+        }
+
+        readSnapshot(DRIVER_KEY_PREFIX + driverId)
+                .filter(snap -> snap.recordedAt() != null && !snap.recordedAt().isBefore(cutoff))
+                .ifPresent(snap -> mergeNewest(candidates, driverId, snap));
+
+        readDriverCacheSnapshot(driverId)
+                .filter(snap -> snap.recordedAt() != null && !snap.recordedAt().isBefore(cutoff))
+                .ifPresent(snap -> mergeNewest(candidates, driverId, snap));
+
+        return Optional.ofNullable(candidates.get(driverId));
     }
 
     public void broadcastDriverLocation(

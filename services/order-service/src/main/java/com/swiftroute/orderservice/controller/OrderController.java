@@ -23,7 +23,6 @@ import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ManualAssignmentRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
-import com.swiftroute.orderservice.dto.request.StartSimulationRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
 import com.swiftroute.orderservice.dto.response.OrderListPageResponse;
@@ -226,49 +225,6 @@ public class OrderController {
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
         orderService.getOrderById(orderId, userId, userRole, tenantId);
         return trackingSimulationService.subscribe(orderId);
-    }
-
-    /**
-     * POST /api/orders/{orderId}/tracking/simulate
-     * Starts an on-demand GPS route simulation along the given street waypoints.
-     */
-    @Operation(summary = "Start on-demand GPS route simulation for an order")
-    @PostMapping("/{orderId}/tracking/simulate")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> startOrderSimulation(
-            @PathVariable UUID orderId,
-            @Valid @RequestBody StartSimulationRequest request,
-            @RequestAttribute("authorizedUserId") UUID userId,
-            @RequestAttribute("effectiveRole") String userRole,
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
-        OrderResponse order = orderService.getOrderById(orderId, userId, userRole, tenantId);
-        trackingSimulationService.startRouteSimulation(
-                orderId,
-                order.assignedDriverId(),
-                List.of(),
-                request.waypoints(),
-                request.intervalMs());
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "order_id", orderId,
-                "waypoint_count", request.waypoints().size(),
-                "status", "SIMULATING")));
-    }
-
-    /**
-     * POST /api/orders/{orderId}/tracking/simulate/stop
-     * Stops an active GPS route simulation for an order.
-     */
-    @Operation(summary = "Stop on-demand GPS route simulation for an order")
-    @PostMapping("/{orderId}/tracking/simulate/stop")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> stopOrderSimulation(
-            @PathVariable UUID orderId,
-            @RequestAttribute("authorizedUserId") UUID userId,
-            @RequestAttribute("effectiveRole") String userRole,
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
-        orderService.getOrderById(orderId, userId, userRole, tenantId);
-        trackingSimulationService.stopRouteSimulation(orderId, List.of());
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "order_id", orderId,
-                "status", "STOPPED")));
     }
 
     private UUID requireTenantId(UUID tenantId) {

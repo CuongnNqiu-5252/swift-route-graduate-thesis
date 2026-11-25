@@ -82,7 +82,7 @@ class OrderControllerSecurityTest {
                 10.7769, 106.7009, "456 Delivery Ave",
                 OffsetDateTime.now().plusHours(1), OffsetDateTime.now().plusHours(2),
                 1.5, PackageCategory.PARCEL, "Electronics", "Handle with care",
-                OrderPriority.NORMAL, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.valueOf(25000), "SENDER");
+                OrderPriority.NORMAL, BigDecimal.ZERO);
     }
 
     private OrderResponse createMockOrderResponse(UUID id, OrderStatus status) {
@@ -101,7 +101,6 @@ class OrderControllerSecurityTest {
                 .weightKg(1.0)
                 .status(status)
                 .codAmount(BigDecimal.ZERO)
-                .deliveryFee(BigDecimal.TEN)
                 .trackingToken("TOKEN-123")
                 .build();
         return OrderResponse.fromEntity(order);

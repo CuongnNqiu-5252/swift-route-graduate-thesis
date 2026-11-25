@@ -4,24 +4,17 @@ import { useEffect, useState } from 'react';
 
 import { readOrderCsv } from '@/application/order-import-csv';
 import { DriveCsvPicker } from '@/components/orders/drive-csv-picker';
+import { OrderImportReview, type ImportReviewRow } from '@/components/orders/order-import-review';
 import LocationMapPicker from '@/components/locations/location-map-picker';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n/provider';
 import { goongMapsClient } from '@/infrastructure/maps/goong-maps.client';
 import {
-  orderImportRepository, type ImportResult, type ImportRow, type PendingAddress,
+  orderImportRepository, type ImportAddress, type ImportRow, type PendingAddress,
 } from '@/infrastructure/repositories/order-import.repository';
 
 const panel = 'space-y-4 rounded-xl border border-slate-200 bg-white p-4';
 const input = 'w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900';
-const labels = {
-  CREATED: 'Đã tạo',
-  NEEDS_ADDRESS: 'Cần bổ sung địa chỉ',
-  DUPLICATE: 'Trùng mã nguồn',
-  INVALID: 'Có lỗi',
-  CANCELLED: 'Đã hủy',
-};
-
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -29,75 +22,129 @@ function errorMessage(error: unknown, fallback: string) {
 const normalizeAddress = (address: string) => address.normalize('NFC').toLocaleLowerCase('vi')
   .replace(/[,;]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-async function locateExactAddress(address: string) {
+async function locateExactAddress(address: string, signal?: AbortSignal) {
   const session = crypto.randomUUID();
-  const candidates = await goongMapsClient.searchPlaces(address, undefined, session);
+  const candidates = await goongMapsClient.searchPlaces(address, undefined, session, signal);
   // A suggestion that only matches part of the address needs an operator to confirm the point.
   const exact = candidates.filter((candidate) =>
     normalizeAddress(candidate.description) === normalizeAddress(address));
   if (exact.length !== 1) return null;
-  const detail = await goongMapsClient.getPlaceDetail(exact[0].place_id, session);
+  const detail = await goongMapsClient.getPlaceDetail(exact[0].place_id, session, signal);
   return detail && Math.abs(detail.lat) <= 90 && Math.abs(detail.lng) <= 180 ? detail : null;
 }
 
-async function resolveAddress(row: ImportRow): Promise<ImportRow> {
-  if (row.deliveryLat !== null || row.deliveryAddress.length < 3 || row.deliveryAddress.length > 500) return row;
+function hasCoordinates(row: ImportRow) {
+  return row.deliveryLat != null && row.deliveryLng != null
+    && Math.abs(row.deliveryLat) <= 90 && Math.abs(row.deliveryLng) <= 180;
+}
+
+async function resolveAddress(row: ImportRow, signal: AbortSignal) {
+  if (hasCoordinates(row) || row.deliveryAddress.length < 3 || row.deliveryAddress.length > 500) return null;
   try {
-    const detail = await locateExactAddress(row.deliveryAddress);
-    return detail ? { ...row, deliveryLat: detail.lat, deliveryLng: detail.lng } : row;
+    return await locateExactAddress(row.deliveryAddress, signal);
   } catch {
-    // A map lookup can be retried during manual correction. Keep the CSV address intact.
-    return row;
+    return null;
   }
 }
 
-type PreparedCsv = Awaited<ReturnType<typeof readOrderCsv>>;
+type PreparedFile = Awaited<ReturnType<typeof readOrderCsv>>;
+type LocationMatch = NonNullable<Awaited<ReturnType<typeof resolveAddress>>>;
 
-export function OrderImportPanel({ onImported, prepared, resolveCoordinates = true, stopOnCsvErrors = false }: {
+export function OrderImportPanel({
+  onImported, onDiscard, prepared, resolveCoordinates = true, stopOnCsvErrors = false,
+}: {
   onImported?: () => void;
-  prepared?: PreparedCsv;
+  onDiscard?: () => void;
+  prepared?: PreparedFile;
   resolveCoordinates?: boolean;
   stopOnCsvErrors?: boolean;
 }) {
   const { t } = useLocale();
-  const [localPreview, setPreview] = useState<PreparedCsv | null>(null);
+  const [localPreview, setPreview] = useState<PreparedFile | null>(null);
   const preview = prepared ?? localPreview;
-  const blocked = stopOnCsvErrors && Boolean(preview?.errors.length);
-  const [results, setResults] = useState<ImportResult[] | null>(null);
+  const [lookups, setLookups] = useState<{ source: PreparedFile; matches: Map<number, LocationMatch> }>();
+  const [submission, setSubmission] = useState<{ source: PreparedFile; rows: ImportReviewRow[] }>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [driveBusy, setDriveBusy] = useState(false);
-  const [fileName, setFileName] = useState('');
+
+  const shouldResolve = Boolean(resolveCoordinates && preview?.rows.some((row) =>
+    !hasCoordinates(row) && row.deliveryAddress.length >= 3 && row.deliveryAddress.length <= 500));
+  const matches = shouldResolve && lookups?.source === preview ? lookups?.matches : undefined;
+  const checking = shouldResolve && !matches;
+  const blocked = stopOnCsvErrors && Boolean(preview?.errors.length);
+  const results = submission?.source === preview ? submission?.rows : undefined;
+
+  useEffect(() => {
+    if (!preview || !shouldResolve) return;
+    const controller = new AbortController();
+    async function geocode(source: PreparedFile) {
+      const matches = new Map<number, LocationMatch>();
+      for (let i = 0; i < source.rows.length && !controller.signal.aborted; i += 6) {
+        await Promise.all(source.rows.slice(i, i + 6).map(async (row) => {
+          const detail = await resolveAddress(row, controller.signal);
+          if (detail) matches.set(row.line, detail);
+        }));
+      }
+      if (!controller.signal.aborted) setLookups({ source, matches });
+    }
+    void geocode(preview);
+    return () => controller.abort();
+  }, [preview, shouldResolve]);
 
   async function choose(file?: File) {
     setPreview(null);
-    setResults(null);
+    setSubmission(undefined);
     setError('');
-    setFileName(file?.name ?? '');
     if (!file) return;
     setBusy(true);
     try {
-      setPreview(await readOrderCsv(file));
+      setPreview(/\.xlsx$/i.test(file.name)
+        ? await orderImportRepository.previewExcel(file) : await readOrderCsv(file));
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Không thể đọc file CSV.');
+      setError(errorMessage(failure, 'Không thể đọc file.'));
     } finally {
       setBusy(false);
     }
   }
 
+  function discard() {
+    setPreview(null);
+    setLookups(undefined);
+    setSubmission(undefined);
+    setError('');
+    onDiscard?.();
+  }
+
+  const reviewRows: ImportReviewRow[] = preview ? [
+    ...preview.errors,
+    ...preview.rows.map((row): ImportReviewRow => {
+      const matched = matches?.get(row.line);
+      return {
+        line: row.line,
+        externalOrderCode: row.externalOrderCode,
+        status: matched ? 'GEOCODED' : hasCoordinates(row) && row.deliveryAddress.trim()
+          ? 'COORDINATES' : checking && row.deliveryAddress.length >= 3
+            && row.deliveryAddress.length <= 500 && !hasCoordinates(row) ? 'CHECKING' : 'NEEDS_ADDRESS',
+        data: matched ? { ...row, deliveryLat: matched.lat, deliveryLng: matched.lng } : row,
+        matchedAddress: matched?.address,
+      };
+    }),
+  ].sort((a, b) => a.line - b.line) : [];
+
   async function submit() {
-    if (!preview || !preview.rows.length || blocked || busy || driveBusy) return;
+    if (!preview?.rows.length || results || busy || driveBusy || blocked || checking) return;
     setBusy(true);
     setError('');
     try {
-      const rows: ImportRow[] = resolveCoordinates ? [] : preview.rows;
-      if (resolveCoordinates) {
-        for (let i = 0; i < preview.rows.length; i += 6) {
-          rows.push(...await Promise.all(preview.rows.slice(i, i + 6).map(resolveAddress)));
-        }
-      }
+      const byLine = new Map(reviewRows.map((row) => [row.line, row]));
+      const rows = reviewRows.flatMap((row) => row.data ? [row.data] : []);
       const imported = await orderImportRepository.submit(rows);
-      setResults([...preview.errors, ...imported].sort((a, b) => a.line - b.line));
+      setSubmission({
+        source: preview,
+        rows: [...preview.errors, ...imported.map((result) => ({ ...byLine.get(result.line), ...result }))]
+          .sort((a, b) => a.line - b.line),
+      });
       onImported?.();
     } catch (failure) {
       setError(errorMessage(failure, 'Không thể hoàn tất lần nhập. Vui lòng thử lại.'));
@@ -106,91 +153,58 @@ export function OrderImportPanel({ onImported, prepared, resolveCoordinates = tr
     }
   }
 
-  const displayed = results ?? preview?.errors ?? [];
   return (
     <section className={panel} aria-labelledby="order-import-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="order-import-heading" className="font-semibold text-slate-950">
-          {t('Nhập vận đơn từ CSV')}
+          {t('Nhập vận đơn từ Excel hoặc CSV')}
         </h2>
-        <a href="/templates/order-import.csv" download className="text-sm font-medium text-blue-700 underline">{t('Tải CSV mẫu')}</a>
+        <div className="flex items-center gap-3">
+          <a href="/templates/order-import.xlsx" download className="text-sm font-medium text-blue-700 underline">{t('Tải file Excel mẫu (.xlsx)')}</a>
+          <span className="text-slate-300">|</span>
+          <a href="/templates/order-import.csv" download className="text-sm font-medium text-slate-600 underline">{t('CSV')}</a>
+        </div>
       </div>
-      {prepared ? <p className="break-all text-sm font-medium text-slate-800">{prepared.name}</p> : <div>
-        <label htmlFor="order-import-file" className="mb-1 block text-sm font-medium">{t('Chọn file CSV')}</label>
+      {!prepared && <div>
         <div className="flex flex-wrap items-center gap-3">
-          <input id="order-import-file" type="file" accept=".csv,text/csv" disabled={busy || driveBusy}
+          <input id="order-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,text/csv" disabled={busy || driveBusy}
             onChange={(event) => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = '';
               if (file) void choose(file);
-            }} className={`max-w-sm ${input}`} />
+            }} className="peer sr-only" />
+          <label htmlFor="order-import-file"
+            className="inline-flex min-h-10 cursor-pointer items-center rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-600 peer-disabled:cursor-default peer-disabled:opacity-50">
+            {preview ? t('Chọn file khác') : t('Chọn file Excel (.xlsx) hoặc CSV')}
+          </label>
           <DriveCsvPicker disabled={busy || driveBusy} onFile={choose} onBusy={setDriveBusy} onError={setError} />
         </div>
         {driveBusy && <p role="status" className="mt-2 text-sm text-slate-700">{t('Đang lấy file từ Google Drive…')}</p>}
-        {fileName && <p className="mt-2 break-all text-sm font-medium text-slate-800">{fileName}</p>}
-        <p className="mt-1 text-xs text-slate-600">{t('UTF-8, tối đa 200 dòng và 512 KB. Dùng dấu chấm cho số thập phân.')}</p>
+        {busy && !preview && <p role="status" className="mt-2 text-sm text-slate-700">{t('Đang đọc file vận đơn…')}</p>}
+        {!preview && <p className="mt-2 text-xs text-slate-600">{t('Hỗ trợ .xlsx hoặc .csv, tối đa 200 dòng vận đơn. Các đơn chưa có tọa độ sẽ được đưa vào hàng đợi bổ sung địa chỉ.')}</p>}
       </div>}
       {error && <p role="alert" className="text-sm text-red-700">{t(error)}</p>}
-      {preview && !results && (
-        <>
-          <p role="status" className="text-sm text-slate-700">
-            {t('Chờ xác nhận')}: {preview.rows.length} · {t('Có lỗi')}: {preview.errors.length}
-          </p>
-          {preview.rows.length > 0 && (
-            <ul className="max-h-44 divide-y divide-slate-200 overflow-auto text-sm">
-              {preview.rows.map((row) => (
-                <li key={row.line} className="grid gap-1 py-2 sm:grid-cols-[auto_1fr_2fr]">
-                  <span className="tabular-nums text-slate-600">{row.line}</span>
-                  <span>{row.externalOrderCode} · {row.recipientName}</span>
-                  <span className="break-words text-slate-600">{row.deliveryAddress || '—'}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {blocked && <p role="alert" className="text-sm text-red-700">
-            {t('Đang bật dừng khi CSV có lỗi. Hãy sửa file hoặc đổi tùy chọn trong node Nhập vận đơn.')}
-          </p>}
-          <Button size="sm" onClick={() => void submit()} disabled={!preview.rows.length || blocked || driveBusy} isLoading={busy}>
-            {t('Xác nhận nhập')}
-          </Button>
-        </>
-      )}
-      {results && (
-        <div className="space-y-2 border-t border-slate-200 pt-4">
-          <h3 className="text-sm font-semibold text-slate-950">{t('Kết quả nhập CSV')}</h3>
-          <p role="status" className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700">
-            {Object.entries(labels).map(([status, label]) => {
-              const count = results.filter((row) => row.status === status).length;
-              return count > 0 && <span key={status}>{t(label)} <strong className="tabular-nums">{count}</strong></span>;
-            })}
-          </p>
-        </div>
-      )}
-      {displayed.length > 0 && (
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 text-sm">
-          {displayed.map((row) => {
-            const original = row.status === 'NEEDS_ADDRESS' ? preview?.rows.find((item) => item.line === row.line) : undefined;
-            return (
-              <li key={row.line} className="px-3">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3">
-                  <span className="tabular-nums text-slate-600">{t('Dòng')} {row.line}</span>
-                  <span className="break-all font-medium">{row.externalOrderCode}</span>
-                  <span className={row.status === 'INVALID' ? 'text-red-700' :
-                    row.status === 'NEEDS_ADDRESS' ? 'rounded bg-amber-50 px-2 py-0.5 text-amber-900' : 'text-slate-700'}>
-                    {t(labels[row.status])}
-                  </span>
-                  {row.message && <span className="text-slate-700">{t(row.message)}</span>}
-                </div>
-                {original && <PendingRowActions row={original} onResolved={(status) => {
-                  setResults((previous) => previous?.map((item) =>
-                    item.line === row.line ? { ...item, status } : item) ?? null);
-                  onImported?.();
-                }} />}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {preview && <OrderImportReview
+        key={results ? 'saved' : preview.name}
+        fileName={preview.name}
+        rows={results ?? reviewRows}
+        saved={Boolean(results)}
+        checking={checking}
+        saving={busy}
+        blocked={blocked}
+        onSave={() => void submit()}
+        onDiscard={discard}
+        renderPending={(row) => <PendingRowActions row={row} onResolved={(status, address) => {
+          setSubmission((previous) => previous?.source === preview ? {
+            ...previous,
+            rows: previous.rows.map((item) => item.line === row.line ? {
+              ...item, status, data: address ? { ...row, ...address } : row,
+              matchedAddress: address ? undefined : item.matchedAddress,
+            } : item),
+          } : previous);
+          onImported?.();
+        }} />}
+      />}
     </section>
   );
 }
@@ -252,7 +266,7 @@ export function OrderImportAddressQueue({ revision, onCompleted }: { revision: n
 
 function PendingRowActions({ row, onResolved }: {
   row: PendingAddress;
-  onResolved: (status: 'CREATED' | 'CANCELLED') => void;
+  onResolved: (status: 'CREATED' | 'CANCELLED', address?: ImportAddress) => void;
 }) {
   const { t } = useLocale();
   const [mode, setMode] = useState<'edit' | 'cancel'>();
@@ -283,7 +297,7 @@ function PendingRowActions({ row, onResolved }: {
           <Button size="sm" variant="outline" className="text-red-700" onClick={() => setMode('cancel')}>{t('Hủy dòng nhập')}</Button>
         </div>}
       </div>
-      {mode === 'edit' && <AddressEditor row={row} onClose={() => setMode(undefined)} onSaved={() => onResolved('CREATED')} />}
+      {mode === 'edit' && <AddressEditor row={row} onClose={() => setMode(undefined)} onSaved={(address) => onResolved('CREATED', address)} />}
       {mode === 'cancel' && (
         <div className="space-y-2 rounded-md border border-slate-200 p-3">
           <p className="text-sm text-slate-800">{t('Hủy dòng nhập này? Bạn có thể nhập lại từ CSV sau.')}</p>
@@ -298,7 +312,7 @@ function PendingRowActions({ row, onResolved }: {
   );
 }
 
-function AddressEditor({ row, onClose, onSaved }: { row: PendingAddress; onClose: () => void; onSaved: () => void }) {
+function AddressEditor({ row, onClose, onSaved }: { row: PendingAddress; onClose: () => void; onSaved: (address: ImportAddress) => void }) {
   const { t } = useLocale();
   const [address, setAddress] = useState(row.deliveryAddress ?? '');
   const [point, setPoint] = useState<{ lat: number; lng: number }>();
@@ -314,10 +328,11 @@ function AddressEditor({ row, onClose, onSaved }: { row: PendingAddress; onClose
       setSaving(true);
       setError('');
       try {
-        await orderImportRepository.complete(row.externalOrderCode, {
+        const resolved = {
           deliveryAddress: address.trim(), deliveryLat: point.lat, deliveryLng: point.lng,
-        });
-        onSaved();
+        };
+        await orderImportRepository.complete(row.externalOrderCode, resolved);
+        onSaved(resolved);
       } catch (failure) {
         setError(errorMessage(failure, 'Không thể tạo vận đơn. Kiểm tra địa chỉ và thử lại.'));
       } finally {

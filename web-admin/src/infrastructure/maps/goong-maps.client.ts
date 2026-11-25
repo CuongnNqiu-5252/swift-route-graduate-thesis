@@ -54,8 +54,9 @@ export const goongMapsClient = {
     return response.data?.predictions ?? [];
   },
 
-  async getPlaceDetail(placeId: string, sessionToken: string): Promise<MapPlaceDetail | null> {
+  async getPlaceDetail(placeId: string, sessionToken: string, signal?: AbortSignal): Promise<MapPlaceDetail | null> {
     const response = await mapsApi.get<Partial<MapPlaceDetail>>('/api/maps/place-detail', {
+      signal,
       params: { placeId, sessiontoken: sessionToken },
     });
     if (typeof response.data?.lat !== 'number' || typeof response.data?.lng !== 'number') {

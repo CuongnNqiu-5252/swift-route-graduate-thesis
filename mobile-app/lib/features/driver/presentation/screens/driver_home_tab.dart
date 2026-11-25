@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
-import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_chat_screen.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
@@ -15,10 +14,11 @@ import 'package:swiftroute_app/features/driver/presentation/widgets/driver_notif
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_status_card.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/next_stop_spotlight_card.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/shift_stats_card.dart';
+import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 
 /// Driver Today Overview Tab ("Hôm nay").
-/// Focused strictly on operational readiness, 1-tap route acknowledgement, and the immediate next stop.
+/// Shows operational readiness and the immediate next stop.
 class DriverHomeTab extends ConsumerStatefulWidget {
   const DriverHomeTab({
     super.key,
@@ -38,36 +38,6 @@ class DriverHomeTab extends ConsumerStatefulWidget {
 }
 
 class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
-  bool _isAcknowledgingPlan = false;
-
-  Future<void> _quickAcknowledge(DispatchPlanModel plan) async {
-    setState(() => _isAcknowledgingPlan = true);
-    try {
-      await ref
-          .read(driverDispatchPlansProvider.notifier)
-          .acknowledge(plan.planId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.success,
-          content: Text(
-            'Đã nhận lộ trình (${plan.orderCount} điểm). Di chuyển tới kho để lấy hàng!',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text('Không xác nhận được lộ trình: ${AppFormatters.errorMessage(e)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isAcknowledgingPlan = false);
-    }
-  }
-
   void _openNotificationsSheet(
     BuildContext context,
     List<DriverNotificationModel> notifications,
@@ -88,6 +58,14 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
         onNavigateToProfile: widget.onNavigateToProfile,
       ),
     );
+  }
+
+  bool _planHasPendingPickup(DispatchPlanModel plan, List<OrderModel> orders) {
+    final stopIds = plan.orderedStopIds.toSet();
+    final planOrders = stopIds.isEmpty
+        ? orders
+        : orders.where((o) => stopIds.contains(o.id)).toList();
+    return planOrders.any((o) => o.needsPickup);
   }
 
   @override
@@ -228,14 +206,14 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
             ),
             const SizedBox(height: 14),
 
-            // 2. 1-Tap New Dispatch Plan Banner (when assigned by Web Admin)
+            // 2. Assigned route summary
             plansState.maybeWhen(
               data: (plans) {
+                final currentOrders = ordersState.valueOrNull ?? [];
                 final pending = plans
-                    .where((p) => !p.isAcknowledged)
+                    .where((p) => _planHasPendingPickup(p, currentOrders))
                     .firstOrNull;
                 if (pending == null) return const SizedBox.shrink();
-                final currentOrders = ordersState.valueOrNull ?? [];
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
                   child: Container(
@@ -258,7 +236,7 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Lộ trình mới gồm ${pending.orderCount} điểm giao',
+                                'Lộ trình được giao gồm ${pending.orderCount} điểm giao',
                                 style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -278,52 +256,16 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: OutlinedButton(
-                                onPressed: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => RouteAssignmentScreen(
-                                      plan: pending,
-                                      orders: currentOrders,
-                                    ),
-                                  ),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  backgroundColor: AppColors.card,
-                                  side: const BorderSide(
-                                    color: AppColors.warningBorder,
-                                  ),
-                                ),
-                                child: const Text('Xem chi tiết'),
+                        OutlinedButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => RouteAssignmentScreen(
+                                plan: pending,
+                                orders: currentOrders,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              flex: 5,
-                              child: FilledButton.icon(
-                                onPressed: _isAcknowledgingPlan
-                                    ? null
-                                    : () => _quickAcknowledge(pending),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.accent,
-                                ),
-                                icon: _isAcknowledgingPlan
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.check_rounded, size: 19),
-                                label: const Text('Nhận chuyến ngay'),
-                              ),
-                            ),
-                          ],
+                          ),
+                          child: const Text('Xem chi tiết'),
                         ),
                       ],
                     ),

@@ -37,6 +37,7 @@ public class TenantMembershipService {
 
     @Transactional
     public void applyTenantEvent(TenantEvent event) {
+        if (event == null || event.eventType() == null || event.tenantId() == null || event.ownerUserId() == null) return;
         if (!java.util.Set.of("tenant.created", "tenant.created.v1", "tenant.approved", "tenant.approved.v1", "tenant.suspended", "tenant.suspended.v1").contains(event.eventType())) return;
         if (jdbc != null) jdbc.execute("SELECT pg_advisory_xact_lock("+(long)event.tenantId().hashCode()+")");
         UUID eventId = event.eventId();

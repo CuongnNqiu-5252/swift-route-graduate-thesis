@@ -71,3 +71,7 @@ routing-engine:
 
   grpc-port: ${ROUTING_ENGINE_GRPC_PORT:50051}
   transport: ${ROUTING_ENGINE_TRANSPORT:grpc}
+
+recipient-notifications:
+  delivery-started:
+    enabled: ${RECIPIENT_DELIVERY_STARTED_ENABLED:false}

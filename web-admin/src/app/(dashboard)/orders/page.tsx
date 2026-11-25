@@ -134,7 +134,13 @@ function OrdersWorkspace() {
     }
   }, [data, page, totalPages]);
 
-  const tracking = useOrderLiveTracking(selected?.id, selected?.assigned_driver_id);
+  const isDelivering = selected?.status === 'IN_TRANSIT';
+  const isTracking = isDelivering && Boolean(selected?.assigned_driver_id);
+  const showDeliveryRoute = isDelivering || selected?.status === 'PLANNED' || selected?.status === 'READY_FOR_DISPATCH';
+  const tracking = useOrderLiveTracking(
+    isTracking ? selected?.id : undefined,
+    isTracking ? selected?.assigned_driver_id : undefined,
+  );
   const selectedDriver = drivers.find(
     (driver) => driver.id === selected?.assigned_driver_id || driver.user_id === selected?.assigned_driver_id,
   );
@@ -157,8 +163,10 @@ function OrdersWorkspace() {
       await orderRepository.cancelOrder(orderId, reason);
       refetch();
       toast.success(t("Đã huỷ đơn hàng thành công"));
+      return true;
     } catch {
       toast.error(t("Lỗi khi huỷ đơn hàng"));
+      return false;
     }
   };
 
@@ -216,7 +224,7 @@ function OrdersWorkspace() {
                   <DropdownMenu.Item onSelect={() => setEntryPanel('import')}
                     className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-3 outline-none data-highlighted:bg-slate-100 sm:min-h-9">
                     <FileSpreadsheet size={16} aria-hidden="true" />
-                    {t('Nhập CSV')}
+                    {t('Nhập vận đơn từ Excel hoặc CSV')}
                   </DropdownMenu.Item>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
@@ -235,10 +243,10 @@ function OrdersWorkspace() {
         />
       )}
       {entryPanel === 'import' && canAddOrder && (
-        <section className="space-y-2" aria-label={t('Nhập CSV')}>
+        <section className="space-y-2" aria-label={t('Nhập vận đơn từ Excel hoặc CSV')}>
           <div className="flex justify-end">
             <Button type="button" size="sm" variant="ghost" className="min-h-11 sm:min-h-9" onClick={() => setEntryPanel(null)}>
-              {t('Đóng nhập CSV')}
+              {t('Đóng bảng nhập vận đơn')}
             </Button>
           </div>
           <OrderImportPanel onImported={() => {
@@ -527,20 +535,23 @@ function OrdersWorkspace() {
                 </div>
               </div>
 
-              <div className="border-b border-slate-200 px-4 py-2.5">
-                <TrackingSignal
-                  signal={tracking.signal}
-                  lastUpdate={tracking.lastUpdate}
-                  accuracy={tracking.accuracy}
-                  assigned={Boolean(selected.assigned_driver_id)}
-                />
-              </div>
+              {isDelivering && (
+                <div className="border-b border-slate-200 px-4 py-2.5">
+                  <TrackingSignal
+                    signal={tracking.signal}
+                    lastUpdate={tracking.lastUpdate}
+                    accuracy={tracking.accuracy}
+                    assigned={isTracking}
+                  />
+                </div>
+              )}
 
               <OrderTrackingMap
                 pickup={[selected.pickup_lat, selected.pickup_lng]}
                 delivery={[selected.delivery_lat, selected.delivery_lng]}
-                driver={tracking.position}
-                driverName={selectedDriverName}
+                showRoute={showDeliveryRoute}
+                driver={isTracking ? tracking.position : undefined}
+                driverName={isTracking ? selectedDriverName : undefined}
                 orderCode={formatShortOrderCode(selected.order_code, selected.id)}
               />
 

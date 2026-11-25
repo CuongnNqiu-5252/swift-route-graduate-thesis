@@ -1,6 +1,9 @@
 package com.swiftroute.notificationservice;
 
 import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.AnonymousQueue;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
@@ -14,6 +17,17 @@ public class TenantNotificationConfig {
 
     public static final String QUEUE = "notification.tenant-workflow";
     public static final String OPS_ALERT_QUEUE = "notification.operational-alerts";
+    public static final String PLATFORM_AUDIT_EVENT = "platform.audit-recorded.v1";
+
+    // Each SSE-serving instance needs its own copy; a shared competing queue
+    // would update only one instance's connected administrators.
+    @Bean
+    public Queue platformAuditLiveQueue() { return new AnonymousQueue(); }
+
+    @Bean
+    public Binding platformAuditBinding(@Qualifier("platformAuditLiveQueue") Queue queue) {
+        return BindingBuilder.bind(queue).to(new TopicExchange("swiftroute.events", true, false)).with(PLATFORM_AUDIT_EVENT);
+    }
 
     @Bean
     public Declarables tenantNotifications() {

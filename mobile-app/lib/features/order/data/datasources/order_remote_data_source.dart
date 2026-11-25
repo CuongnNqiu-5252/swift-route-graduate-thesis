@@ -345,75 +345,6 @@ class OrderRemoteDataSource {
     }
   }
 
-  /// Driver acknowledges receipt and acceptance of a dispatched route plan.
-  Future<DispatchPlanModel> acknowledgeDispatchPlan(String planId) async {
-    Response<dynamic> response;
-    try {
-      response = await _dio.post('/orders/dispatch/plans/$planId/acknowledge');
-    } catch (error) {
-      if (!_isTransient(error)) rethrow;
-      await _queue(
-        type: OfflineActionType.routeAcknowledgement,
-        method: 'POST',
-        path: '/orders/dispatch/plans/$planId/acknowledge',
-        entityId: planId,
-        body: const {},
-      );
-      final plans = await _cachedPlans();
-      final current = plans.where((plan) => plan.planId == planId).firstOrNull;
-      if (current == null) rethrow;
-      final optimistic = current.copyWith(acknowledgedAt: DateTime.now());
-      await _cachePlans([
-        for (final plan in plans) plan.planId == planId ? optimistic : plan,
-      ]);
-      return optimistic;
-    }
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Không thể xác nhận nhận tuyến');
-    return DispatchPlanModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
-  /// Driver declines a dispatched route plan with a reason.
-  Future<DispatchPlanModel> declineDispatchPlan({
-    required String planId,
-    required String reason,
-  }) async {
-    final body = {'reason': reason};
-    Response<dynamic> response;
-    try {
-      response = await _dio.post(
-        '/orders/dispatch/plans/$planId/decline',
-        data: body,
-      );
-    } catch (error) {
-      if (!_isTransient(error)) rethrow;
-      await _queue(
-        type: OfflineActionType.routeDecline,
-        method: 'POST',
-        path: '/orders/dispatch/plans/$planId/decline',
-        entityId: planId,
-        body: body,
-      );
-      final plans = await _cachedPlans();
-      final current = plans.where((plan) => plan.planId == planId).firstOrNull;
-      if (current == null) rethrow;
-      final optimistic = current.copyWith(planStatus: 'DECLINED');
-      await _cachePlans([
-        for (final plan in plans) plan.planId == planId ? optimistic : plan,
-      ]);
-      return optimistic;
-    }
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Không thể từ chối lộ trình');
-    return DispatchPlanModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
   /// Uploads an evidence or POD photo to Cloudinary via the backend.
   Future<String> uploadEvidenceImage({
     required List<int> bytes,
@@ -440,7 +371,7 @@ class OrderRemoteDataSource {
     return url;
   }
 
-  /// Reports an operational incident with severity, evidence, and delivery impact.
+  /// Reports an operational incident with severity and evidence.
   Future<Map<String, dynamic>> reportOperationalIncident({
     String? orderId,
     String? planId,
@@ -448,15 +379,11 @@ class OrderRemoteDataSource {
     String severity = 'MEDIUM',
     String? notes,
     List<String>? evidenceUrls,
-    bool canContinueDelivery = true,
-    bool needsImmediateAssistance = false,
     int contactAttempts = 1,
   }) async {
     final payload = <String, dynamic>{
       'incident_type': incidentType,
       'severity': severity,
-      'can_continue_delivery': canContinueDelivery,
-      'needs_immediate_assistance': needsImmediateAssistance,
       'contact_attempts': contactAttempts,
     };
     if (orderId != null) payload['order_id'] = orderId;
@@ -485,30 +412,6 @@ class OrderRemoteDataSource {
         ? resData['data'] as Map
         : (resData is Map ? resData : <String, dynamic>{});
     return Map<String, dynamic>.from(map);
-  }
-
-  /// Batch-accepts all (or specified) ASSIGNED tasks for the driver in 1 tap.
-  Future<void> batchAcceptDeliveryTasks({
-    List<String>? taskIds,
-    List<String>? orderIds,
-    String? notes,
-  }) async {
-    final body = <String, dynamic>{
-      if (taskIds != null && taskIds.isNotEmpty) 'task_ids': taskIds,
-      if (orderIds != null && orderIds.isNotEmpty) 'order_ids': orderIds,
-      if (notes != null && notes.isNotEmpty) 'notes': notes,
-    };
-    try {
-      await _dio.post('/delivery-tasks/batch-accept', data: body);
-    } catch (error) {
-      if (!_isTransient(error)) rethrow;
-      await _queue(
-        type: OfflineActionType.deliveryTaskUpdate,
-        method: 'POST',
-        path: '/delivery-tasks/batch-accept',
-        body: body,
-      );
-    }
   }
 
   /// Single-swipe batch pickup: acquires package custody and moves grouped depot tasks directly to OUT_FOR_DELIVERY.

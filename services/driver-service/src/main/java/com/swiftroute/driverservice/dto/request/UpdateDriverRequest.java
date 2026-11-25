@@ -25,5 +25,14 @@ public record UpdateDriverRequest(
 
         LocalTime shiftStart,
 
-        LocalTime shiftEnd
+        LocalTime shiftEnd,
+
+        @Pattern(regexp = "^[A-Za-z0-9]{2,20}$", message = "bank_code format is invalid")
+        String bankCode,
+
+        @Pattern(regexp = "^[0-9A-Za-z]{4,40}$", message = "bank_account_number format is invalid")
+        String bankAccountNumber,
+
+        @Size(max = 120)
+        String bankAccountName
 ) {}

@@ -118,7 +118,6 @@ class RoutingEngineGrpcClientTest {
 
         Optional<BatchOptimizationResponse> result = client.optimizeBatch(request);
         assertThat(result).isPresent();
-        assertThat(result.get().algorithmUsed()).isEqualTo("ortools");
         assertThat(result.get().orderedStops()).hasSize(2);
         assertThat(result.get().totalDistanceKm()).isGreaterThan(0.0);
     }

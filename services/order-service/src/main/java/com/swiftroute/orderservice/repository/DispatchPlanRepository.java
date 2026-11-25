@@ -49,21 +49,6 @@ public interface DispatchPlanRepository extends JpaRepository<DispatchPlan, UUID
         List<DispatchPlan> findAllByPlanStatus(PlanStatus planStatus);
 
         /**
-         * Find DISPATCHED plans whose acknowledgement deadline has passed and driver
-         * has not yet acknowledged. Used by the ack-timeout scheduler.
-         */
-        @Query("""
-                        SELECT p FROM DispatchPlan p
-                        JOIN FETCH p.tenant
-                        WHERE p.planStatus = 'DISPATCHED'
-                          AND p.ackDeadlineAt IS NOT NULL
-                          AND p.ackDeadlineAt < :now
-                          AND p.acknowledgedAt IS NULL
-                          AND p.declinedAt IS NULL
-                        """)
-        List<DispatchPlan> findTimedOutDispatchedPlans(@Param("now") Instant now);
-
-        /**
          * Find DRAFT plans created before a certain timestamp (stale drafts that were
          * never approved or cancelled — safety cleanup).
          */
@@ -79,6 +64,15 @@ public interface DispatchPlanRepository extends JpaRepository<DispatchPlan, UUID
         void clearIncidentReferences(@Param("planId") UUID planId);
 
         @Modifying
-        @Query(value = "UPDATE delivery_tasks SET dispatch_plan_id = NULL WHERE dispatch_plan_id = :planId", nativeQuery = true)
+        @Query(value = """
+                        UPDATE delivery_tasks
+                        SET dispatch_plan_id = NULL,
+                            status = CASE
+                                WHEN status IN ('ASSIGNED', 'ACCEPTED', 'ARRIVED') THEN 'CANCELLED'
+                                ELSE status
+                            END,
+                            updated_at = NOW()
+                        WHERE dispatch_plan_id = :planId
+                        """, nativeQuery = true)
         void clearTaskReferences(@Param("planId") UUID planId);
 }

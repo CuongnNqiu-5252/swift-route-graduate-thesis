@@ -42,11 +42,13 @@ export function RouteMapLayers({
   stops,
   plannedLegs,
   firstStopIndex,
+  showStopMarkers,
 }: {
   map: MapLibreMap;
   stops: LocationPoint[];
   plannedLegs: readonly (number | null)[];
   firstStopIndex: number;
+  showStopMarkers: boolean;
 }) {
   const { t, intlLocale } = useLocale();
   const [open, setOpen] = useState(false);
@@ -94,7 +96,7 @@ export function RouteMapLayers({
     });
   }, [visibleForecast, samples, plannedLegs, firstStopIndex]);
   useEffect(() => {
-    if (!weather) return;
+    if (!weather || !showStopMarkers) return;
     const markers = rain.map((point) => {
       const hour = timeFormat.format((point.arrival ?? point.timestamp) * 1000);
       const title = `${t('Điểm giao')} ${point.index + 1} · ${point.probability}% ${t('khả năng mưa')}`;
@@ -113,7 +115,7 @@ export function RouteMapLayers({
         .addTo(map);
     });
     return () => markers.forEach((marker) => marker.remove());
-  }, [map, weather, rain, t, timeFormat]);
+  }, [map, weather, rain, showStopMarkers, t, timeFormat]);
 
   useEffect(() => {
     if (!traffic) return;
@@ -167,7 +169,8 @@ export function RouteMapLayers({
     };
   }, [map, traffic]);
 
-  const weatherStatus = !pointKey ? t('Chọn tuyến có điểm giao để xem dự báo.')
+  const weatherStatus = !showStopMarkers ? t('Điểm giao đang ẩn.')
+    : !pointKey ? t('Chọn tuyến có điểm giao để xem dự báo.')
     : !visibleForecast ? t('Đang tải dự báo…')
     : !visibleForecast.data || !rain.length ? t('Chưa tải được dự báo cho tuyến này.')
     : t('Nhãn % trên bản đồ là khả năng mưa. Màu xanh đánh dấu mức từ 40%.');

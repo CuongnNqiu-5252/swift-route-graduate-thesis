@@ -242,6 +242,9 @@ function DriversWorkspace() {
           onCreateDriver={createDriver}
           onReviewDriver={reviewDriver}
           onReloadInvitations={loadInvitations}
+          onBankAccountUpdated={async () => {
+            await Promise.all([refetch(), loadSettlementData()]);
+          }}
         />
       )}
 
@@ -252,6 +255,7 @@ function DriversWorkspace() {
           loading={settlementLoading}
           error={settlementError}
           onReload={loadSettlementData}
+          onBankAccountUpdated={refetch}
         />
       )}
 

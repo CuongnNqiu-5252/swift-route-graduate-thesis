@@ -1,6 +1,21 @@
-import { Order, OrderStatus } from '@/domain/entities/order.entity';
+import {
+  Order,
+  OrderStatus,
+  OrderTimeline,
+  OrderTimelineEvent,
+  PublicOrderTracking,
+  PublicTrackingMilestone,
+} from '@/domain/entities/order.entity';
 import { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import api, { streamSse, type StreamOptions } from '@/lib/api';
+
+export interface RecipientNotification {
+  event_id: string;
+  milestone: 'STARTED' | 'FAILED' | 'COMPLETED';
+  attempt_number: number | null;
+  occurred_at: string;
+  status: 'PENDING' | 'SIMULATED' | 'SKIPPED' | 'FAILED' | 'PROCESSED';
+}
 
 export interface OrderFilters {
   status?: OrderStatus;
@@ -8,7 +23,7 @@ export interface OrderFilters {
   size?: number;
 }
 
-interface DispatchPlanningResult {
+export interface DispatchPlanningResult {
   outcome: 'PLANNED' | 'NO_ORDERS' | 'NO_ROUTES' | 'IN_PROGRESS';
   plan_ids: string[];
 }
@@ -92,6 +107,7 @@ function mapOrder(raw: any): Order {
   return {
     id: rawId,
     order_code: raw.externalOrderCode || raw.order_code || rawId,
+    tracking_token: raw.trackingToken || raw.tracking_token,
     tenant_id: raw.tenantId || raw.tenant_id || '',
     tenant_name: raw.tenantName || raw.tenant_name,
     customer_id: raw.customerId || raw.customer_id || '',
@@ -118,12 +134,90 @@ function mapOrder(raw: any): Order {
     cod_amount: Number(raw.codAmount ?? raw.cod_amount ?? 0),
     cod_status: raw.codStatus ?? raw.cod_status,
     cod_collected_at: raw.codCollectedAt ?? raw.cod_collected_at,
-    declared_value: raw.declaredValue ?? raw.declared_value,
-    delivery_fee: raw.deliveryFee ?? raw.delivery_fee,
     total_amount: raw.totalAmount ?? raw.total_amount,
-    payer: raw.payer,
     created_at: raw.createdAt || raw.created_at || '',
     updated_at: raw.updatedAt || raw.updated_at || '',
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapTimelineEvent(raw: any): OrderTimelineEvent {
+  return {
+    id: String(raw.id ?? ''),
+    event_type: String(raw.eventType ?? raw.event_type ?? ''),
+    category: String(raw.category ?? 'STATUS'),
+    title: String(raw.title ?? ''),
+    description: raw.description ?? null,
+    status: raw.status ?? null,
+    from_status: raw.fromStatus ?? raw.from_status ?? null,
+    to_status: raw.toStatus ?? raw.to_status ?? null,
+    actor_id: raw.actorId ?? raw.actor_id ?? null,
+    actor_role: raw.actorRole ?? raw.actor_role ?? null,
+    proof_url: raw.proofUrl ?? raw.proof_url ?? null,
+    evidence_urls: Array.isArray(raw.evidenceUrls ?? raw.evidence_urls)
+      ? (raw.evidenceUrls ?? raw.evidence_urls).map(String)
+      : [],
+    occurred_at: String(raw.occurredAt ?? raw.occurred_at ?? ''),
+    metadata: raw.metadata ?? undefined,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapTimeline(raw: any): OrderTimeline {
+  const rawEvents = Array.isArray(raw?.events) ? raw.events : [];
+  return {
+    order_id: String(raw?.orderId ?? raw?.order_id ?? ''),
+    order_code: String(raw?.orderCode ?? raw?.order_code ?? ''),
+    tracking_token: raw?.trackingToken ?? raw?.tracking_token ?? null,
+    current_status: (raw?.currentStatus ?? raw?.current_status) as OrderStatus,
+    assigned_driver_id: raw?.assignedDriverId ?? raw?.assigned_driver_id ?? null,
+    custodian_driver_id: raw?.custodianDriverId ?? raw?.custodian_driver_id ?? null,
+    dispatch_plan_id: raw?.dispatchPlanId ?? raw?.dispatch_plan_id ?? null,
+    latest_proof_url: raw?.latestProofUrl ?? raw?.latest_proof_url ?? null,
+    created_at: String(raw?.createdAt ?? raw?.created_at ?? ''),
+    updated_at: String(raw?.updatedAt ?? raw?.updated_at ?? ''),
+    events: rawEvents.map(mapTimelineEvent),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPublicMilestone(raw: any): PublicTrackingMilestone {
+  return {
+    id: String(raw.id ?? ''),
+    event_type: String(raw.eventType ?? raw.event_type ?? ''),
+    title: String(raw.title ?? ''),
+    description: raw.description ?? null,
+    status: raw.status ?? null,
+    proof_url: raw.proofUrl ?? raw.proof_url ?? null,
+    occurred_at: String(raw.occurredAt ?? raw.occurred_at ?? ''),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPublicTracking(raw: any): PublicOrderTracking {
+  const rawMilestones = Array.isArray(raw?.milestones) ? raw.milestones : [];
+  return {
+    tracking_token: String(raw?.trackingToken ?? raw?.tracking_token ?? ''),
+    order_code: String(raw?.orderCode ?? raw?.order_code ?? ''),
+    carrier_name: String(raw?.carrierName ?? raw?.carrier_name ?? 'SwiftRoute Express'),
+    status: (raw?.status ?? 'READY_FOR_DISPATCH') as OrderStatus,
+    progress_step: Number(raw?.progressStep ?? raw?.progress_step ?? 1),
+    masked_sender_name: String(raw?.maskedSenderName ?? raw?.masked_sender_name ?? '—'),
+    masked_pickup_area: String(raw?.maskedPickupArea ?? raw?.masked_pickup_area ?? '—'),
+    masked_recipient_name: String(raw?.maskedRecipientName ?? raw?.masked_recipient_name ?? '—'),
+    masked_recipient_phone: String(raw?.maskedRecipientPhone ?? raw?.masked_recipient_phone ?? '—'),
+    masked_delivery_area: String(raw?.maskedDeliveryArea ?? raw?.masked_delivery_area ?? '—'),
+    package_category: (raw?.packageCategory ?? raw?.package_category ?? 'PARCEL'),
+    package_description: raw?.packageDescription ?? raw?.package_description ?? null,
+    weight_kg: Number(raw?.weightKg ?? raw?.weight_kg ?? 0),
+    cod_amount: Number(raw?.codAmount ?? raw?.cod_amount ?? 0),
+    cod_status: raw?.codStatus ?? raw?.cod_status ?? null,
+    time_window_start: raw?.timeWindowStart ?? raw?.time_window_start ?? null,
+    time_window_end: raw?.timeWindowEnd ?? raw?.time_window_end ?? null,
+    latest_proof_url: raw?.latestProofUrl ?? raw?.latest_proof_url ?? null,
+    created_at: String(raw?.createdAt ?? raw?.created_at ?? ''),
+    updated_at: String(raw?.updatedAt ?? raw?.updated_at ?? ''),
+    milestones: rawMilestones.map(mapPublicMilestone),
   };
 }
 
@@ -141,27 +235,28 @@ export const orderRepository = {
     return streamSse('/orders/dispatch/drivers/tracking/stream', options);
   },
 
-  async startDriverSimulation(
-    driverId: string,
-    waypoints: { lat: number; lng: number }[],
-    pauseAtIndex?: number | null,
-  ): Promise<void> {
-    await api.post(`/orders/dispatch/drivers/${driverId}/tracking/simulate`, {
-      waypoints, interval_ms: 1000, pause_at_index: pauseAtIndex,
-    });
-  },
-
-  async stopDriverSimulation(driverId: string): Promise<void> {
-    await api.post(`/orders/dispatch/drivers/${driverId}/tracking/simulate/stop`);
-  },
-
-  async resumeDriverSimulation(driverId: string): Promise<void> {
-    await api.post(`/orders/dispatch/drivers/${driverId}/tracking/simulate/resume`);
-  },
-
   async getOrder(orderId: string, signal: AbortSignal): Promise<Order> {
     const { data } = await api.get<unknown>(`/orders/${encodeURIComponent(orderId)}`, { signal });
     return mapOrder(data);
+  },
+
+  async getRecipientNotifications(orderId: string, signal: AbortSignal): Promise<RecipientNotification[]> {
+    const { data } = await api.get<RecipientNotification[]>(
+      `/orders/${encodeURIComponent(orderId)}/recipient-notifications`, { signal },
+    );
+    return data;
+  },
+
+  async getOrderTimeline(orderId: string, signal?: AbortSignal): Promise<OrderTimeline> {
+    const { data } = await api.get<unknown>(`/orders/${encodeURIComponent(orderId)}/timeline`, { signal });
+    return mapTimeline(data);
+  },
+
+  async getPublicTracking(trackingToken: string, signal?: AbortSignal): Promise<PublicOrderTracking> {
+    const { data } = await api.get<unknown>(`/public/tracking/${encodeURIComponent(trackingToken.trim())}`, {
+      signal,
+    });
+    return mapPublicTracking(data);
   },
 
   async createOrder(payload: CreateOrderPayload): Promise<Order> {
@@ -265,8 +360,16 @@ export const orderRepository = {
     return response.data?.data ?? [];
   },
 
-  async triggerDispatchPlanning(): Promise<DispatchPlanningResult> {
-    const response = await api.post<DispatchPlanningResult>('/orders/dispatch/trigger');
+  async triggerDispatchPlanning(options?: {
+    depotId: string;
+    tenantId: string;
+    signal: AbortSignal;
+  }): Promise<DispatchPlanningResult> {
+    const response = await api.post<DispatchPlanningResult>('/orders/dispatch/trigger', undefined, options && {
+      params: { depot_id: options.depotId },
+      headers: { 'X-Tenant-Id': options.tenantId },
+      signal: options.signal,
+    });
     return response.data;
   },
 
@@ -323,27 +426,5 @@ export const orderRepository = {
       `/orders/dispatch/plans/${planId}/insert/${orderId}`,
     );
     return (response.data?.data ?? response.data) as DispatchPlanRecord;
-  },
-
-  async startOrderSimulation(orderId: string, waypoints: Array<{ lat: number; lng: number }>, intervalMs = 1000): Promise<void> {
-    await api.post(`/orders/${orderId}/tracking/simulate`, {
-      waypoints,
-      interval_ms: intervalMs,
-    });
-  },
-
-  async stopOrderSimulation(orderId: string): Promise<void> {
-    await api.post(`/orders/${orderId}/tracking/simulate/stop`);
-  },
-
-  async startPlanSimulation(planId: string, waypoints: Array<{ lat: number; lng: number }>, intervalMs = 1000): Promise<void> {
-    await api.post(`/orders/dispatch/plans/${planId}/tracking/simulate`, {
-      waypoints,
-      interval_ms: intervalMs,
-    });
-  },
-
-  async stopPlanSimulation(planId: string): Promise<void> {
-    await api.post(`/orders/dispatch/plans/${planId}/tracking/simulate/stop`);
   },
 };

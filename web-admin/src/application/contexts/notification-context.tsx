@@ -5,6 +5,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/application/contexts/auth-context';
+import { formatNotification } from '@/lib/notification-formatter';
 import {
   DispatchAlertDto,
   InboxNotificationDto,
@@ -49,8 +50,29 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         notificationRepository.getTenantInbox().catch(() => [] as InboxNotificationDto[]),
       ]);
       if (!mountedRef.current) return;
-      setAlerts(activeAlerts);
-      setInbox(inboxItems);
+      const formattedAlerts = activeAlerts.map((alert) => {
+        const formatted = formatNotification(alert);
+        return {
+          ...alert,
+          title: formatted.title,
+          body: formatted.body,
+          severity: formatted.severity as DispatchAlertDto['severity'],
+          action_url: formatted.actionUrl || alert.action_url,
+        };
+      });
+      const formattedInbox = inboxItems.map((item) => {
+        const formatted = formatNotification(item);
+        return {
+          ...item,
+          title: formatted.title,
+          body: formatted.body,
+          severity: formatted.severity as InboxNotificationDto['severity'],
+          category: formatted.category as InboxNotificationDto['category'],
+          action_url: formatted.actionUrl || item.action_url,
+        };
+      });
+      setAlerts(formattedAlerts);
+      setInbox(formattedInbox);
       setError(null);
     } catch {
       if (mountedRef.current) {
@@ -151,9 +173,20 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       if (eventName === 'dispatch-alert') {
         try {
-          const newAlert = JSON.parse(dataStr) as DispatchAlertDto & {
+          const rawAlert = JSON.parse(dataStr) as DispatchAlertDto & {
             template_code?: string;
             category?: InboxNotificationDto['category'];
+          };
+          const formatted = formatNotification(rawAlert);
+          const newAlert: DispatchAlertDto & {
+            template_code?: string;
+            category?: InboxNotificationDto['category'];
+          } = {
+            ...rawAlert,
+            title: formatted.title,
+            body: formatted.body,
+            severity: (formatted.severity || rawAlert.severity || 'MEDIUM') as DispatchAlertDto['severity'],
+            action_url: formatted.actionUrl || rawAlert.action_url || `/operations?incident=${rawAlert.incident_id}`,
           };
           setAlerts((current) => {
             const exists = current.some((item) => item.incident_id === newAlert.incident_id);
@@ -202,26 +235,32 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             incidentId?: string;
           };
           const resolvedId = resolved.incident_id || resolved.incidentId;
+          const formatted = formatNotification({
+            ...resolved,
+            category: 'INCIDENT',
+            severity: resolved.severity || 'LOW',
+            template_code: resolved.template_code || 'incident.resolved',
+          });
           if (resolvedId) {
             setAlerts((current) => current.filter((item) => item.incident_id !== resolvedId));
           }
-          if (resolved.id && resolved.title) {
+          if (resolved.id && formatted.title) {
             prependToInbox({
               id: resolved.id,
               template_code: resolved.template_code || 'incident.resolved',
               category: 'INCIDENT',
-              severity: resolved.severity || 'LOW',
-              title: resolved.title,
-              body: resolved.body || 'Sự cố đã được cập nhật phương án xử lý.',
-              action_url: resolved.action_url || '/operations',
+              severity: (formatted.severity || 'LOW') as InboxNotificationDto['severity'],
+              title: formatted.title,
+              body: formatted.body || 'Sự cố đã được cập nhật phương án xử lý.',
+              action_url: formatted.actionUrl || resolved.action_url || '/operations',
               incident_id: resolvedId || null,
               order_id: resolved.order_id || null,
               dispatch_plan_id: resolved.dispatch_plan_id || null,
               created_at: resolved.created_at || new Date().toISOString(),
             });
           }
-          toast.success(resolved.title || 'Sự cố đã được giải quyết', {
-            description: resolved.body || 'Cảnh báo đã được cập nhật trên bản đồ điều phối.',
+          toast.success(formatted.title || 'Sự cố đã được giải quyết', {
+            description: formatted.body || 'Cảnh báo đã được cập nhật trên bản đồ điều phối.',
             duration: 5000,
           });
         } catch {
@@ -233,36 +272,58 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (eventName === 'operational-alert') {
         try {
           const opAlert = JSON.parse(dataStr) as Partial<InboxNotificationDto>;
-          if (opAlert.id && opAlert.title) {
-            prependToInbox({
-              id: opAlert.id,
-              template_code: opAlert.template_code || 'operational',
-              category: opAlert.category || 'DELIVERY',
-              severity: opAlert.severity || 'LOW',
-              title: opAlert.title,
-              body: opAlert.body || '',
-              action_url: opAlert.action_url || '/orders',
-              incident_id: opAlert.incident_id || null,
-              order_id: opAlert.order_id || null,
-              dispatch_plan_id: opAlert.dispatch_plan_id || null,
-              created_at: opAlert.created_at || new Date().toISOString(),
-            });
+          const formatted = formatNotification(opAlert);
+          const fullItem: InboxNotificationDto = {
+            id: opAlert.id || crypto.randomUUID(),
+            template_code: opAlert.template_code || 'operational',
+            category: (formatted.category || opAlert.category || 'DELIVERY') as InboxNotificationDto['category'],
+            severity: (formatted.severity || opAlert.severity || 'LOW') as InboxNotificationDto['severity'],
+            title: formatted.title,
+            body: formatted.body,
+            action_url: formatted.actionUrl || opAlert.action_url || '/orders',
+            incident_id: opAlert.incident_id || null,
+            order_id: opAlert.order_id || null,
+            dispatch_plan_id: opAlert.dispatch_plan_id || null,
+            created_at: opAlert.created_at || new Date().toISOString(),
+          };
+
+          if (opAlert.id && formatted.title) {
+            prependToInbox(fullItem);
             setUnreadCount((count) => count + 1);
           }
 
-          if (opAlert.template_code === 'order.delivery_completed.v1' || opAlert.template_code === 'plan.acknowledged') {
-            toast.success(opAlert.title || 'Cập nhật giao nhận', {
-              description: opAlert.body,
+          if (
+            opAlert.template_code === 'order.delivery_completed.v1' ||
+            opAlert.template_code === 'plan.acknowledged' ||
+            opAlert.template_code === 'plan.completed' ||
+            opAlert.template_code === 'tenant.approved.v1' ||
+            opAlert.template_code === 'tenant.approved' ||
+            opAlert.template_code === 'tenant.verification_submitted.v1'
+          ) {
+            toast.success(formatted.title, {
+              description: formatted.body,
               duration: 5000,
             });
-          } else if (opAlert.severity === 'HIGH' || opAlert.severity === 'CRITICAL') {
-            toast.warning(opAlert.title || 'Cảnh báo vận hành', {
-              description: opAlert.body,
+          } else if (
+            formatted.severity === 'CRITICAL' ||
+            opAlert.template_code === 'tenant.suspended.v1'
+          ) {
+            toast.error(formatted.title, {
+              description: formatted.body,
+              duration: 7000,
+            });
+          } else if (
+            formatted.severity === 'HIGH' ||
+            opAlert.template_code === 'tenant.verification_changes_requested.v1' ||
+            opAlert.template_code === 'tenant.rejected.v1'
+          ) {
+            toast.warning(formatted.title, {
+              description: formatted.body,
               duration: 6000,
             });
           } else {
-            toast.info(opAlert.title || 'Thông báo vận hành', {
-              description: opAlert.body,
+            toast.info(formatted.title, {
+              description: formatted.body,
               duration: 5000,
             });
           }

@@ -6,7 +6,6 @@ import 'package:swiftroute_app/domain/entities/user.dart';
 import 'package:swiftroute_app/domain/usecases/get_current_user_usecase.dart';
 import 'package:swiftroute_app/domain/usecases/login_usecase.dart';
 import 'package:swiftroute_app/domain/usecases/logout_usecase.dart';
-import 'package:swiftroute_app/domain/usecases/register_usecase.dart';
 
 /// State của màn hình xác thực (nằm ở Presentation layer)
 class AuthState {
@@ -42,10 +41,6 @@ final loginUseCaseProvider = Provider<LoginUseCase>((ref) {
   return LoginUseCase(ref.read(authRepositoryProvider));
 });
 
-final registerUseCaseProvider = Provider<RegisterUseCase>((ref) {
-  return RegisterUseCase(ref.read(authRepositoryProvider));
-});
-
 final getCurrentUserUseCaseProvider = Provider<GetCurrentUserUseCase>((ref) {
   return GetCurrentUserUseCase(ref.read(authRepositoryProvider));
 });
@@ -58,7 +53,6 @@ final logoutUseCaseProvider = Provider<LogoutUseCase>((ref) {
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(
     loginUseCase: ref.read(loginUseCaseProvider),
-    registerUseCase: ref.read(registerUseCaseProvider),
     getCurrentUserUseCase: ref.read(getCurrentUserUseCaseProvider),
     logoutUseCase: ref.read(logoutUseCaseProvider),
   );
@@ -66,17 +60,14 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final LoginUseCase _loginUseCase;
-  final RegisterUseCase _registerUseCase;
   final GetCurrentUserUseCase _getCurrentUserUseCase;
   final LogoutUseCase _logoutUseCase;
 
   AuthNotifier({
     required LoginUseCase loginUseCase,
-    required RegisterUseCase registerUseCase,
     required GetCurrentUserUseCase getCurrentUserUseCase,
     required LogoutUseCase logoutUseCase,
   }) : _loginUseCase = loginUseCase,
-       _registerUseCase = registerUseCase,
        _getCurrentUserUseCase = getCurrentUserUseCase,
        _logoutUseCase = logoutUseCase,
        super(const AuthState()) {
@@ -116,32 +107,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
     } catch (_) {
       state = state.copyWith(isLoading: false);
-    }
-  }
-
-  Future<bool> register(
-    String email,
-    String password,
-    String name, {
-    String phoneNumber = '',
-  }) async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
-
-    try {
-      await _registerUseCase.execute(
-        email.trim(),
-        password,
-        name.trim(),
-        phoneNumber: phoneNumber.trim(),
-      );
-      state = state.copyWith(isLoading: false, errorMessage: null);
-      return true;
-    } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: e.toString().replaceFirst('Exception: ', ''),
-      );
-      return false;
     }
   }
 

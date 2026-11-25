@@ -15,7 +15,16 @@ export interface Driver {
   review_note?: string;
   current_lat?: number;
   current_lng?: number;
+  bank_code?: string;
+  bank_account_number?: string;
+  bank_account_name?: string;
   created_at: string;
+}
+
+export interface UpdateDriverBankAccountPayload {
+  bank_code: string;
+  bank_account_number: string;
+  bank_account_name?: string;
 }
 
 export interface CreateDriverPayload {

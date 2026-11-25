@@ -8,7 +8,6 @@ export interface DriverEarning {
   driver_id: string;
   driver_name: string;
   earning_type: string;
-  delivery_fee: number;
   payable_distance_km: number;
   base_amount: number;
   distance_amount: number;
@@ -33,6 +32,9 @@ export interface DriverSettlement {
   paid_at?: string;
   payment_reference?: string;
   created_at: string;
+  driver_bank_code?: string | null;
+  driver_bank_account_number?: string | null;
+  driver_bank_account_name?: string | null;
 }
 
 export interface EarningPolicy {

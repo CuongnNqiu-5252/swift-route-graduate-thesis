@@ -85,6 +85,17 @@ public class Driver {
     @Column(name = "review_note", length = 1000)
     private String reviewNote;
 
+    /** VietQR/NAPAS bank code (e.g. VCB, MB) used for payroll payouts. */
+    @Column(name = "bank_code", length = 20)
+    private String bankCode;
+
+    @Column(name = "bank_account_number", length = 40)
+    private String bankAccountNumber;
+
+    /** Account holder name, normalized to uppercase ASCII for bank apps. */
+    @Column(name = "bank_account_name", length = 120)
+    private String bankAccountName;
+
     @Column(name = "is_available", nullable = false)
     @Builder.Default
     private Boolean isAvailable = false;

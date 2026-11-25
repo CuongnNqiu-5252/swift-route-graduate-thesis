@@ -2,7 +2,8 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useTenantVerifications } from '@/application/hooks/use-tenant-verifications';
@@ -11,6 +12,7 @@ import { VerificationQueueTable } from '@/components/admin/verification-queue-ta
 import { Button } from '@/components/ui/button';
 import { VERIFICATION_FILTER_OPTIONS } from '@/domain/entities/platform-verification.entity';
 import { isSystemAdmin } from '@/lib/portal-access';
+import { usePlatformLive } from '@/components/admin/platform-live-provider';
 
 export default function TenantVerificationsPage() {
   const { t } = useLocale();
@@ -40,6 +42,21 @@ export default function TenantVerificationsPage() {
 
   const [searchInput, setSearchInput] = useState('');
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const requestId = useSearchParams().get('request');
+  const { snapshot, generation } = usePlatformLive();
+  const lastEvent = useRef({ generation: 0, id: '' });
+  const latest = snapshot?.audit.entries[0];
+  useEffect(() => {
+    if (!allowed || !generation) return;
+    const previous = lastEvent.current;
+    const id = latest?.id ?? '';
+    if (previous.generation === generation && previous.id === id) return;
+    lastEvent.current = { generation, id };
+    if (previous.generation !== generation || latest?.category === 'REVIEW' || latest?.category === 'ACCESS') void loadQueue();
+  }, [allowed, generation, latest?.id, latest?.category, loadQueue]);
+  useEffect(() => {
+    if (allowed && requestId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId)) void openDetail(requestId);
+  }, [allowed, requestId, openDetail]);
 
   if (!allowed) {
     return (

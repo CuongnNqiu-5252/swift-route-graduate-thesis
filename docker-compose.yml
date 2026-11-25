@@ -83,8 +83,8 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
-      - AUTH_FLYWAY_BASELINE_VERSION=${AUTH_FLYWAY_BASELINE_VERSION:-1}
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - AUTH_FLYWAY_BASELINE_VERSION=${AUTH_FLYWAY_BASELINE_VERSION:-11}
       - WEB_APP_URL=${WEB_APP_URL:-http://localhost:3000}
       - PASSWORD_RESET_URL=${PASSWORD_RESET_URL:-http://localhost:3000/reset-password}
       - ORDER_SERVICE_URL=http://order-service:8082
@@ -121,8 +121,10 @@ services:
       - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
       - ORDER_FLYWAY_BASELINE_VERSION=${ORDER_FLYWAY_BASELINE_VERSION:-1}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      - OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY:-}
       - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - RECIPIENT_DELIVERY_STARTED_ENABLED=${RECIPIENT_DELIVERY_STARTED_ENABLED:-false}
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8086
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${ORDER_DB_NAME:-order_db}
@@ -214,6 +216,9 @@ services:
       - NOTIFICATION_DB_NAME=notification_db
       - AUTH_SERVICE_URL=http://auth-service:8081
       - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - ORDER_SERVICE_URL=http://order-service:8082
+      - RECIPIENT_DELIVERY_STARTED_ENABLED=${RECIPIENT_DELIVERY_STARTED_ENABLED:-false}
+      - WEB_APP_URL=${WEB_APP_URL:-http://localhost:3000}
       - CHAT_ALLOWED_ORIGINS=${CHAT_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200}
       - RABBITMQ_HOST=rabbitmq
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}

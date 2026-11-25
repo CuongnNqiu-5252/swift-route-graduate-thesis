@@ -4,11 +4,18 @@ const zone = 'Asia/Ho_Chi_Minh';
 const clock = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const day = new Intl.DateTimeFormat('en-GB', { timeZone: zone, day: '2-digit', month: '2-digit', year: 'numeric' });
 
-export function getPlanStartTime(plan: DispatchPlanRecord): number | undefined {
-  for (const value of [plan.dispatched_at, plan.planned_at, plan.created_at]) {
-    const ms = value ? Date.parse(value) : NaN;
-    if (Number.isFinite(ms)) return ms;
+export function getPlanStartTime(plan: DispatchPlanRecord, nowMs?: number): number | undefined {
+  const dispatchedMs = plan.dispatched_at ? Date.parse(plan.dispatched_at) : NaN;
+  if (Number.isFinite(dispatchedMs)) return dispatchedMs;
+
+  const createdMs = plan.created_at ? Date.parse(plan.created_at) : NaN;
+  if (!Number.isFinite(createdMs)) return undefined;
+
+  if (plan.plan_status === 'DRAFT' || plan.plan_status === 'APPROVED') {
+    const referenceMs = nowMs !== undefined && Number.isFinite(nowMs) ? nowMs : Date.now();
+    return Math.max(createdMs, referenceMs);
   }
+  return createdMs;
 }
 
 export function clockMinutes(ms: number): number {

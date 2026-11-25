@@ -13,7 +13,6 @@ public record TenantSettingsResponse(
         String businessName,
         BusinessType businessType,
         TenantStatus status,
-        String address,
         TenantDispatchConfig dispatchConfig,
         OptimizationWeights optimizationWeights
 ) {
@@ -23,7 +22,6 @@ public record TenantSettingsResponse(
                 tenant.getBusinessName(),
                 tenant.getBusinessType(),
                 tenant.getStatus(),
-                tenant.getAddress(),
                 tenant.getDispatchConfig() != null ? tenant.getDispatchConfig() : new TenantDispatchConfig(),
                 tenant.getOptimizationWeights() != null ? tenant.getOptimizationWeights() : new OptimizationWeights()
         );

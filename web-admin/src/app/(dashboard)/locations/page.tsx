@@ -11,6 +11,7 @@ import {
 } from '@/domain/entities/pickup-location.entity';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   MapPin,
@@ -41,6 +42,7 @@ export default function PickupLocationsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLoc, setEditingLoc] = useState<PickupLocation | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PickupLocation | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -166,15 +168,14 @@ export default function PickupLocationsPage() {
   };
 
   const handleDelete = async (loc: PickupLocation) => {
-    if (!confirm(`Bạn có chắc muốn ngừng hoạt động điểm lấy hàng "${loc.name}"?`)) {
-      return;
-    }
     try {
       await pickupLocationRepository.deletePickupLocation(loc.id);
       toast.success(t("Đã ngừng hoạt động điểm lấy hàng."));
       fetchLocations();
+      return true;
     } catch (error: unknown) {
       toast.error(messageFrom(error, t("Không thể ngừng hoạt động điểm lấy hàng.")));
+      return false;
     }
   };
 
@@ -186,6 +187,16 @@ export default function PickupLocationsPage() {
 
   return (
     <div className="space-y-6 p-6">
+      {deleteTarget && (
+        <ConfirmationDialog
+          title={t('Ngừng hoạt động điểm lấy hàng')}
+          description={`${t('Xác nhận ngừng hoạt động điểm lấy hàng:')} ${deleteTarget.name}`}
+          confirmLabel={t('Xác nhận ngừng hoạt động')}
+          destructive
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => handleDelete(deleteTarget)}
+        />
+      )}
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -378,7 +389,7 @@ export default function PickupLocationsPage() {
                               variant="ghost"
                               size="sm"
                               title={t("Ngừng hoạt động")}
-                              onClick={() => handleDelete(loc)}
+                              onClick={() => setDeleteTarget(loc)}
                               className="h-8 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -486,7 +497,7 @@ export default function PickupLocationsPage() {
                     type="text"
                     value={contactName}
                     onChange={(e) => setContactName(e.target.value)}
-                    placeholder="Nguyễn Văn Quản Kho"
+                    placeholder={t("Mặc định theo tên doanh nghiệp")}
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                   />
                 </div>
@@ -496,7 +507,7 @@ export default function PickupLocationsPage() {
                     type="text"
                     value={contactPhone}
                     onChange={(e) => setContactPhone(e.target.value)}
-                    placeholder="0912345678"
+                    placeholder={t("Mặc định theo SĐT doanh nghiệp")}
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                   />
                 </div>

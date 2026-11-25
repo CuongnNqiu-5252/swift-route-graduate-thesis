@@ -24,7 +24,7 @@ export function getAppointmentSlack(orders: readonly Order[], plans: readonly Di
   const schedule = new Map<string, { planId: string; eta?: number }>();
   for (const plan of plans) {
     if (plan.plan_status === 'COMPLETED') continue;
-    const start = getPlanStartTime(plan);
+    const start = getPlanStartTime(plan, now);
     const timings = readPlanStopTimings(plan.route_waypoints);
     for (const id of plan.ordered_stop_ids ?? []) {
       const timing = timings.get(id);
@@ -55,14 +55,14 @@ export function getAppointmentSlack(orders: readonly Order[], plans: readonly Di
 }
 
 export function getRouteStages(plans: readonly DispatchPlanRecord[], now: number) {
-  const stages: Array<{ count: number; oldest?: number; planId?: string }> = Array.from({ length: 4 }, () => ({ count: 0 }));
+  const stages: Array<{ count: number; oldest?: number; planId?: string }> = Array.from({ length: 3 }, () => ({ count: 0 }));
   for (const plan of plans) {
     if (plan.plan_status === 'COMPLETED') continue;
-    const stage = plan.plan_status === 'DISPATCHED' ? (plan.acknowledged_at ? 3 : 2) : plan.driver_id ? 1 : 0;
+    const stage = plan.plan_status === 'DISPATCHED' ? 2 : plan.driver_id ? 1 : 0;
     const entry = stages[stage];
     entry.count++;
-    const started = stage === 2 ? plan.dispatched_at : stage === 1 ? plan.approved_at : plan.planned_at ?? plan.created_at;
-    if (stage === 3 || !started) continue;
+    const started = stage === 1 ? plan.updated_at ?? plan.created_at : plan.created_at;
+    if (stage === 2 || !started) continue;
     const age = Math.max(0, Math.floor((now - Date.parse(started)) / minute));
     if (Number.isFinite(age) && (entry.oldest === undefined || age > entry.oldest)) {
       entry.oldest = age;

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,7 +21,9 @@ import com.swiftroute.driverservice.dto.event.DeliveryCompletedEvent;
 import com.swiftroute.driverservice.dto.request.UpdateEarningPolicyRequest;
 import com.swiftroute.driverservice.entity.Driver;
 import com.swiftroute.driverservice.entity.DriverEarning;
+import com.swiftroute.driverservice.entity.DriverSettlement;
 import com.swiftroute.driverservice.entity.EarningPolicy;
+import com.swiftroute.driverservice.entity.enums.SettlementStatus;
 import com.swiftroute.driverservice.repository.DriverEarningRepository;
 import com.swiftroute.driverservice.repository.DriverRepository;
 import com.swiftroute.driverservice.repository.DriverSettlementRepository;
@@ -68,7 +71,7 @@ class DriverEarningServiceTest {
 
         DeliveryCompletedEvent event = new DeliveryCompletedEvent(UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), tenantId, driverUserId, 10.0, 106.0, 10.03, 106.0, 2.0,
-                BigDecimal.ZERO, Instant.parse("2026-11-12T03:00:00Z"));
+                Instant.parse("2026-11-12T03:00:00Z"));
         return service.recordCompletedDelivery(event);
     }
 
@@ -114,5 +117,39 @@ class DriverEarningServiceTest {
         assertEquals(new BigDecimal("18000"), response.minimumAmount());
         assertEquals(new BigDecimal("10.00"), response.heavyWeightThresholdKg());
         assertEquals(new BigDecimal("5000"), response.heavyBonusAmount());
+    }
+
+    @Test
+    void settlementsIncludeDriverBankAccountMetadataForVietQr() {
+        UUID driverId = UUID.randomUUID();
+        UUID settlementId = UUID.randomUUID();
+        Driver driver = Driver.builder()
+                .id(driverId)
+                .userId(driverUserId)
+                .tenantId(tenantId)
+                .fullName("Nguyen Van Tai")
+                .bankCode("MB")
+                .bankAccountNumber("0901234567")
+                .bankAccountName("NGUYEN VAN TAI")
+                .build();
+        DriverSettlement settlement = DriverSettlement.builder()
+                .id(settlementId)
+                .tenantId(tenantId)
+                .driverId(driverId)
+                .periodStart(Instant.parse("2026-11-01T00:00:00Z"))
+                .periodEnd(Instant.parse("2026-12-01T00:00:00Z"))
+                .status(SettlementStatus.APPROVED)
+                .earningCount(5)
+                .totalAmount(new BigDecimal("125000"))
+                .build();
+        when(settlements.findByTenantIdOrderByCreatedAtDesc(tenantId)).thenReturn(List.of(settlement));
+        when(drivers.findById(driverId)).thenReturn(Optional.of(driver));
+
+        var responses = service.settlements(tenantId);
+
+        assertEquals(1, responses.size());
+        assertEquals("MB", responses.get(0).driverBankCode());
+        assertEquals("0901234567", responses.get(0).driverBankAccountNumber());
+        assertEquals("NGUYEN VAN TAI", responses.get(0).driverBankAccountName());
     }
 }

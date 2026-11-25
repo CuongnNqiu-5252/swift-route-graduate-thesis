@@ -109,9 +109,6 @@ public class RoutingEngineClient {
                         grpcHost, grpcPort);
                 return Optional.empty();
             }
-            log.info("gRPC OptimizeBatch succeeded jobId={} algorithm={} routes={} executionTimeMs={}",
-                    response.jobId(), response.algorithmUsed(), response.vehicleRoutes().size(),
-                    response.executionTimeMs());
             return Optional.of(response);
         } catch (IOException | StatusRuntimeException ex) {
             log.error("gRPC OptimizeBatch call to {}:{} failed: {}", grpcHost, grpcPort, ex.getMessage());

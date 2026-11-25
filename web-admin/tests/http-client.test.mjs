@@ -115,3 +115,15 @@ test('routing returns a second 401 without repeatedly refreshing', async (t) => 
   assert.deepEqual(attempts, ['Bearer old-access', 'Bearer tenant-access']);
   assert.equal(refresh.mock.callCount(), 2);
 });
+
+test('public tracking endpoint omits session headers even when signed in', async (t) => {
+  useSession(t);
+  const res = await api.get('/public/tracking/TRK123456', {
+    adapter: async (config) => {
+      assert.equal(config.headers.has('Authorization'), false);
+      assert.equal(config.headers.has('X-Tenant-Id'), false);
+      return response(config, { data: { tracking_token: 'TRK123456' }, error: null });
+    },
+  });
+  assert.deepEqual(res.data, { tracking_token: 'TRK123456' });
+});

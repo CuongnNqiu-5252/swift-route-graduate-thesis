@@ -2,6 +2,7 @@ package com.swiftroute.orderservice.dto.routing;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -46,6 +47,7 @@ public record BatchOptimizationRequest(
             @JsonProperty("demand_kg") double demandKg,
             @JsonProperty("time_window_start") String timeWindowStart,
             @JsonProperty("time_window_end") String timeWindowEnd,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
             @JsonProperty("service_time") Double serviceTime
     ) {
         public StopItem(String id, String name, LocationPoint location, double demandKg,

@@ -15,7 +15,6 @@ public record DeliveryCompletedEvent(
         Double deliveryLat,
         Double deliveryLng,
         Double weightKg,
-        BigDecimal deliveryFee,
         Instant completedAt,
         String orderCode,
         String recipientName,
@@ -33,7 +32,6 @@ public record DeliveryCompletedEvent(
             Double deliveryLat,
             Double deliveryLng,
             Double weightKg,
-            BigDecimal deliveryFee,
             Instant completedAt) {
         this(
                 eventId,
@@ -46,7 +44,6 @@ public record DeliveryCompletedEvent(
                 deliveryLat,
                 deliveryLng,
                 weightKg,
-                deliveryFee,
                 completedAt,
                 null,
                 null,

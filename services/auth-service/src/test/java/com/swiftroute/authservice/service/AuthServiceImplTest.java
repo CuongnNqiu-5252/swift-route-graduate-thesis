@@ -2,6 +2,7 @@ package com.swiftroute.authservice.service;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -79,7 +81,29 @@ class AuthServiceImplTest {
         // Assert (Then)
         // Verify that userRepository.save() was called exactly once with any User
         // object
-        verify(userRepository, times(1)).save(any(User.class));
+        ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, times(1)).save(savedUser.capture());
+        assertEquals("PENDING_VERIFICATION", savedUser.getValue().getStatus());
+        assertFalse(savedUser.getValue().isEmailVerified());
+    }
+
+    @Test
+    @DisplayName("Should reject login while email verification is pending")
+    void login_PendingVerification_ThrowsInvalidCredentials() {
+        User user = User.builder()
+                .email("pending@example.com")
+                .passwordHash("hashed")
+                .status("PENDING_VERIFICATION")
+                .emailVerified(false)
+                .build();
+        LoginRequestDTO request = new LoginRequestDTO();
+        request.setUsername("pending@example.com");
+        request.setPassword("Password123");
+
+        when(userRepository.findByEmail("pending@example.com")).thenReturn(Optional.of(user));
+
+        assertThrows(InvalidCredentialsException.class, () -> authService.login(request, null));
+        verify(passwordEncoder, never()).matches(any(), any());
     }
 
     @Test
@@ -213,6 +237,7 @@ class AuthServiceImplTest {
                 .email("user@multitenant.vn")
                 .role(Role.USER)
                 .status("ACTIVE")
+                .emailVerified(true)
                 .build();
 
         TenantMembership membershipA = TenantMembership.builder()
@@ -261,6 +286,7 @@ class AuthServiceImplTest {
                 .email("user@multitenant.vn")
                 .role(Role.USER)
                 .status("ACTIVE")
+                .emailVerified(true)
                 .build();
 
         TenantMembership membershipA = TenantMembership.builder()
@@ -309,6 +335,7 @@ class AuthServiceImplTest {
                 .email("user@multitenant.vn")
                 .role(Role.USER)
                 .status("ACTIVE")
+                .emailVerified(true)
                 .build();
 
         TenantMembership membershipA = TenantMembership.builder()

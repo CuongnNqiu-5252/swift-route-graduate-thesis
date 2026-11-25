@@ -6,10 +6,9 @@ import { PlanStatus } from '@/domain/entities/routing.entity';
 
 interface PlanStatusBadgeProps {
   status: PlanStatus;
-  acknowledgedAt?: string | null;
 }
 
-const STATUS_META: Record<PlanStatus, { label: string; className: string }> = {
+export const PLAN_STATUS_META: Record<PlanStatus, { label: string; className: string }> = {
   DRAFT: {
     label: 'Bản nháp chờ duyệt',
     className: 'border-amber-300 bg-amber-50 text-amber-900',
@@ -28,13 +27,10 @@ const STATUS_META: Record<PlanStatus, { label: string; className: string }> = {
   },
 };
 
-export function PlanStatusBadge({ status, acknowledgedAt }: PlanStatusBadgeProps) {
+export function PlanStatusBadge({ status }: PlanStatusBadgeProps) {
   const { t } = useLocale();
-  const meta = STATUS_META[status] || STATUS_META.DRAFT;
-  const label =
-    status === 'DISPATCHED' && acknowledgedAt
-      ? t("Tài xế đã nhận tuyến")
-      : t(meta.label);
+  const meta = PLAN_STATUS_META[status] || PLAN_STATUS_META.DRAFT;
+  const label = t(meta.label);
 
   return (
     <span

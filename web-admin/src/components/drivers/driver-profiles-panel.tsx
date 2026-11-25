@@ -1,15 +1,19 @@
 'use client';
 
 import { FormEvent, useMemo, useState } from 'react';
-import { UserPlus, Mail, Phone, Truck, ShieldCheck, X, RefreshCw, Link2, Clock3, MessageSquare } from 'lucide-react';
+import { UserPlus, Mail, Phone, Truck, ShieldCheck, X, RefreshCw, Link2, Clock3, MessageSquare, Landmark } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useLocale } from '@/i18n/provider';
 import { CreateDriverPayload, Driver } from '@/domain/entities/driver.entity';
 import { TenantInvitation } from '@/domain/entities/member.entity';
 import { getCurrentTenantId, memberRepository } from '@/infrastructure/repositories/member.repository';
+import { driverRepository } from '@/infrastructure/repositories/driver.repository';
+import { VIETQR_BANKS, formatBankDisplay, stripVietnameseDiacritics } from '@/application/vietqr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Modal } from '@/components/ui/modal';
 import { CustomSelect } from '@/components/ui/select';
 
 export type AddDriverMode = 'choose' | 'manual' | 'invite';
@@ -24,6 +28,7 @@ interface DriverProfilesPanelProps {
   onCreateDriver: (payload: CreateDriverPayload) => Promise<Driver>;
   onReviewDriver: (driverId: string, approved: boolean, note?: string) => Promise<unknown>;
   onReloadInvitations: () => Promise<void>;
+  onBankAccountUpdated?: () => Promise<void>;
 }
 
 const onboardingCopy: Record<Driver['onboarding_status'], { label: string; className: string }> = {
@@ -57,15 +62,69 @@ export function DriverProfilesPanel({
   onCreateDriver,
   onReviewDriver,
   onReloadInvitations,
+  onBankAccountUpdated,
 }: DriverProfilesPanelProps) {
   const { t, intlLocale } = useLocale();
   const { user } = useAuth();
   const canChat = ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? '');
+  const canManageBank = ['OWNER', 'TENANT_ADMIN', 'OPERATOR', 'SYSTEM_ADMIN'].includes(user?.tenantRole ?? '')
+    || user?.role === 'SYSTEM_ADMIN';
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [createdDriver, setCreatedDriver] = useState<Driver | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
+  const [bankModalDriver, setBankModalDriver] = useState<Driver | null>(null);
+  const [bankCode, setBankCode] = useState('VCB');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankError, setBankError] = useState('');
+  const [savingBank, setSavingBank] = useState(false);
+
+  const bankOptions = useMemo(
+    () =>
+      VIETQR_BANKS.map((bank) => ({
+        value: bank.code,
+        label: `${bank.shortName} (${bank.code})`,
+      })),
+    []
+  );
+
+  function openBankModal(driver: Driver) {
+    setBankModalDriver(driver);
+    setBankCode(driver.bank_code || 'VCB');
+    setBankAccountNumber(driver.bank_account_number || '');
+    setBankAccountName(driver.bank_account_name || stripVietnameseDiacritics(driver.name));
+    setBankError('');
+  }
+
+  async function saveDriverBankAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!bankModalDriver) return;
+    const cleanNumber = bankAccountNumber.trim().replace(/\s+/g, '');
+    if (!/^[0-9A-Za-z]{4,40}$/.test(cleanNumber)) {
+      setBankError(t('Số tài khoản cần từ 4 đến 40 ký tự chữ hoặc số.'));
+      return;
+    }
+    setSavingBank(true);
+    setBankError('');
+    try {
+      await driverRepository.updateBankAccount(bankModalDriver.id, {
+        bank_code: bankCode,
+        bank_account_number: cleanNumber,
+        bank_account_name: bankAccountName.trim() || bankModalDriver.name,
+      });
+      toast.success(t('Đã lưu tài khoản ngân hàng tài xế'));
+      setBankModalDriver(null);
+      if (onBankAccountUpdated) {
+        await onBankAccountUpdated();
+      }
+    } catch (err) {
+      setBankError(err instanceof Error ? err.message : t('Không thể lưu tài khoản ngân hàng'));
+    } finally {
+      setSavingBank(false);
+    }
+  }
 
   const pendingInvitations = useMemo(
     () => invitations.filter((item) => item.status === 'PENDING' && new Date(item.expires_at) > new Date()),
@@ -396,6 +455,16 @@ export function DriverProfilesPanel({
                             ? `${driver.vehicle_type} · ${driver.vehicle_plate}`
                             : `${driver.vehicle_type} · ${t('Chưa có biển số')}`}
                         </span>
+                        <span className="flex items-center gap-1.5">
+                          <Landmark size={14} />
+                          {driver.bank_code && driver.bank_account_number ? (
+                            <span className="font-mono text-xs text-slate-700">
+                              {formatBankDisplay(driver.bank_code)} · {driver.bank_account_number}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">{t('Chưa có tài khoản nhận lương')}</span>
+                          )}
+                        </span>
                       </div>
                       {driver.review_note && (
                         <p className="mt-2 text-sm text-amber-800">
@@ -403,26 +472,34 @@ export function DriverProfilesPanel({
                         </p>
                       )}
                     </div>
-                    {linked && canChat && (
-                      <Link href={`/messages?peer=${encodeURIComponent(driver.user_id)}`}
-                        className="inline-flex items-center gap-2 self-start rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                        <MessageSquare size={14} />
-                        {t('Nhắn tin')}
-                      </Link>
-                    )}
-                    {!linked && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setCreatedDriver(driver);
-                          onModeChange('manual');
-                        }}
-                      >
-                        <Link2 size={14} />
-                        {t('Mời kích hoạt')}
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2 self-start">
+                      {canManageBank && (
+                        <Button size="sm" variant="outline" onClick={() => openBankModal(driver)}>
+                          <Landmark size={14} />
+                          {driver.bank_account_number ? t('Sửa STK') : t('Thêm STK')}
+                        </Button>
+                      )}
+                      {linked && canChat && (
+                        <Link href={`/messages?peer=${encodeURIComponent(driver.user_id)}`}
+                          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                          <MessageSquare size={14} />
+                          {t('Nhắn tin')}
+                        </Link>
+                      )}
+                      {!linked && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setCreatedDriver(driver);
+                            onModeChange('manual');
+                          }}
+                        >
+                          <Link2 size={14} />
+                          {t('Mời kích hoạt')}
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {driver.onboarding_status === 'PENDING_APPROVAL' && (
@@ -457,6 +534,61 @@ export function DriverProfilesPanel({
           </div>
         )}
       </section>
+      <Modal
+        open={Boolean(bankModalDriver)}
+        onOpenChange={(open) => {
+          if (!open && !savingBank) setBankModalDriver(null);
+        }}
+        title={t('Tài khoản nhận lương VietQR')}
+        description={bankModalDriver?.name}
+      >
+        <form onSubmit={(event) => void saveDriverBankAccount(event)} className="space-y-4">
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+            {t('Ngân hàng')}
+            <CustomSelect value={bankCode} onValueChange={setBankCode} options={bankOptions} />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+            {t('Số tài khoản')}
+            <input
+              type="text"
+              required
+              pattern="^[0-9A-Za-z]{4,40}$"
+              maxLength={40}
+              value={bankAccountNumber}
+              onChange={(event) => {
+                setBankAccountNumber(event.target.value);
+                if (bankError) setBankError('');
+              }}
+              placeholder={t('VD: 0123456789')}
+              className={`h-10 rounded-lg border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                bankError
+                  ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
+                  : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500/20'
+              }`}
+            />
+            {bankError && <p role="alert" className="text-xs font-normal text-red-600">{bankError}</p>}
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+            {t('Tên chủ tài khoản (không dấu)')}
+            <input
+              type="text"
+              maxLength={120}
+              value={bankAccountName}
+              onChange={(event) => setBankAccountName(event.target.value)}
+              placeholder={bankModalDriver ? stripVietnameseDiacritics(bankModalDriver.name) : ''}
+              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setBankModalDriver(null)} disabled={savingBank}>
+              {t('Hủy')}
+            </Button>
+            <Button type="submit" isLoading={savingBank}>
+              {t('Lưu tài khoản')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

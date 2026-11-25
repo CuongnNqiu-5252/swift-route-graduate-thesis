@@ -111,7 +111,19 @@ public class NotificationAuthorization {
         return authorize(authorization, requestedTenantId, MEMBER_ROLES);
     }
 
-    private AuthorizedContext authorize(String authorization, UUID requestedTenantId, Set<String> allowedTenantRoles) {
+    public long requireSystemAdmin(String authorization) {
+        Claims claims = parseClaims(authorization);
+        parseUserId(claims.getSubject());
+        if (!"SYSTEM_ADMIN".equalsIgnoreCase(claims.get("system_role", String.class))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
+        if (claims.getExpiration() == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        long lifetime = claims.getExpiration().getTime() - System.currentTimeMillis();
+        if (lifetime <= 0) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return lifetime;
+    }
+
+    private Claims parseClaims(String authorization) {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
@@ -120,13 +132,16 @@ public class NotificationAuthorization {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
 
-        Claims claims;
         try {
-            claims = jwtParser.parseSignedClaims(token).getPayload();
+            return jwtParser.parseSignedClaims(token).getPayload();
         } catch (JwtException | IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired token");
         }
 
+    }
+
+    private AuthorizedContext authorize(String authorization, UUID requestedTenantId, Set<String> allowedTenantRoles) {
+        Claims claims = parseClaims(authorization);
         UUID userId = parseUserId(claims.getSubject());
         String tokenTenantId = claims.get("tenant_id", String.class);
         UUID jwtTenantId = parseOptionalTenantId(tokenTenantId);

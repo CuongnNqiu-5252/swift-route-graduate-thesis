@@ -40,7 +40,7 @@ function popupContent(title: string, body: string) {
   return root;
 }
 
-export default function OrderTrackingMap({ pickup, delivery, driver, driverName, orderCode }: OrderTrackingMapProps) {
+export default function OrderTrackingMap({ pickup, delivery, showRoute, driver, driverName, orderCode }: OrderTrackingMapProps) {
   const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -52,9 +52,10 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
   const driverLat = driver?.[0];
   const driverLng = driver?.[1];
   const routePoints = useMemo(() => {
+    if (!showRoute) return [];
     const origin = driverLat != null && driverLng != null ? [driverLat, driverLng] : [pickupLat, pickupLng];
     return [{ lat: origin[0], lng: origin[1] }, { lat: deliveryLat, lng: deliveryLng }];
-  }, [deliveryLat, deliveryLng, driverLat, driverLng, pickupLat, pickupLng]);
+  }, [deliveryLat, deliveryLng, driverLat, driverLng, pickupLat, pickupLng, showRoute]);
   const route = useRoadRoute(routePoints);
 
   useEffect(() => {
@@ -95,6 +96,11 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    if (!showRoute) {
+      if (map.getLayer('order-route-line')) map.removeLayer('order-route-line');
+      if (map.getSource('order-route')) map.removeSource('order-route');
+      return;
+    }
     const coordinates = route.coordinates.length > 1 ? route.coordinates : routePoints.map((point) => [point.lng, point.lat] as Coordinate);
     const update = () => {
       const data = { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates } };
@@ -111,7 +117,7 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
     };
     if (map.loaded()) update(); else map.once('load', update);
     return () => { map.off('load', update); };
-  }, [route.coordinates, routePoints]);
+  }, [route.coordinates, routePoints, showRoute]);
 
   if (!mapKey) return <div role="alert" className="flex h-80 items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>;
   return <div className="relative h-80 w-full overflow-hidden bg-slate-100">
@@ -119,12 +125,12 @@ export default function OrderTrackingMap({ pickup, delivery, driver, driverName,
       ref={containerRef}
       className="h-80 w-full"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-      aria-label="Bản đồ theo dõi đơn hàng và tài xế"
+      aria-label={showRoute ? t('Bản đồ lộ trình giao hàng') : t('Bản đồ điểm lấy hàng và điểm giao')}
     />
-    <div className="pointer-events-none absolute start-3 top-3 z-10 max-w-[calc(100%-5rem)] rounded-xl bg-slate-950/90 px-3 py-2.5 text-white shadow-[0_8px_24px_rgb(15_23_42/0.22)]">
+    {showRoute && <div className="pointer-events-none absolute start-3 top-3 z-10 max-w-[calc(100%-5rem)] rounded-xl bg-slate-950/90 px-3 py-2.5 text-white shadow-[0_8px_24px_rgb(15_23_42/0.22)]">
       <div className="flex items-center gap-2 text-xs font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={14} /> : route.error ? <AlertTriangle className="text-amber-300" size={14} /> : <Navigation className="text-blue-300" size={14} />}{route.isLoading ? 'Đang cập nhật tuyến' : driver ? `${driverName || t("Tài xế")} đang tới điểm giao` : driverName ? `Đang chờ GPS của ${driverName}` : 'Tuyến giao dự kiến'}</div>
       <p className="mt-1 text-[11px] text-slate-300">{route.coordinates.length ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.max(1, Math.round(route.durationSeconds / 60))} phút` : route.error || 'Đang chờ dữ liệu đường đi'}</p>
-    </div>
+    </div>}
     {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}
   </div>;
 }

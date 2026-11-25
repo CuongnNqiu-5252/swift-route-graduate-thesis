@@ -204,10 +204,12 @@ public class OperationalAlertConsumer {
             case "cod.dispute_resolved" -> "Đã xử lý khoản chênh lệch COD";
             case "settlement.approved" -> "Kỳ đối soát thu nhập đã được phê duyệt";
             case "settlement.paid" -> "Thu nhập đối soát đã được thanh toán";
+            case "plan.completed" -> "Lộ trình giao hàng đã hoàn tất";
+            case "cod.collected" -> "Đã thu tiền COD";
             case "driver.profile_reviewed" -> payload.path("approved").asBoolean(true)
                     ? "Hồ sơ tài xế của bạn đã được phê duyệt"
                     : "Hồ sơ tài xế cần bổ sung / chỉnh sửa";
-            default -> "Thông báo vận hành: " + routingKey;
+            default -> "Thông báo vận hành";
         };
     }
 
@@ -230,11 +232,20 @@ public class OperationalAlertConsumer {
         }
         if ("plan.dispatched".equals(routingKey)) {
             int count = payload.path("order_count").asInt(0);
-            return "Bạn vừa được phân công lộ trình gồm " + count + " điểm giao. Hãy xác nhận trên ứng dụng.";
+            return "Bạn vừa được phân công lộ trình gồm " + count + " điểm giao. Mở Lộ trình để xem điểm lấy hàng.";
         }
         if ("plan.acknowledged".equals(routingKey)) {
             int count = payload.path("order_count").asInt(0);
             return "Tài xế đã nhận lộ trình (" + count + " đơn) và bắt đầu di chuyển đến kho lấy hàng.";
+        }
+        if ("plan.completed".equals(routingKey)) {
+            return "Tài xế đã hoàn thành tất cả các điểm dừng trong lộ trình giao hàng.";
+        }
+        if ("cod.collected".equals(routingKey)) {
+            long cod = Math.round(payload.path("amount").asDouble(payload.path("cod_amount").asDouble(0)));
+            return cod > 0
+                ? "Đã ghi nhận thu hộ tiền COD: " + formatVnd(cod) + "."
+                : "Đã ghi nhận thu hộ tiền COD thành công.";
         }
         if ("plan.cancelled".equals(routingKey)) {
             int count = payload.path("order_count").asInt(0);
@@ -269,8 +280,8 @@ public class OperationalAlertConsumer {
                     + "đã được duyệt. Vui lòng bàn giao kiện hàng về " + warehouse + ".";
         }
         if ("return.discrepancy".equals(routingKey)) {
-            String type = payload.path("discrepancy_type").asText("SAI_LECH");
-            return "Kho nhận hàng hoàn ghi nhận sai lệch (" + type + "). Đã mở hồ sơ sự cố cần kiểm tra.";
+            String type = translateDiscrepancyType(payload.path("discrepancy_type").asText(""));
+            return "Kho nhận hàng hoàn ghi nhận " + type + ". Đã mở hồ sơ sự cố cần kiểm tra.";
         }
         if ("cod.handover_submitted".equals(routingKey)) {
             long declared = Math.round(payload.path("declared_total").asDouble(0));
@@ -323,7 +334,7 @@ public class OperationalAlertConsumer {
             int count = payload.path("order_count").asInt(0);
             return "Điều phối viên vừa cập nhật thứ tự hoặc thêm đơn vào lộ trình của bạn (hiện có " + count + " điểm dừng).";
         }
-        return "Sự kiện vận hành [" + routingKey + "] vừa được ghi nhận trên hệ thống.";
+        return "Có cập nhật mới về tiến độ vận hành trên hệ thống.";
     }
 
     static String resolveCategory(String routingKey) {
@@ -360,9 +371,9 @@ public class OperationalAlertConsumer {
                     ? "/operations?incident=" + incidentId
                     : "/operations";
             case "incident.resolved", "cod.handover_submitted", "cod.handover_settled_with_variance", "return.discrepancy" -> "/operations";
-            case "order.delivery_completed.v1" -> "/orders";
+            case "order.delivery_completed.v1", "cod.collected" -> "/orders";
             case TenantNotificationConsumer.IMPORT_COMPLETED -> "/operation-flow";
-            case "plan.acknowledged", "plan.cancelled", "assignment.timeout", "assignment.escalated",
+            case "plan.acknowledged", "plan.cancelled", "plan.completed", "assignment.timeout", "assignment.escalated",
                  "driver.unavailable_recovery", "delivery.delay_detected" -> "/dispatch";
             case "settlement.approved", "settlement.paid" -> "/settlements";
             default -> "/operations";
@@ -392,6 +403,7 @@ public class OperationalAlertConsumer {
     }
 
     private static String translateIncidentType(String type) {
+        if (type == null) return "Sự cố giao nhận";
         return switch (type.toUpperCase(Locale.ROOT)) {
             case "CUSTOMER_ABSENT", "RECIPIENT_UNAVAILABLE" -> "Khách vắng mặt";
             case "CUSTOMER_UNREACHABLE" -> "Không liên lạc được người nhận";
@@ -400,20 +412,24 @@ public class OperationalAlertConsumer {
             case "DAMAGED", "PACKAGE_DAMAGED", "GOODS_DAMAGED" -> "Kiện hàng hư hỏng";
             case "VEHICLE_BREAKDOWN" -> "Hỏng xe trên tuyến";
             case "WEATHER_DELAY" -> "Thời tiết xấu / ngập đường";
-            default -> type;
+            case "TRAFFIC_CONGESTION" -> "Tắc đường / kẹt xe nghiêm trọng";
+            case "ACCIDENT" -> "Tai nạn giao thông";
+            default -> "Sự cố giao nhận";
         };
     }
 
     private static String translateRecoveryAction(String action) {
+        if (action == null) return "Chờ điều phối viên xử lý";
         return switch (action.toUpperCase(Locale.ROOT)) {
             case "REDELIVERY" -> "Giao lại";
             case "RETURN_TO_ORIGIN" -> "Hoàn hàng về kho";
-            case "CONTINUE_DELIVERY" -> "Tiếp tục giao";
+            case "CONTINUE_DELIVERY" -> "Tiếp tục giao hàng";
             default -> "Chờ điều phối viên xử lý";
         };
     }
 
     private static String translateResolutionType(String resType) {
+        if (resType == null) return "Đã giải quyết theo quy trình";
         return switch (resType.toUpperCase(Locale.ROOT)) {
             case "CONTINUE_DELIVERY" -> "Tiếp tục giao đơn hàng";
             case "RETRY_DELIVERY" -> "Lên lịch giao lại";
@@ -421,11 +437,14 @@ public class OperationalAlertConsumer {
             case "REQUEST_RETURN" -> "Tạo yêu cầu hoàn hàng về kho";
             case "RETURN_COMPLETED" -> "Đã hoàn hàng về kho thành công";
             case "ESCALATED" -> "Chuyển cấp quản lý xử lý";
-            default -> resType;
+            case "CANCELLED", "CANCEL" -> "Hủy đơn hàng";
+            case "RESOLVED" -> "Hoàn tất xử lý sự cố";
+            default -> "Đã giải quyết theo quy trình";
         };
     }
 
     private static String translateCodResolutionType(String resType) {
+        if (resType == null) return "Đã xử lý đối soát";
         return switch (resType.toUpperCase(Locale.ROOT)) {
             case "DRIVER_REIMBURSEMENT", "DRIVER_REIMBURSED", "CASH_RECOVERED" -> "Tài xế bù phần thiếu";
             case "COMPANY_ADJUSTMENT" -> "Doanh nghiệp ghi nhận điều chỉnh";
@@ -433,7 +452,18 @@ public class OperationalAlertConsumer {
             case "CUSTOMER_DEBT", "CUSTOMER_SETTLED" -> "Chuyển thành công nợ khách hàng";
             case "WAIVED", "WRITE_OFF" -> "Miễn / đóng chênh lệch";
             case "REFUND" -> "Hoàn trả phần thừa";
-            default -> resType;
+            default -> "Đã xử lý đối soát";
+        };
+    }
+
+    private static String translateDiscrepancyType(String type) {
+        if (type == null) return "sai lệch hàng";
+        return switch (type.toUpperCase(Locale.ROOT)) {
+            case "MISSING_PACKAGE", "MISSING", "THIEU_HANG" -> "thiếu kiện hàng";
+            case "DAMAGED_PACKAGE", "DAMAGED", "HU_HONG" -> "hàng bị hư hại";
+            case "WRONG_ITEM", "WRONG_PACKAGE", "SAI_HANG" -> "sai lệch sản phẩm";
+            case "EXCESS", "THUA_HANG" -> "thừa kiện hàng";
+            default -> "sai lệch hàng hóa";
         };
     }
 

@@ -89,6 +89,11 @@ public class OutboxPublisher {
             try {
                 CorrelationData.Confirm confirm = correlationData.getFuture().get(CONFIRM_TIMEOUT_SECONDS,
                         TimeUnit.SECONDS);
+                boolean recipientEvent = RecipientDeliveryEvents.ROUTING_KEYS.contains(routingKey)
+                        || routingKey.startsWith("dlq.") && RecipientDeliveryEvents.ROUTING_KEYS.contains(routingKey.substring(4));
+                if (recipientEvent && correlationData.getReturned() != null) {
+                    throw new AmqpException("Broker could not route recipient notification event " + eventId);
+                }
                 if (confirm != null && !confirm.isAck()) {
                     throw new AmqpException("Broker returned NACK for event " + eventId + ": " + confirm.getReason());
                 }

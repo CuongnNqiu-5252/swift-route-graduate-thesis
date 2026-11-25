@@ -30,7 +30,8 @@ import reactor.core.publisher.Mono;
  * 2. Trích xuất Bearer token từ Authorization header.
  * 3. Gọi JwtVerifier để verify và parse claims.
  * 4. Inject X-User-Id, X-System-Role, X-Tenant-Role, X-Tenant-Id vào request
- * để tracing và các legacy reader không cần parse lại (downstream service vẫn verify JWT).
+ * để tracing và các legacy reader không cần parse lại (downstream service vẫn
+ * verify JWT).
  * 5. Nếu token thiếu / invalid → trả về 401 JSON ngay tại Gateway.
  *
  * Tách riêng filter này khỏi CustomGlobalFilter để đúng Single Responsibility:
@@ -53,6 +54,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             "/api/auth/refresh",
             "/api/auth/invitations/accept",
             "/api/auth/invitations/preview",
+            "/api/public/tracking/**",
             "/ws/chat",
             "/actuator/health");
 
@@ -92,7 +94,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                         // User belongs to a specific tenant
                         if (!isSystemAdmin) {
                             // Only SYSTEM_ADMIN can switch or override tenant context via header
-                            if (clientTenant != null && !clientTenant.isBlank() && !clientTenant.equalsIgnoreCase(claims.tenantId())) {
+                            if (clientTenant != null && !clientTenant.isBlank()
+                                    && !clientTenant.equalsIgnoreCase(claims.tenantId())) {
                                 log.warn("Cross-tenant attempt by user {}: claims.tenantId={}, requested={}",
                                         claims.userId(), claims.tenantId(), clientTenant);
                                 return writeForbiddenResponse(exchange, "Forbidden: Cross-tenant access denied");
@@ -110,7 +113,8 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
                             }
                         }
                     } else if (clientTenant != null && !clientTenant.isBlank()) {
-                        // User has no tenant claim (e.g. USER or SYSTEM_ADMIN without scoped token); validate UUID
+                        // User has no tenant claim (e.g. USER or SYSTEM_ADMIN without scoped token);
+                        // validate UUID
                         if (!isValidUuid(clientTenant)) {
                             return writeBadRequestResponse(exchange, "Invalid X-Tenant-Id header format");
                         }

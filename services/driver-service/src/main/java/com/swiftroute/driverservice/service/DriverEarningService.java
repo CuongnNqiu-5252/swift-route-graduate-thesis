@@ -88,7 +88,6 @@ public class DriverEarningService {
                 .deliveryTaskId(event.deliveryTaskId())
                 .driverId(driver.getId())
                 .earningType("DELIVERY")
-                .deliveryFee(event.deliveryFee() == null ? BigDecimal.ZERO : event.deliveryFee())
                 .payableDistanceKm(distance)
                 .baseAmount(policy.getBaseAmount())
                 .distanceAmount(distanceAmount.setScale(0, RoundingMode.HALF_UP))
@@ -165,7 +164,7 @@ public class DriverEarningService {
                 .earningCount(pending.size()).totalAmount(total).build());
         pending.forEach(item -> item.setSettlementId(settlement.getId()));
         earnings.saveAll(pending);
-        return DriverSettlementResponse.from(settlement, driver.getFullName());
+        return DriverSettlementResponse.from(settlement, driver.getFullName(), driver);
     }
 
     @Transactional
@@ -185,7 +184,7 @@ public class DriverEarningService {
         earnings.saveAll(rows);
         DriverSettlement saved = settlements.save(settlement);
         emitSettlementEvent(saved, "settlement.approved");
-        return DriverSettlementResponse.from(saved, driverName(settlement.getDriverId()));
+        return settlementResponse(saved);
     }
 
     @Transactional
@@ -206,7 +205,7 @@ public class DriverEarningService {
         earnings.saveAll(rows);
         DriverSettlement saved = settlements.save(settlement);
         emitSettlementEvent(saved, "settlement.paid");
-        return DriverSettlementResponse.from(saved, driverName(settlement.getDriverId()));
+        return settlementResponse(saved);
     }
 
     private void emitSettlementEvent(DriverSettlement settlement, String eventType) {
@@ -236,13 +235,13 @@ public class DriverEarningService {
     public PageResponse<DriverSettlementResponse> settlementPage(UUID tenantId, int page, int size) {
         return PageResponse.fromPage(settlements.findByTenantId(tenantId,
                 PageRequests.newestFirst(page, size, "createdAt"))
-                .map(item -> DriverSettlementResponse.from(item, driverName(item.getDriverId()))));
+                .map(this::settlementResponse));
     }
 
     @Transactional(readOnly = true)
     public List<DriverSettlementResponse> settlements(UUID tenantId) {
         return settlements.findByTenantIdOrderByCreatedAtDesc(tenantId).stream()
-                .map(item -> DriverSettlementResponse.from(item, driverName(item.getDriverId()))).toList();
+                .map(this::settlementResponse).toList();
     }
 
     @Transactional
@@ -276,6 +275,13 @@ public class DriverEarningService {
     private DriverSettlement settlement(UUID tenantId, UUID id) {
         return settlements.findById(id).filter(item -> item.getTenantId().equals(tenantId))
                 .orElseThrow(() -> new AppException(ErrorCode.SETTLEMENT_NOT_FOUND));
+    }
+
+    /** Maps a settlement with the driver's name and VietQR payout bank account. */
+    private DriverSettlementResponse settlementResponse(DriverSettlement settlement) {
+        Driver driver = drivers.findById(settlement.getDriverId()).orElse(null);
+        return DriverSettlementResponse.from(settlement,
+                driver != null ? driver.getFullName() : "Tài xế", driver);
     }
 
     private String driverName(UUID driverId) {

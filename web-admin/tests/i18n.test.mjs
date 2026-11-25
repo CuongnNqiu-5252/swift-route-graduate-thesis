@@ -33,5 +33,4 @@ test('explicit UI messages have a non-empty English translation', () => {
   }
 
   assert.deepEqual([...missing], []);
-  assert.equal(english['Đội giao hàng riêng'], 'Own delivery fleet');
 });

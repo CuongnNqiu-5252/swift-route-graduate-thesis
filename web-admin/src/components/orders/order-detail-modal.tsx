@@ -1,12 +1,18 @@
 'use client';
 
+import * as Tabs from '@radix-ui/react-tabs';
+import { Check, Copy, ExternalLink, Link2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
-import type { Order } from '@/domain/entities/order.entity';
+import type { Order, OrderTimeline } from '@/domain/entities/order.entity';
 import { useLocale } from '@/i18n/provider';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { OrderStatusBadge } from './order-status-badge';
+import { OrderTimelinePanel } from './order-timeline';
+import { RecipientNotificationHistory } from './recipient-notification-history';
+import { useAuth } from '@/application/contexts/auth-context';
 
 const codStatusLabel: Record<string, string> = {
   NOT_APPLICABLE: 'Không COD',
@@ -18,16 +24,37 @@ const codStatusLabel: Record<string, string> = {
 function DetailField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-slate-600">{label}</dt>
-      <dd className="mt-0.5 break-words font-medium text-slate-900">{children || '—'}</dd>
+      <dt className="text-xs font-medium text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words text-sm font-medium text-slate-900">{children || '—'}</dd>
     </div>
   );
 }
 
+function custodyLabelKey(order: Order, timeline?: OrderTimeline): string {
+  if (timeline?.custodian_driver_id) {
+    return 'Tài xế đang giữ kiện hàng';
+  }
+  if (order.status === 'DELIVERED' || order.status === 'RETURNED' || order.status === 'CANCELLED') {
+    return 'Đã hoàn tất lưu ký';
+  }
+  return 'Tại kho / Chưa giao tài xế';
+}
+
 function OrderDetail({ orderId }: { orderId: string }) {
+  const { user, hasPermission } = useAuth();
+  const canReadRecipientNotifications = hasPermission('order:read')
+    && ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? '');
   const { t, intlLocale } = useLocale();
   const [attempt, setAttempt] = useState(0);
+  const [timelineAttempt, setTimelineAttempt] = useState(0);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [result, setResult] = useState<{ order: Order } | { error: true }>();
+  const [timelineState, setTimelineState] = useState<{
+    loading: boolean;
+    timeline?: OrderTimeline;
+    error: boolean;
+  }>({ loading: true, error: false });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -42,12 +69,40 @@ function OrderDetail({ orderId }: { orderId: string }) {
     return () => controller.abort();
   }, [attempt, orderId]);
 
-  if (!result) return <p role="status" className="text-sm text-slate-600">{t('Đang tải chi tiết đơn hàng…')}</p>;
+  useEffect(() => {
+    const controller = new AbortController();
+    orderRepository.getOrderTimeline(orderId, controller.signal).then(
+      (timeline) => {
+        if (!controller.signal.aborted) {
+          setTimelineState({ loading: false, timeline, error: false });
+        }
+      },
+      () => {
+        if (!controller.signal.aborted) {
+          setTimelineState({ loading: false, error: true });
+        }
+      },
+    );
+    return () => controller.abort();
+  }, [timelineAttempt, orderId]);
+
+  if (!result) {
+    return (
+      <div className="space-y-4 py-2" role="status">
+        <div className="h-6 w-36 animate-pulse rounded-full bg-slate-200" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="h-32 animate-pulse rounded-xl bg-slate-100" />
+          <div className="h-32 animate-pulse rounded-xl bg-slate-100" />
+        </div>
+        <p className="text-xs text-slate-500">{t('Đang tải chi tiết đơn hàng…')}</p>
+      </div>
+    );
+  }
   if ('error' in result) {
     return (
-      <div className="space-y-3 text-sm">
-        <p role="alert">{t('Không thể tải chi tiết đơn hàng.')}</p>
-        <Button variant="outline" onClick={() => {
+      <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/60 p-4 text-sm">
+        <p role="alert" className="font-medium text-rose-900">{t('Không thể tải chi tiết đơn hàng.')}</p>
+        <Button variant="outline" size="sm" onClick={() => {
           setResult(undefined);
           setAttempt((value) => value + 1);
         }}>{t('Thử lại')}</Button>
@@ -56,6 +111,7 @@ function OrderDetail({ orderId }: { orderId: string }) {
   }
 
   const { order } = result;
+  const { timeline } = timelineState;
   const money = new Intl.NumberFormat(intlLocale, { style: 'currency', currency: 'VND' });
   const dateTime = new Intl.DateTimeFormat(intlLocale, {
     dateStyle: 'short',
@@ -63,49 +119,222 @@ function OrderDetail({ orderId }: { orderId: string }) {
     timeZone: 'Asia/Ho_Chi_Minh',
   });
   const amount = (value?: number) => value == null ? '—' : money.format(value);
+  const trackingToken = timeline?.tracking_token || order.tracking_token;
+  const driverLabel = order.assigned_driver_name
+    || (order.assigned_driver_id ? order.assigned_driver_id.slice(0, 8) : null);
+  const timeWindowText = order.time_window_start && order.time_window_end
+    ? `${dateTime.format(new Date(order.time_window_start))} — ${dateTime.format(new Date(order.time_window_end))}`
+    : order.time_window_start
+      ? dateTime.format(new Date(order.time_window_start))
+      : order.time_window_end
+        ? dateTime.format(new Date(order.time_window_end))
+        : null;
+
+  async function copyTrackingToken() {
+    if (!trackingToken || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(trackingToken);
+      setCopiedToken(true);
+      toast.success(t('Đã sao chép mã tra cứu'));
+      window.setTimeout(() => setCopiedToken(false), 1800);
+    } catch {
+      // Ignore clipboard permission denials in restricted browser contexts.
+    }
+  }
+
+  async function copyTrackingLink() {
+    if (!trackingToken || typeof window === 'undefined' || typeof navigator === 'undefined' || !navigator.clipboard) {
+      return;
+    }
+    try {
+      const publicUrl = `${window.location.origin}/track/${encodeURIComponent(trackingToken)}`;
+      await navigator.clipboard.writeText(publicUrl);
+      setCopiedLink(true);
+      toast.success(t('Đã sao chép link theo dõi'));
+      window.setTimeout(() => setCopiedLink(false), 1800);
+    } catch {
+      // Ignore clipboard permission denials in restricted browser contexts.
+    }
+  }
+
+  const isHeldByDriver = Boolean(timeline?.custodian_driver_id);
 
   return (
-    <div className="space-y-5 text-sm">
-      <OrderStatusBadge status={order.status} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section className="min-w-0 space-y-2">
-          <h3 className="font-semibold text-slate-900">{t('Người gửi')}</h3>
-          <dl className="space-y-2">
-            <DetailField label={t('Tên liên hệ')}>{order.sender_name}</DetailField>
-            <DetailField label={t('Số điện thoại')}>{order.sender_phone}</DetailField>
-            <DetailField label={t('Địa chỉ lấy hàng')}>{order.pickup_address}</DetailField>
-          </dl>
-        </section>
-        <section className="min-w-0 space-y-2">
-          <h3 className="font-semibold text-slate-900">{t('Người nhận')}</h3>
-          <dl className="space-y-2">
-            <DetailField label={t('Tên liên hệ')}>{order.customer_name}</DetailField>
-            <DetailField label={t('Số điện thoại')}>{order.recipient_phone}</DetailField>
-            <DetailField label={t('Địa chỉ giao hàng')}>{order.delivery_address}</DetailField>
-          </dl>
-        </section>
+    <Tabs.Root defaultValue="details" className="space-y-4 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <OrderStatusBadge status={order.status} />
+        {trackingToken && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={copyTrackingToken}
+              title={t('Sao chép mã tra cứu')}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-700 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-100"
+            >
+              <span>{trackingToken}</span>
+              {copiedToken
+                ? <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                : <Copy className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              onClick={copyTrackingLink}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#17766c]/25 bg-[#17766c]/10 px-2.5 py-1 text-xs font-medium text-[#115e56] transition-colors duration-150 hover:bg-[#17766c]/15"
+            >
+              {copiedLink
+                ? <Check className="h-3.5 w-3.5 text-emerald-700" aria-hidden="true" />
+                : <Link2 className="h-3.5 w-3.5" aria-hidden="true" />}
+              <span>{t('Sao chép link theo dõi')}</span>
+            </button>
+            <a
+              href={`/track/${encodeURIComponent(trackingToken)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t('Mở trang theo dõi công khai')}
+              aria-label={t('Mở trang theo dõi công khai')}
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            </a>
+          </div>
+        )}
       </div>
-      <section className="space-y-3 border-t border-slate-200 pt-4">
-        <h3 className="font-semibold text-slate-900">{t('Phí giao hàng và COD')}</h3>
-        <dl className="grid grid-cols-2 gap-3 tabular-nums">
-          <DetailField label={t('Tiền thu hộ')}>{amount(order.cod_amount)}</DetailField>
-          <DetailField label={t('Trạng thái COD')}>
-            {order.cod_status && (codStatusLabel[order.cod_status] ? t(codStatusLabel[order.cod_status]) : '—')}
-          </DetailField>
-          <DetailField label={t('Phí giao hàng')}>{amount(order.delivery_fee)}</DetailField>
-          <DetailField label={t('Giá trị khai báo')}>{amount(order.declared_value)}</DetailField>
-          <DetailField label={t('Tổng tiền người nhận trả')}>{amount(order.total_amount)}</DetailField>
-          {order.payer && (
-            <DetailField label={t('Bên trả phí giao hàng')}>
-              {order.payer === 'SENDER' ? t('Người gửi') : order.payer === 'RECIPIENT' ? t('Người nhận') : '—'}
+
+      <Tabs.List className="flex flex-wrap border-b border-slate-200">
+        <Tabs.Trigger
+          value="details"
+          className="relative cursor-pointer px-3.5 py-2 text-xs font-medium text-slate-600 transition-colors hover:text-slate-950 data-[state=active]:text-slate-950 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-transparent data-[state=active]:after:bg-[#17766c]"
+        >
+          {t('Thông tin chung')}
+        </Tabs.Trigger>
+        <Tabs.Trigger
+          value="timeline"
+          className="relative inline-flex cursor-pointer items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-600 transition-colors hover:text-slate-950 data-[state=active]:text-slate-950 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-transparent data-[state=active]:after:bg-[#17766c]"
+        >
+          <span>{t('Lịch sử đơn hàng')}</span>
+          {timeline && (
+            <span className="rounded-full bg-slate-100 px-1.5 py-0.25 text-[11px] font-semibold tabular-nums text-slate-700">
+              {timeline.events.length}
+            </span>
+          )}
+        </Tabs.Trigger>
+        {canReadRecipientNotifications && (
+          <Tabs.Trigger
+            value="recipient-notifications"
+            className="relative cursor-pointer px-3.5 py-2 text-xs font-medium text-slate-600 transition-colors hover:text-slate-950 data-[state=active]:text-slate-950 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-transparent data-[state=active]:after:bg-[#17766c]"
+          >
+            {t('Thông báo người nhận')}
+          </Tabs.Trigger>
+        )}
+      </Tabs.List>
+
+      <Tabs.Content value="details" className="space-y-4">
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <section className="min-w-0 space-y-2.5 rounded-xl border border-slate-200/90 bg-slate-50/50 p-3.5">
+            <h3 className="text-xs font-semibold text-slate-900">{t('Người gửi')}</h3>
+            <dl className="space-y-2">
+              <DetailField label={t('Tên liên hệ')}>{order.sender_name}</DetailField>
+              <DetailField label={t('Số điện thoại')}>{order.sender_phone}</DetailField>
+              <DetailField label={t('Địa chỉ lấy hàng')}>{order.pickup_address}</DetailField>
+            </dl>
+          </section>
+          <section className="min-w-0 space-y-2.5 rounded-xl border border-slate-200/90 bg-slate-50/50 p-3.5">
+            <h3 className="text-xs font-semibold text-slate-900">{t('Người nhận')}</h3>
+            <dl className="space-y-2">
+              <DetailField label={t('Tên liên hệ')}>{order.customer_name}</DetailField>
+              <DetailField label={t('Số điện thoại')}>{order.recipient_phone}</DetailField>
+              <DetailField label={t('Địa chỉ giao hàng')}>{order.delivery_address}</DetailField>
+            </dl>
+          </section>
+        </div>
+
+        <section className="space-y-3 rounded-xl border border-slate-200/90 bg-white p-3.5">
+          <h3 className="text-xs font-semibold text-slate-900">{t('Vận hành & Giao nhận')}</h3>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <DetailField label={t('Tài xế phụ trách')}>
+              {driverLabel || t('Chưa phân công')}
             </DetailField>
+            <DetailField label={t('Trạng thái giữ hàng')}>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className={`h-2 w-2 rounded-full ${isHeldByDriver ? 'bg-emerald-500' : 'bg-slate-400'}`}
+                />
+                <span>{t(custodyLabelKey(order, timeline))}</span>
+              </span>
+            </DetailField>
+            {timeWindowText && (
+              <DetailField label={t('Khung giờ giao')}>{timeWindowText}</DetailField>
+            )}
+            {order.notes && (
+              <DetailField label={t('Ghi chú')}>{order.notes}</DetailField>
+            )}
+          </dl>
+
+          {timeline?.latest_proof_url && (
+            <div className="border-t border-slate-100 pt-3">
+              <p className="mb-2 text-xs font-medium text-slate-500">{t('Ảnh bằng chứng giao hàng (POD)')}</p>
+              <a
+                href={timeline.latest_proof_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-block cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition-colors hover:border-slate-300"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={timeline.latest_proof_url}
+                  alt={t('Ảnh bằng chứng giao hàng (POD)')}
+                  className="h-28 w-44 object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                />
+                <span className="inline-flex w-full items-center justify-center gap-1 border-t border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-[#17766c]">
+                  {t('Mở ảnh gốc')}
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </span>
+              </a>
+            </div>
           )}
-          {order.cod_collected_at && (
-            <DetailField label={t('Thời điểm thu COD')}>{dateTime.format(new Date(order.cod_collected_at))}</DetailField>
-          )}
-        </dl>
-      </section>
-    </div>
+        </section>
+
+        <section className="space-y-3 rounded-xl border border-slate-200/90 bg-white p-3.5">
+          <h3 className="text-xs font-semibold text-slate-900">{t('Thông tin COD')}</h3>
+          <dl className="grid grid-cols-2 divide-x divide-slate-100 tabular-nums sm:grid-cols-3">
+            <div className="pr-3">
+              <DetailField label={t('Tiền thu hộ')}>{amount(order.cod_amount)}</DetailField>
+            </div>
+            <div className="px-3">
+              <DetailField label={t('Trạng thái COD')}>
+                {order.cod_status && (codStatusLabel[order.cod_status] ? t(codStatusLabel[order.cod_status]) : '—')}
+              </DetailField>
+            </div>
+            <div className="col-span-2 mt-2 border-t border-slate-100 pt-2 sm:col-span-1 sm:mt-0 sm:border-t-0 sm:pl-3 sm:pt-0">
+              <DetailField label={t('Tổng tiền người nhận trả')}>{amount(order.total_amount)}</DetailField>
+            </div>
+            {order.cod_collected_at && (
+              <div className="col-span-full mt-2 border-t border-slate-100 pt-2">
+                <DetailField label={t('Thời điểm thu COD')}>{dateTime.format(new Date(order.cod_collected_at))}</DetailField>
+              </div>
+            )}
+          </dl>
+        </section>
+      </Tabs.Content>
+
+      <Tabs.Content value="timeline">
+        <OrderTimelinePanel
+          timeline={timeline}
+          loading={timelineState.loading}
+          error={timelineState.error}
+          onRetry={() => {
+            setTimelineState({ loading: true, error: false });
+            setTimelineAttempt((value) => value + 1);
+          }}
+        />
+      </Tabs.Content>
+      {canReadRecipientNotifications && (
+        <Tabs.Content value="recipient-notifications">
+          <RecipientNotificationHistory key={orderId} orderId={orderId} />
+        </Tabs.Content>
+      )}
+    </Tabs.Root>
   );
 }
 
@@ -124,7 +353,7 @@ export function OrderDetailModal({ orderId, orderCode, shortCode }: {
         onOpenChange={setOpen}
         title={t('Chi tiết đơn hàng')}
         description={orderCode || orderId}
-        className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto break-words"
+        className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto break-words"
         trigger={
           <button
             type="button"

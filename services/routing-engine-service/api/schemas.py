@@ -70,7 +70,6 @@ class VehicleRoute(BaseModel):
 
 class BatchOptimizationResponse(BaseModel):
     job_id: str
-    algorithm_used: str
     total_distance_km: float
     total_duration_minutes: float
     ordered_stops: List[OrderedStop]
@@ -101,7 +100,6 @@ class RouteInsertRequest(BaseModel):
 
 class RouteInsertResponse(BaseModel):
     job_id: str
-    algorithm_used: str
     feasible: bool
     inserted_stop_index: int
     added_distance_km: float
@@ -124,7 +122,6 @@ class RouteReoptimizeRequest(BaseModel):
 
 class RouteReoptimizeResponse(BaseModel):
     job_id: str
-    algorithm_used: str
     stops_changed: bool
     distance_saved_km: float
     total_distance_km: float

@@ -138,7 +138,6 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
         res = _solve_with_road_errors(solve_batch, schema_req, context)
         return routing_pb2.BatchOptimizationGrpcResponse(
             job_id=res.job_id,
-            algorithm_used=res.algorithm_used,
             total_distance_km=res.total_distance_km,
             total_duration_minutes=res.total_duration_minutes,
             ordered_stops=[_to_ordered_stop_proto(s) for s in res.ordered_stops],
@@ -182,7 +181,6 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
         res = _solve_with_road_errors(solve_insert, schema_req, context)
         return routing_pb2.RouteInsertGrpcResponse(
             job_id=res.job_id,
-            algorithm_used=res.algorithm_used,
             feasible=res.feasible,
             inserted_stop_index=res.inserted_stop_index,
             added_distance_km=res.added_distance_km,
@@ -221,7 +219,6 @@ class RoutingEngineServicer(routing_pb2_grpc.RoutingEngineGrpcServiceServicer):
         res = _solve_with_road_errors(solve_reoptimize, schema_req, context)
         return routing_pb2.RouteReoptimizeGrpcResponse(
             job_id=res.job_id,
-            algorithm_used=res.algorithm_used,
             stops_changed=res.stops_changed,
             distance_saved_km=res.distance_saved_km,
             total_distance_km=res.total_distance_km,

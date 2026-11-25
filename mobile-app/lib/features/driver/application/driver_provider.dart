@@ -165,25 +165,6 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
     }
   }
 
-  /// 1-Tap Batch Accept: transitions all ASSIGNED tasks on the route to ACCEPTED.
-  Future<void> acceptAllAssigned({List<String>? orderIds}) {
-    final targetIds = orderIds?.toSet();
-    return _runOptimisticOrderUpdate(
-      transform: (order) {
-        final match = targetIds == null || targetIds.contains(order.id);
-        if (match && order.deliveryTaskStatus == DeliveryTaskStatus.assigned) {
-          return order.copyWith(
-            deliveryTaskStatus: DeliveryTaskStatus.accepted,
-          );
-        }
-        return order;
-      },
-      remoteCall: () => ref
-          .read(orderRemoteDataSourceProvider)
-          .batchAcceptDeliveryTasks(orderIds: orderIds),
-    );
-  }
-
   /// 1-Swipe Depot Pickup: confirms physical package pickup for a group of orders
   /// and transitions them directly to OUT_FOR_DELIVERY.
   Future<void> confirmBatchPickup({
@@ -360,22 +341,6 @@ class DriverDispatchPlansNotifier
     state = await AsyncValue.guard(
       () => ref.read(orderRemoteDataSourceProvider).getDriverDispatchPlans(),
     );
-  }
-
-  Future<void> acknowledge(String planId) async {
-    await ref
-        .read(orderRemoteDataSourceProvider)
-        .acknowledgeDispatchPlan(planId);
-    await refresh();
-    await ref.read(driverOrdersProvider.notifier).refreshOrders();
-  }
-
-  Future<void> decline(String planId, String reason) async {
-    await ref
-        .read(orderRemoteDataSourceProvider)
-        .declineDispatchPlan(planId: planId, reason: reason);
-    await refresh();
-    await ref.read(driverOrdersProvider.notifier).refreshOrders();
   }
 }
 

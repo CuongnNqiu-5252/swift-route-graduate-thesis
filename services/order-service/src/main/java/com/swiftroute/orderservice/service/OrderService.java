@@ -65,6 +65,8 @@ public class OrderService {
     private final DeliveryZoneService deliveryZoneService;
     @org.springframework.beans.factory.annotation.Autowired
     private OperationalReadinessService operationalReadiness;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OrderStatusHistoryRecorder statusHistory;
 
     /**
      * Tạo vận đơn giao hàng mới (Delivery Waybill).
@@ -99,9 +101,6 @@ public class OrderService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
-        if (tenantIdFromHeader == null) {
-            throw new AppException(ErrorCode.TENANT_NOT_FOUND);
-        }
 
         Tenant tenant = tenantRepository.findById(tenantIdFromHeader)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
@@ -163,17 +162,8 @@ public class OrderService {
             }
         }
 
-        // Fallback về tọa độ của Tenant nếu không có pickup location
         if (pickupLat == null || pickupLng == null) {
-            if (tenant.getPickupLat() != null && tenant.getPickupLng() != null) {
-                pickupLat = tenant.getPickupLat();
-                pickupLng = tenant.getPickupLng();
-                if (pickupAddress == null || pickupAddress.isBlank()) {
-                    pickupAddress = tenant.getAddress();
-                }
-            } else {
-                throw new AppException(ErrorCode.VALIDATION_ERROR);
-            }
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
 
         // Xác định thông tin người gửi
@@ -191,19 +181,12 @@ public class OrderService {
                     : "";
         }
 
-        // Tính toán số tiền tổng (COD + phí ship nếu người nhận trả)
+        // Tính toán số tiền cần thu (COD)
         BigDecimal codAmount = request.codAmount() != null ? request.codAmount() : BigDecimal.ZERO;
-        BigDecimal declaredValue = request.declaredValue() != null ? request.declaredValue() : BigDecimal.ZERO;
-        BigDecimal deliveryFee = request.deliveryFee() != null ? request.deliveryFee() : BigDecimal.ZERO;
-        String payer = (request.payer() != null && !request.payer().isBlank()) ? request.payer().toUpperCase()
-                : "SENDER";
+        BigDecimal totalAmount = codAmount;
 
-        BigDecimal totalAmount = "RECIPIENT".equalsIgnoreCase(payer)
-                ? codAmount.add(deliveryFee)
-                : codAmount;
-
-        // Sinh mã tra cứu công khai URL-safe (12 ký tự)
-        String trackingToken = UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        // Sinh mã tra cứu công khai URL-safe (24 ký tự)
+        String trackingToken = UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase(Locale.ROOT);
 
         Order order = Order.builder()
                 .tenant(tenant)
@@ -228,15 +211,13 @@ public class OrderService {
                 .packageDescription(request.packageDescription())
                 .notes(request.notes())
                 .codAmount(codAmount)
-                .declaredValue(declaredValue)
-                .deliveryFee(deliveryFee)
-                .payer(payer)
                 .totalAmount(totalAmount)
                 .status(OrderStatus.READY_FOR_DISPATCH) // Sẵn sàng để điều phối lộ trình
                 .codStatus(codAmount.compareTo(BigDecimal.ZERO) > 0 ? "COD_PENDING" : "NOT_APPLICABLE")
                 .build();
 
         Order saved = orderRepository.saveAndFlush(order);
+        recordStatusChange(saved, null, OrderStatus.READY_FOR_DISPATCH, creatorUserId, creatorRole, "Tạo vận đơn mới");
         emitOrderStatusEvent(saved, null, OrderStatus.READY_FOR_DISPATCH);
         log.info("Waybill created: orderId={}, tenantId={}, trackingToken={}, recipient={}, codAmount={}",
                 saved.getId(), tenantIdFromHeader, trackingToken, request.recipientName(), codAmount);
@@ -527,6 +508,8 @@ public class OrderService {
         order.setUpdatedAt(Instant.now());
 
         Order saved = orderRepository.save(order);
+        recordStatusChange(saved, previous, OrderStatus.FAILED, requesterId, requesterRole,
+                joinReason(request.incidentType(), request.notes()));
         emitOrderStatusEvent(saved, previous, OrderStatus.FAILED);
         log.warn("Incident reported for order {}: type={}, notes={}", orderId, request.incidentType(), request.notes());
         return OrderResponse.fromEntity(saved);
@@ -556,14 +539,36 @@ public class OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         order.setStatus(OrderStatus.CANCELLED);
-        String cancelNote = "[HUỶ ĐƠN]: "
-                + (request != null && request.reason() != null ? request.reason() : "Khách hàng huỷ đơn");
+        String reason = request != null && request.reason() != null && !request.reason().isBlank()
+                ? request.reason().trim()
+                : "Khách hàng huỷ đơn";
+        String cancelNote = "[HUỶ ĐƠN]: " + reason;
         order.setNotes(cancelNote);
         order.setUpdatedAt(Instant.now());
 
         Order saved = orderRepository.save(order);
+        recordStatusChange(saved, previous, OrderStatus.CANCELLED, requesterId, requesterRole, reason);
         emitOrderStatusEvent(saved, previous, OrderStatus.CANCELLED);
         log.info("Order cancelled: orderId={}, reason={}", orderId, cancelNote);
         return OrderResponse.fromEntity(saved);
+    }
+
+    private void recordStatusChange(
+            Order order,
+            OrderStatus from,
+            OrderStatus to,
+            UUID actorId,
+            String role,
+            String reason) {
+        if (statusHistory != null) {
+            statusHistory.record(order, from, to, actorId, role, reason);
+        }
+    }
+
+    private static String joinReason(String type, String notes) {
+        if (notes != null && !notes.isBlank()) {
+            return type != null && !type.isBlank() ? type + ": " + notes.trim() : notes.trim();
+        }
+        return type;
     }
 }

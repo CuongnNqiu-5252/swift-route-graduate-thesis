@@ -1,6 +1,5 @@
 package com.swiftroute.driverservice.dto.event;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -17,5 +16,4 @@ public record DeliveryCompletedEvent(
         Double deliveryLat,
         Double deliveryLng,
         Double weightKg,
-        BigDecimal deliveryFee,
         Instant completedAt) {}

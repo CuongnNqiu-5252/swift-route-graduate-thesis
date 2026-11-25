@@ -15,10 +15,14 @@ interface RouteMapProps {
   overviewRoutes?: MapOverviewRoute[];
   selectedOverviewRouteId?: string | null;
   highlightedPlan?: MapPlanHighlight | null;
-  previewOverviewRoute?: MapOverviewRoute;
+  filterKey?: string;
+  showDeliveryStops?: boolean;
   showPlanDetails?: boolean;
+  isPlansOpen?: boolean;
   onSelectOverviewRoute?: (planId: string) => void;
+  onHoverOverviewPlan?: (highlight: MapPlanHighlight | null) => void;
   fleetDrivers?: MapDriverMarker[];
+  fleetOrigin?: MapDriverMarker;
   driver?: [number, number];
   driverName?: string;
   driverVehicle?: string;

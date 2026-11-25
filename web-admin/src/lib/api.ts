@@ -146,9 +146,14 @@ export async function refreshAccessToken(): Promise<string> {
   return payload.access_token;
 }
 
+function isPublicRequestPath(url?: string): boolean {
+  if (!url) return false;
+  return publicAuthPaths.has(url) || url.startsWith('/public/tracking/');
+}
+
 // Request interceptor: Attach current access token and tenant ID from localStorage
 function attachSession(config: InternalAxiosRequestConfig) {
-  if (typeof window !== 'undefined' && !publicAuthPaths.has(config.url ?? '')) {
+  if (typeof window !== 'undefined' && !isPublicRequestPath(config.url)) {
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -190,7 +195,7 @@ async function retryAfterUnauthorized(client: AxiosInstance, error: AxiosError) 
   const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
 
   const requestUrl = originalRequest?.url || '';
-  const isPublicAuthRequest = publicAuthPaths.has(requestUrl);
+  const isPublicAuthRequest = isPublicRequestPath(requestUrl);
 
   const status = error.response?.status;
 

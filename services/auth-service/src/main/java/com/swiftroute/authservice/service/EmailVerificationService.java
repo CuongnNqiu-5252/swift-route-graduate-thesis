@@ -53,9 +53,27 @@ public class EmailVerificationService {
     public void verify(String raw) {
         if (raw == null || raw.length() > 256) throw new AppException(ErrorCode.INVALID_VERIFICATION_TOKEN);
         var token = tokens.findByTokenHash(hash(raw)).orElseThrow(() -> new AppException(ErrorCode.INVALID_VERIFICATION_TOKEN));
+        var user = token.getUser();
+        if (user != null && user.isEmailVerified()) {
+            if (user.getStatus() == null || "PENDING_VERIFICATION".equals(user.getStatus())) {
+                user.setStatus("ACTIVE");
+                users.save(user);
+            }
+            return;
+        }
         int consumed = jdbc.update("UPDATE email_verification_tokens SET used_at=now() WHERE token_id=? AND used_at IS NULL AND expires_at > now()", token.getTokenId());
-        if (consumed != 1) throw new AppException(ErrorCode.INVALID_VERIFICATION_TOKEN);
-        var user = token.getUser(); user.setEmailVerified(true); user.setEmailVerifiedAt(java.time.LocalDateTime.now(java.time.Clock.systemUTC()));
+        if (consumed != 1) {
+            if (user != null && user.isEmailVerified()) {
+                return;
+            }
+            throw new AppException(ErrorCode.INVALID_VERIFICATION_TOKEN);
+        }
+        user.setEmailVerified(true);
+        user.setEmailVerifiedAt(java.time.LocalDateTime.now(java.time.Clock.systemUTC()));
+        // Only activate pending accounts; never reactivate suspended or locked accounts.
+        if (user.getStatus() == null || "PENDING_VERIFICATION".equals(user.getStatus())) {
+            user.setStatus("ACTIVE");
+        }
         users.save(user);
     }
 

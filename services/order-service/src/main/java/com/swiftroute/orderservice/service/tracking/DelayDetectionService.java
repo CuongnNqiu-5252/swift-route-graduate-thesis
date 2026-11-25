@@ -95,7 +95,7 @@ public class DelayDetectionService {
 
         for (Order order : remainingOrders) {
             double distKm = haversineKm(prevLat, prevLng, order.getDeliveryLat(), order.getDeliveryLng()) * ROAD_FACTOR;
-            double legMinutes = (distKm / URBAN_SPEED_KMH) * 60.0 + 3.0; // +3 min service time per stop
+            double legMinutes = (distKm / URBAN_SPEED_KMH) * 60.0 + 5.0; // +5 min service time per stop, aligned with RoutingEngine
             cumulativeMinutes += legMinutes;
 
             if (order.getTimeWindowEnd() != null) {

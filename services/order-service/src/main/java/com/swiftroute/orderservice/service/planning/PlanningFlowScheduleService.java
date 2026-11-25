@@ -184,6 +184,7 @@ public class PlanningFlowScheduleService {
                 INSERT INTO audit_logs (audit_id, tenant_id, aggregate_type, aggregate_id, action, actor_id, details, created_at)
                 VALUES (?, ?, 'PLANNING_FLOW', ?, ?, ?, CAST(? AS jsonb), ?)
                 """, id, tenant, tenant, details.outcome(), actor, json.writeValueAsString(details), Timestamp.from(startedAt));
+        com.swiftroute.orderservice.service.platform.AuditNotification.enqueue(jdbc, id);
         return toRun(id, startedAt, details);
     }
 

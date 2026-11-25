@@ -23,6 +23,7 @@ import { MemberPermissionsModal } from '@/components/members/member-permissions-
 import { RoleTemplatesPanel } from '@/components/members/role-templates-panel';
 import { extractApiErrorMessage } from '@/components/members/permission-utils';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Users,
@@ -50,6 +51,7 @@ export default function MembersPage() {
   const [catalog, setCatalog] = useState<PermissionCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusTarget, setStatusTarget] = useState<TenantMember | null>(null);
 
   // Invite modal state
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -171,17 +173,15 @@ export default function MembersPage() {
     const isSuspending = member.status === 'ACTIVE';
     const actionText = isSuspending ? t('khóa') : t('mở khóa');
 
-    if (!confirm(`Bạn có chắc chắn muốn ${actionText} tài khoản của "${member.full_name || member.email}"?`)) {
-      return;
-    }
-
     try {
       const targetStatus = isSuspending ? 'SUSPENDED' : 'ACTIVE';
       await memberRepository.updateMemberStatus(member.membership_id, targetStatus, tenantId);
       toast.success(`Đã ${actionText} tài khoản thành công!`);
       void fetchData();
+      return true;
     } catch (err: unknown) {
       toast.error(extractApiErrorMessage(err, `Không thể ${actionText} tài khoản.`));
+      return false;
     }
   };
 
@@ -202,6 +202,16 @@ export default function MembersPage() {
 
   return (
     <div className="space-y-6 p-6">
+      {statusTarget && (
+        <ConfirmationDialog
+          title={statusTarget.status === 'ACTIVE' ? t('Khoá tài khoản') : t('Mở khoá tài khoản')}
+          description={`${statusTarget.status === 'ACTIVE' ? t('Xác nhận khoá tài khoản:') : t('Xác nhận mở khoá tài khoản:')} ${statusTarget.full_name || statusTarget.email}`}
+          confirmLabel={statusTarget.status === 'ACTIVE' ? t('Khoá tài khoản') : t('Mở khoá tài khoản')}
+          destructive={statusTarget.status === 'ACTIVE'}
+          onCancel={() => setStatusTarget(null)}
+          onConfirm={() => handleToggleStatus(statusTarget)}
+        />
+      )}
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -367,7 +377,7 @@ export default function MembersPage() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => handleToggleStatus(member)}
+                                  onClick={() => setStatusTarget(member)}
                                   className={`h-8 gap-1.5 text-xs ${
                                     member.status === 'ACTIVE'
                                       ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50'
@@ -564,15 +574,43 @@ export default function MembersPage() {
             </div>
             <p className="mt-2 text-sm text-gray-600">
               {t('Đã tạo mã kích hoạt cho nhân viên')} <strong>{createdInviteLink.email}</strong>
-              {t('. Bạn có thể gửi mã hoặc đường dẫn sau để nhân viên kích hoạt tài khoản:')}
+              {t('. Bạn có thể gửi đường dẫn sau để nhân viên truy cập và tham gia doanh nghiệp:')}
             </p>
 
             <div className="mt-4 rounded-lg bg-gray-50 p-3 border border-gray-200">
               <label className="block text-xs font-semibold text-gray-500 mb-1">
-                {t('Mã kích hoạt (Token một lần):')}
+                {t('Đường dẫn tham gia (gửi cho nhân viên):')}
               </label>
               <div className="flex items-center justify-between gap-2">
                 <code className="text-xs font-mono text-blue-700 break-all select-all">
+                  {typeof window !== 'undefined'
+                    ? `${window.location.origin}/invitations?token=${createdInviteLink.token}`
+                    : `/invitations?token=${createdInviteLink.token}`}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    copyToClipboard(
+                      typeof window !== 'undefined'
+                        ? `${window.location.origin}/invitations?token=${createdInviteLink.token}`
+                        : `/invitations?token=${createdInviteLink.token}`
+                    )
+                  }
+                  className="flex-shrink-0 gap-1"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {t('Sao chép liên kết')}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-lg bg-gray-50 p-3 border border-gray-200">
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                {t('Mã kích hoạt (Token):')}
+              </label>
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-xs font-mono text-slate-700 break-all select-all">
                   {createdInviteLink.token}
                 </code>
                 <Button
@@ -582,7 +620,7 @@ export default function MembersPage() {
                   className="flex-shrink-0 gap-1"
                 >
                   <Copy className="h-3.5 w-3.5" />
-                  {t('Sao chép')}
+                  {t('Sao chép mã')}
                 </Button>
               </div>
             </div>

@@ -39,3 +39,7 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET:your_super_secret_key_change_in_production}
+
+recipient-notifications:
+  delivery-started:
+    enabled: ${RECIPIENT_DELIVERY_STARTED_ENABLED:false}

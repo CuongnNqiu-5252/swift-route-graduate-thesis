@@ -26,13 +26,17 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(this).addPathPatterns("/api/**");
+        registry.addInterceptor(this)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/public/tracking/**");
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String path = request.getRequestURI();
         if ("OPTIONS".equals(request.getMethod()))
+            return true;
+        if ("GET".equalsIgnoreCase(request.getMethod()) && path != null && path.startsWith("/api/public/tracking/"))
             return true;
         String auth = request.getHeader("Authorization");
         var claims = tokens.parseAndValidate(auth);

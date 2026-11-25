@@ -16,7 +16,7 @@ export class GoogleDriveAuthorizationError extends Error {
 }
 
 export async function downloadDriveCsv(selection: DriveCsvSelection, token: string, signal: AbortSignal) {
-  if (!/\.csv$/i.test(selection.name)) throw new Error('Hãy chọn một file .csv trên Google Drive.');
+  if (!/\.(csv|xlsx)$/i.test(selection.name)) throw new Error('Hãy chọn một file .xlsx hoặc .csv trên Google Drive.');
 
   const url = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(selection.id));
   url.search = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' }).toString();
@@ -37,8 +37,39 @@ export async function downloadDriveCsv(selection: DriveCsvSelection, token: stri
   }
   if (!response.ok || !response.body) throw new Error('Không thể tải file từ Google Drive. Vui lòng thử lại.');
 
-  const bytes = await readBounded(response, CSV_MAX_BYTES, 'File CSV vượt quá 512 KB.');
-  return new File([bytes], selection.name, { type: 'text/csv' });
+  const isXlsx = /\.xlsx$/i.test(selection.name);
+  const maxBytes = isXlsx ? 5 * 1024 * 1024 : CSV_MAX_BYTES;
+  const bytes = await readBounded(response, maxBytes, isXlsx ? 'File Excel vượt quá 5 MB.' : 'File CSV vượt quá 512 KB.');
+  return new File([bytes], selection.name, {
+    type: isXlsx ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
+  });
+}
+
+export async function exportSheetAsXlsx(selection: DriveCsvSelection, token: string, signal: AbortSignal) {
+  const url = new URL('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(selection.id) + '/export');
+  url.search = new URLSearchParams({
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }).toString();
+  const response = await fetch(url, {
+    headers: {
+      Authorization: 'Bearer ' + token,
+      ...(selection.resourceKey ? {
+        'X-Goog-Drive-Resource-Keys': selection.id + '/' + selection.resourceKey,
+      } : {}),
+    },
+    signal,
+  });
+  if (response.status === 401) {
+    throw new GoogleDriveAuthorizationError();
+  }
+  if (!response.ok || !response.body) {
+    throw new Error('Không thể xuất Google Sheets sang định dạng Excel (.xlsx).');
+  }
+  const bytes = await readBounded(response, 5 * 1024 * 1024, 'File Google Sheets vượt quá 5 MB.');
+  const fileName = selection.name.replace(/\.xlsx$/i, '') + '.xlsx';
+  return new File([bytes], fileName, {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
 }
 
 async function readBounded(response: Response, limit: number, message: string) {

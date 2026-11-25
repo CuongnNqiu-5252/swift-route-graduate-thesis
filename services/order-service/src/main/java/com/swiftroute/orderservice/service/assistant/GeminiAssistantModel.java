@@ -14,14 +14,15 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class GeminiAssistantModel {
+    private static final String MODEL = "gemini-3.5-flash";
+
     private final Client client;
     private final ChatModel model;
     private final GoogleGenAiChatOptions defaults;
 
-    public GeminiAssistantModel(@Value("${GEMINI_API_KEY:}") String apiKey,
-            @Value("${GEMINI_MODEL:gemini-3.1-flash-lite}") String modelName) {
+    public GeminiAssistantModel(@Value("${GEMINI_API_KEY:}") String apiKey) {
         client = apiKey.isBlank() ? null : Client.builder().apiKey(apiKey.trim()).build();
-        defaults = GoogleGenAiChatOptions.builder().model(modelName).maxOutputTokens(900).build();
+        defaults = GoogleGenAiChatOptions.builder().model(MODEL).maxOutputTokens(1200).build();
         model = client == null ? null : GoogleGenAiChatModel.builder()
                 .genAiClient(client)
                 .options(defaults)
@@ -34,7 +35,7 @@ public class GeminiAssistantModel {
 
     GoogleGenAiChatOptions toolSelectionOptions(List<ToolCallback> tools) {
         return defaults.mutate().toolCallbacks(tools)
-                .toolChoice(new ToolChoice(ToolChoice.Mode.ANY, List.of()))
+                .toolChoice(new ToolChoice(ToolChoice.Mode.AUTO, List.of()))
                 .maxOutputTokens(512)
                 .build();
     }

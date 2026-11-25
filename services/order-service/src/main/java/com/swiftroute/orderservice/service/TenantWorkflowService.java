@@ -6,7 +6,6 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -63,7 +62,7 @@ public class TenantWorkflowService {
             throw new AppException(ErrorCode.TENANT_ALREADY_EXISTS);
         Tenant tenant = Tenant.builder().ownerUserId(owner).businessName(request.businessName().trim())
                 .businessType(request.businessType())
-                .address(request.address().trim()).contactPhone(request.contactPhone().trim())
+                .contactPhone(request.contactPhone().trim())
                 .contactEmail(identity.get("email").toString())
                 .countryCode(request.countryCode()).status(TenantStatus.PENDING).build();
         tenant = tenants.saveAndFlush(tenant);
@@ -72,6 +71,8 @@ public class TenantWorkflowService {
                 owner, key, tenant.getId(), fingerprint);
         jdbc.update("INSERT INTO onboarding_progress(tenant_id) VALUES (?) ON CONFLICT DO NOTHING", tenant.getId());
         jdbc.update("INSERT INTO tenant_provisioning(tenant_id,owner_user_id) VALUES (?,?)", tenant.getId(), owner);
+        audit.save(AuditLog.builder().tenantId(tenant.getId()).aggregateType("TENANT_PROVISIONING")
+                .aggregateId(tenant.getId()).action("TENANT_CREATED").actorId(owner).details(Map.of()).build());
         emit(tenant, "tenant.created.v1", owner, Map.of());
         emit(tenant, "tenant.created", owner, Map.of()); // existing Auth consumers remain compatible
         return tenant;
@@ -82,16 +83,20 @@ public class TenantWorkflowService {
         return tenants.findById(id).orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
     }
 
-    public record Setup(String businessName, BusinessType businessType, String contactPhone, String address,
+    public record Setup(String businessName, BusinessType businessType, String contactPhone,
             String countryCode,
             DeliveryMode deliveryMode, Map<String, Object> deliverySettings) {
+        public Setup(String businessName, BusinessType businessType, String contactPhone, String ignoredAddress,
+                String countryCode, DeliveryMode deliveryMode, Map<String, Object> deliverySettings) {
+            this(businessName, businessType, contactPhone, countryCode, deliveryMode, deliverySettings);
+        }
     }
 
     @Transactional
     public Tenant configure(UUID id, Setup update) {
         Tenant tenant = find(id);
         boolean profileChange = update.businessName() != null || update.businessType() != null
-                || update.contactPhone() != null || update.address() != null || update.countryCode() != null;
+                || update.contactPhone() != null || update.countryCode() != null;
         boolean reviewing = jdbc.queryForObject(
                 "SELECT count(*) FROM tenant_verification_requests WHERE tenant_id=? AND status IN ('SUBMITTED','UNDER_REVIEW') AND closed_at IS NULL",
                 Integer.class, id) > 0;
@@ -109,19 +114,14 @@ public class TenantWorkflowService {
                 invalid();
             tenant.setContactPhone(update.contactPhone().trim());
         }
-        if (update.address() != null) {
-            if (update.address().trim().length() < 5 || update.address().length() > 500)
-                invalid();
-            tenant.setAddress(update.address().trim());
-        }
         if (update.countryCode() != null) {
             if (!update.countryCode().matches("[A-Z]{2}"))
                 invalid();
             tenant.setCountryCode(update.countryCode());
         }
-        if (update.deliveryMode() != null) {
-            tenant.setDeliveryMode(update.deliveryMode());
-        }
+        // Delivery is always performed by the tenant's own employed fleet. Keep the
+        // stored column for legacy compatibility, but normalize every edited profile.
+        tenant.setDeliveryMode(DeliveryMode.OWN_FLEET);
         if (update.deliverySettings() != null) {
             Map<String, Object> settings = new LinkedHashMap<>(tenant.getDeliverySettings());
             settings.remove("routing_approval_required");
@@ -164,8 +164,6 @@ public class TenantWorkflowService {
         LinkedHashMap<String, Boolean> steps = new LinkedHashMap<>();
         steps.put("BUSINESS_PROFILE", profileComplete(tenant));
         steps.put("PICKUP_POINT", readiness.hasPickup(tenant));
-        if (tenant.getDeliveryMode() == DeliveryMode.SHARED_POOL)
-            steps.put("DELIVERY_MODE", false);
         boolean submitted = jdbc.queryForObject(
                 "SELECT count(*) FROM tenant_verification_requests WHERE tenant_id=? AND status IN ('SUBMITTED','UNDER_REVIEW','APPROVED')",
                 Integer.class, id) > 0;
@@ -183,8 +181,8 @@ public class TenantWorkflowService {
     }
 
     private boolean profileComplete(Tenant t) {
-        return t.getBusinessName() != null && !t.getBusinessName().isBlank() && t.getAddress() != null
-                && !t.getAddress().isBlank() && t.getContactPhone() != null && !t.getContactPhone().isBlank()
+        return t.getBusinessName() != null && !t.getBusinessName().isBlank()
+                && t.getContactPhone() != null && !t.getContactPhone().isBlank()
                 && t.getCountryCode() != null;
     }
 
@@ -193,9 +191,7 @@ public class TenantWorkflowService {
         m.put("business_name", t.getBusinessName());
         m.put("business_type", t.getBusinessType());
         m.put("contact_phone", t.getContactPhone());
-        m.put("address", t.getAddress());
         m.put("country_code", t.getCountryCode());
-        m.put("delivery_mode", t.getDeliveryMode());
         m.put("delivery_settings", t.getDeliverySettings());
         return m;
     }
@@ -206,9 +202,6 @@ public class TenantWorkflowService {
         snapshot.put("pickup_points", jdbc.queryForList(
                 "SELECT id,name,address,lat,lng,contact_name,contact_phone,is_default FROM pickup_locations WHERE tenant_id=? AND status='ACTIVE' ORDER BY is_default DESC,created_at",
                 tenant.getId()));
-        if (tenant.getPickupLat() != null && tenant.getPickupLng() != null)
-            snapshot.put("legacy_pickup", Map.of("address", Objects.toString(tenant.getAddress(), ""), "lat",
-                    tenant.getPickupLat(), "lng", tenant.getPickupLng()));
         return snapshot;
     }
 
@@ -269,7 +262,7 @@ public class TenantWorkflowService {
                 id);
         if (!open.isEmpty() && !"CHANGES_REQUIRED".equals(open.getFirst().get("status")))
             return request((UUID) open.getFirst().get("request_id"));
-        if (!profileComplete(t) || !readiness.hasPickup(t) || t.getDeliveryMode() == DeliveryMode.SHARED_POOL)
+        if (!profileComplete(t) || !readiness.hasPickup(t))
             throw new AppException(ErrorCode.VERIFICATION_INCOMPLETE);
         // Close the prior changes-required attempt without deleting its snapshot or
         // decision.

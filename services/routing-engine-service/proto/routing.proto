@@ -70,7 +70,6 @@ message BatchOptimizationGrpcRequest {
 
 message BatchOptimizationGrpcResponse {
   string job_id = 1;
-  string algorithm_used = 2;
   double total_distance_km = 3;
   double total_duration_minutes = 4;
   repeated OrderedStopProto ordered_stops = 5;
@@ -99,7 +98,6 @@ message RouteInsertGrpcRequest {
 
 message RouteInsertGrpcResponse {
   string job_id = 1;
-  string algorithm_used = 2;
   bool feasible = 3;
   int32 inserted_stop_index = 4;
   double added_distance_km = 5;
@@ -123,8 +121,6 @@ message RouteReoptimizeGrpcRequest {
 
 message RouteReoptimizeGrpcResponse {
   string job_id = 1;
-  string algorithm_used = 2;
-  bool stops_changed = 3;
   double distance_saved_km = 4;
   double total_distance_km = 5;
   double total_duration_minutes = 6;
@@ -150,7 +146,6 @@ message WhatIfScenarioProto {
   double total_distance_km = 2;
   double completion_minutes = 3;
   int32 late_risk_orders = 4;
-  string algorithm_used = 5;
 }
 
 message WhatIfGrpcResponse {

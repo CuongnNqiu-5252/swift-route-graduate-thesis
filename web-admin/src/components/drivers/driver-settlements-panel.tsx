@@ -1,11 +1,12 @@
 'use client';
 
-import { FormEvent, Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Landmark, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLocale } from '@/i18n/provider';
 import { DriverEarning, DriverSettlement, SettlementStatus } from '@/domain/entities/earning.entity';
 import { earningRepository } from '@/infrastructure/repositories/earning.repository';
+import { maskAccountNumber } from '@/application/vietqr';
 import { Button } from '@/components/ui/button';
 import {
   formatPeriodDate,
@@ -13,6 +14,7 @@ import {
   formatVnd,
   getCurrentSettlementMonthRange,
 } from './driver-formatters';
+import { SettlementVietQrModal } from './settlement-vietqr-modal';
 
 interface DriverSettlementsPanelProps {
   earnings: DriverEarning[];
@@ -20,6 +22,7 @@ interface DriverSettlementsPanelProps {
   loading: boolean;
   error: string | null;
   onReload: () => Promise<void>;
+  onBankAccountUpdated?: () => Promise<void>;
 }
 
 type StatusFilter = 'ALL' | SettlementStatus;
@@ -46,12 +49,11 @@ export function DriverSettlementsPanel({
   loading,
   error,
   onReload,
+  onBankAccountUpdated,
 }: DriverSettlementsPanelProps) {
   const { t, intlLocale } = useLocale();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [payingId, setPayingId] = useState<string | null>(null);
-  const [paymentReference, setPaymentReference] = useState('');
-  const [paymentError, setPaymentError] = useState('');
+  const [payingSettlement, setPayingSettlement] = useState<DriverSettlement | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
@@ -143,39 +145,6 @@ export function DriverSettlementsPanel({
       await onReload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('Không thể duyệt'));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  function startPay(id: string) {
-    setPayingId(id);
-    setPaymentReference('');
-    setPaymentError('');
-  }
-
-  function cancelPay() {
-    setPayingId(null);
-    setPaymentReference('');
-    setPaymentError('');
-  }
-
-  async function submitPay(event: FormEvent<HTMLFormElement>, id: string) {
-    event.preventDefault();
-    const reference = paymentReference.trim();
-    if (!reference) {
-      setPaymentError(t('Vui lòng nhập mã tham chiếu thanh toán.'));
-      return;
-    }
-    setBusyId(id);
-    setPaymentError('');
-    try {
-      await earningRepository.markPaid(id, reference);
-      toast.success(t('Đã xác nhận thanh toán'));
-      cancelPay();
-      await onReload();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('Không thể xác nhận thanh toán'));
     } finally {
       setBusyId(null);
     }
@@ -359,8 +328,8 @@ export function DriverSettlementsPanel({
                   const entries = earningsBySettlement.get(item.id) || [];
                   const expandKey = `settlement:${item.id}`;
                   const isExpanded = expandedKey === expandKey;
-                  const isPaying = payingId === item.id;
                   const exactPeriodTooltip = `${formatPeriodDateTime(item.period_start, intlLocale)} – ${formatPeriodDateTime(item.period_end, intlLocale)}`;
+                  const hasBank = Boolean(item.driver_bank_code && item.driver_bank_account_number);
 
                   return (
                     <Fragment key={item.id}>
@@ -380,9 +349,19 @@ export function DriverSettlementsPanel({
                             ) : null}
                             <div>
                               <p className="font-medium text-slate-950">{item.driver_name}</p>
-                              <p className="mt-0.5 text-xs tabular-nums text-slate-500">
-                                {item.earning_count} {t('khoản')}
-                              </p>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs tabular-nums text-slate-500">
+                                <span>
+                                  {item.earning_count} {t('khoản')}
+                                </span>
+                                {hasBank ? (
+                                  <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+                                    <Landmark size={11} />
+                                    {item.driver_bank_code} · {maskAccountNumber(item.driver_bank_account_number)}
+                                  </span>
+                                ) : item.status === 'APPROVED' ? (
+                                  <span className="text-[11px] text-amber-700">{t('Chưa có STK')}</span>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -413,11 +392,11 @@ export function DriverSettlementsPanel({
                           {item.status === 'APPROVED' && (
                             <Button
                               size="sm"
-                              variant={isPaying ? 'outline' : 'default'}
                               disabled={busyId === item.id}
-                              onClick={() => (isPaying ? cancelPay() : startPay(item.id))}
+                              onClick={() => setPayingSettlement(item)}
                             >
-                              {isPaying ? t('Đóng') : t('Xác nhận đã trả')}
+                              <QrCode size={14} />
+                              {t('Chi trả')}
                             </Button>
                           )}
                           {item.status === 'PAID' && (
@@ -435,52 +414,6 @@ export function DriverSettlementsPanel({
                         </td>
                       </tr>
 
-                      {isPaying && (
-                        <tr className="bg-slate-50/90">
-                          <td colSpan={5} className="px-5 py-3.5">
-                            <form
-                              onSubmit={(event) => void submitPay(event, item.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Escape') cancelPay();
-                              }}
-                              className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
-                            >
-                              <div className="min-w-0 flex-1 sm:max-w-md">
-                                <label
-                                  htmlFor={`payment-ref-${item.id}`}
-                                  className="block text-xs font-medium text-slate-700"
-                                >
-                                  {t('Mã tham chiếu thanh toán')} ({item.driver_name} ·{' '}
-                                  <span className="tabular-nums">{formatVnd(item.total_amount, intlLocale)}</span>)
-                                </label>
-                                <input
-                                  id={`payment-ref-${item.id}`}
-                                  type="text"
-                                  autoFocus
-                                  maxLength={120}
-                                  value={paymentReference}
-                                  onChange={(event) => {
-                                    setPaymentReference(event.target.value);
-                                    if (paymentError) setPaymentError('');
-                                  }}
-                                  placeholder={t('VD: VCB-FT2631800123')}
-                                  className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                />
-                                {paymentError && <p className="mt-1 text-xs text-red-600">{paymentError}</p>}
-                              </div>
-                              <div className="flex shrink-0 gap-2">
-                                <Button type="button" size="sm" variant="outline" onClick={cancelPay} disabled={busyId === item.id}>
-                                  {t('Hủy')}
-                                </Button>
-                                <Button type="submit" size="sm" isLoading={busyId === item.id}>
-                                  {t('Xác nhận thanh toán')}
-                                </Button>
-                              </div>
-                            </form>
-                          </td>
-                        </tr>
-                      )}
-
                       {isExpanded && entries.length > 0 && (
                         <tr>
                           <td colSpan={5} className="p-0">
@@ -496,6 +429,17 @@ export function DriverSettlementsPanel({
           </table>
         </div>
       </section>
+      <SettlementVietQrModal
+        settlement={payingSettlement}
+        onClose={() => setPayingSettlement(null)}
+        onPaid={onReload}
+        onBankAccountUpdated={async () => {
+          await onReload();
+          if (onBankAccountUpdated) {
+            await onBankAccountUpdated();
+          }
+        }}
+      />
     </div>
   );
 }

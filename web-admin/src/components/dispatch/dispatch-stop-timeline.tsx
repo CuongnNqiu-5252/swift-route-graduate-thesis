@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Clock, MapPin, Package, Route, UserRound, Warehouse, X } from 'lucide-react';
 import { Driver } from '@/domain/entities/driver.entity';
 import { ORDER_STATUS_LABEL, Order, OrderStatus } from '@/domain/entities/order.entity';
@@ -18,6 +18,8 @@ interface DispatchStopTimelineProps {
   orders: Order[];
   driver?: Driver;
   routeColor?: string;
+  highlightedStopId?: string;
+  onHighlightStop?: (stopId?: string) => void;
   onClose: () => void;
 }
 
@@ -77,14 +79,22 @@ export function DispatchStopTimeline({
   orders,
   driver,
   routeColor = '#2563eb',
+  highlightedStopId,
+  onHighlightStop,
   onClose,
 }: DispatchStopTimelineProps) {
   const { t, intlLocale } = useLocale();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (plan.dispatched_at) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [plan.dispatched_at]);
 
   const ordersById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
   const waypointTimings = useMemo(() => parseWaypointTimings(plan.route_waypoints), [plan.route_waypoints]);
 
-  const departureMs = getPlanStartTime(plan) ?? null;
+  const departureMs = getPlanStartTime(plan, now) ?? null;
 
   const formatTime = (ms: number) =>
     new Date(ms).toLocaleTimeString(intlLocale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
@@ -92,7 +102,7 @@ export function DispatchStopTimeline({
   return (
     <aside
       aria-label={`${t('Chi tiết lộ trình')} #${plan.plan_id.slice(0, 8)}`}
-      className="pointer-events-auto absolute bottom-12 right-2 top-3 z-30 flex w-[23rem] max-w-[calc(100%-1rem)] flex-col overflow-hidden rounded-xl bg-white shadow-xl sm:right-14"
+      className="pointer-events-auto absolute bottom-3 right-2 top-3 z-30 flex w-[23rem] max-w-[calc(100%-1rem)] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-md transition-all duration-200 sm:right-14"
     >
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-3 sm:px-4">
@@ -108,7 +118,7 @@ export function DispatchStopTimeline({
             </h2>
           </div>
           {(plan.plan_status !== 'DRAFT' || plan.driver_id) && (
-            <PlanStatusBadge status={plan.plan_status} acknowledgedAt={plan.acknowledged_at} />
+            <PlanStatusBadge status={plan.plan_status} />
           )}
         </div>
         <Button
@@ -152,11 +162,7 @@ export function DispatchStopTimeline({
               ? `${driver.name}${driver.vehicle_plate ? ` · ${driver.vehicle_plate}` : ''}`
               : t('Chưa gán tài xế')}
           </span>
-          {plan.algorithm_used && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
-              {plan.algorithm_used}
-            </span>
-          )}
+
         </div>
       </div>
 
@@ -194,20 +200,42 @@ export function DispatchStopTimeline({
                 ? formatTime(departureMs + Math.round(etaMinutes) * 60_000)
                 : null;
             const isLast = index === stops.length - 1;
+            const isHighlighted = highlightedStopId === stop.id;
 
             return (
-              <li key={stop.id} className="relative flex gap-3">
+              <li
+                key={stop.id}
+                onPointerEnter={(event) => {
+                  if (event.pointerType !== 'touch') onHighlightStop?.(stop.id);
+                }}
+                onPointerLeave={(event) => {
+                  if (event.pointerType !== 'touch') onHighlightStop?.(undefined);
+                }}
+                onFocus={() => onHighlightStop?.(stop.id)}
+                onBlur={() => onHighlightStop?.(undefined)}
+                className="relative flex gap-3"
+              >
                 <div className="flex flex-col items-center">
                   <span
-                    className="flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-                    style={{ backgroundColor: routeColor }}
+                    className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white transition-transform duration-150 ${isHighlighted ? 'scale-120' : ''}`}
+                    style={{
+                      backgroundColor: routeColor,
+                      boxShadow: isHighlighted ? `0 0 0 4px ${routeColor}3d` : undefined,
+                    }}
                   >
                     {index + 1}
                   </span>
                   {!isLast && <span className="mt-1 w-0.5 flex-1 bg-slate-200" aria-hidden="true" />}
                 </div>
 
-                <div className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white p-2.5">
+                <div
+                  className={`min-w-0 flex-1 rounded-xl border p-2.5 transition-all duration-150 ${
+                    isHighlighted
+                      ? 'border-slate-400 shadow-md'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                  style={isHighlighted ? { backgroundColor: `color-mix(in srgb, ${routeColor} 7%, white)`, borderColor: routeColor } : undefined}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-1.5">
                     <span className="flex items-center gap-1 font-mono text-xs font-semibold text-slate-950">
                       <Package size={12} className="shrink-0 text-slate-400" aria-hidden="true" />

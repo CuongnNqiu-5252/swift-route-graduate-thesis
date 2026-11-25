@@ -3,13 +3,21 @@ package com.swiftroute.orderservice.controller;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.orderservice.dto.request.AssignPackageHandoverRequest;
 import com.swiftroute.orderservice.dto.request.CreatePackageHandoverRequest;
 import com.swiftroute.orderservice.dto.request.HandoverActionRequest;
 import com.swiftroute.orderservice.dto.request.HandoverDecisionRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
+import com.swiftroute.orderservice.dto.response.PackageHandoverResponse;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.service.PackageCustodyService;
@@ -39,12 +47,13 @@ public class PackageCustodyController {
     }
 
     @PostMapping("/handovers")
-    public ResponseEntity<ApiResponse<?>> create(
+    public ResponseEntity<ApiResponse<PackageHandoverResponse>> create(
             @Valid @RequestBody CreatePackageHandoverRequest request,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestAttribute("authorizedUserId") UUID userId,
             @RequestAttribute("effectiveRole") String role) {
-        return ResponseEntity.ok(ApiResponse.success(custody.createHandover(requireTenantId(tenantId), userId, role, request)));
+        return ResponseEntity
+                .ok(ApiResponse.success(custody.createHandover(requireTenantId(tenantId), userId, role, request)));
     }
 
     @PatchMapping("/handovers/{id}/assign")
@@ -54,7 +63,8 @@ public class PackageCustodyController {
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestAttribute("authorizedUserId") UUID userId,
             @RequestAttribute("effectiveRole") String role) {
-        return ResponseEntity.ok(ApiResponse.success(custody.assign(id, requireTenantId(tenantId), userId, role, request)));
+        return ResponseEntity
+                .ok(ApiResponse.success(custody.assign(id, requireTenantId(tenantId), userId, role, request)));
     }
 
     @PatchMapping("/handovers/{id}/receiver-confirm")
@@ -64,7 +74,8 @@ public class PackageCustodyController {
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestAttribute("authorizedUserId") UUID userId,
             @RequestAttribute("effectiveRole") String role) {
-        return ResponseEntity.ok(ApiResponse.success(custody.receiverConfirm(id, requireTenantId(tenantId), userId, role, notes(request))));
+        return ResponseEntity.ok(ApiResponse
+                .success(custody.receiverConfirm(id, requireTenantId(tenantId), userId, role, notes(request))));
     }
 
     @PatchMapping("/handovers/{id}/reject")

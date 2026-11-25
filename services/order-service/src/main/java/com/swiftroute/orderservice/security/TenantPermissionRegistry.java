@@ -187,6 +187,8 @@ public class TenantPermissionRegistry {
         }
 
         if (path.equals("/api/orders/import")
+                || path.equals("/api/orders/import/file")
+                || path.equals("/api/orders/import/file/preview")
                 || path.equals("/api/orders/import/pending")
                 || path.equals("/api/orders/import/pending/complete")
                 || path.equals("/api/orders/import/pending/cancel")) {

@@ -82,6 +82,9 @@ public class ExceptionOperationsService {
     private final OutboxEventRepository outboxEvents;
     private final ObjectMapper objectMapper;
     private final CodLedgerService codLedger;
+    private final RecipientDeliveryEvents recipientDeliveryEvents;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OrderStatusHistoryRecorder statusHistory;
 
     // =========================================================================
     // 1. DELIVERY INCIDENTS MANAGEMENT
@@ -156,8 +159,8 @@ public class ExceptionOperationsService {
             }
         }
 
-        boolean pureDelayOnRoute = Set.of("TRAFFIC_CONGESTION", "WEATHER_DELAY").contains(normalizedType)
-                && Boolean.TRUE.equals(request.canContinueDelivery());
+        // Traffic and weather delays are route advisories and do not mark the delivery attempt as FAILED.
+        boolean pureDelayOnRoute = Set.of("TRAFFIC_CONGESTION", "WEATHER_DELAY").contains(normalizedType);
 
         // Determine delivery impact: any order-level delivery blocker (unreachable, wrong address, refused, damaged, etc.)
         // marks the current delivery task and attempt for this order as FAILED, even if the driver can continue delivering other orders.
@@ -185,7 +188,11 @@ public class ExceptionOperationsService {
             deliveryAttempts.save(attempt);
 
             if (order.getStatus() != OrderStatus.RETURNING) {
+                OrderStatus previous = order.getStatus();
                 order.setStatus(OrderStatus.FAILED);
+                recordStatusChange(order, previous, OrderStatus.FAILED, reporterId, role,
+                        joinReason(request.incidentType(), request.notes()));
+                recipientDeliveryEvents.recordResult(attempt);
             }
             order.setUpdatedAt(Instant.now());
         }
@@ -204,8 +211,6 @@ public class ExceptionOperationsService {
                 .severity(request.severity() != null ? request.severity().toUpperCase(Locale.ROOT) : "MEDIUM")
                 .notes(request.notes())
                 .evidenceUrls(evidenceUrlsStr)
-                .canContinueDelivery(Boolean.TRUE.equals(request.canContinueDelivery()))
-                .needsImmediateAssistance(Boolean.TRUE.equals(request.needsImmediateAssistance()))
                 .status("OPEN")
                 .build();
 
@@ -287,9 +292,12 @@ public class ExceptionOperationsService {
         switch (resType) {
             case "CONTINUE_DELIVERY" -> {
                 if (order != null) {
+                    OrderStatus previous = order.getStatus();
                     execution.resumeDeliveryAfterIncident(order, order.getAssignedDriverId());
                     order.setStatus(OrderStatus.IN_TRANSIT);
                     order.setUpdatedAt(Instant.now());
+                    recordStatusChange(order, previous, OrderStatus.IN_TRANSIT, actorId, role,
+                            nonBlankOrDefault(request.notes(), "Tiếp tục giao hàng sau sự cố"));
                 }
                 incident.setStatus("RESOLVED");
                 incident.setResolvedBy(actorId);
@@ -323,16 +331,18 @@ public class ExceptionOperationsService {
             }
             case "REQUEST_RETURN" -> {
                 if (order != null) {
+                    OrderStatus previous = order.getStatus();
                     execution.markDeliveryTaskFailed(order, order.getAssignedDriverId());
                     order.setStatus(OrderStatus.FAILED);
                     order.setUpdatedAt(Instant.now());
+                    recordStatusChange(order, previous, OrderStatus.FAILED, actorId, role,
+                            nonBlankOrDefault(request.notes(), "Chuyển sang quy trình hoàn hàng"));
                     if (returns.existsByOrder_IdAndStatusIn(order.getId(), ACTIVE_RETURN_STATUSES)) {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                     }
                     createReturnRequest(tenantId, actorId, role, new CreateReturnRequest(
                             order.getId(),
                             incident.getId(),
-                            "RETURN_TO_ORIGIN",
                             request.notes() != null ? request.notes() : "Sự cố giao hàng yêu cầu hoàn trả",
                             null,
                             request.notes(),
@@ -421,7 +431,6 @@ public class ExceptionOperationsService {
                 .tenantId(tenantId)
                 .returnLocation(returnLocation)
                 .currentHolderId(holderId)
-                .requestType(request.requestType() != null ? request.requestType() : "RETURN_TO_ORIGIN")
                 .reason(request.reason())
                 .status("REQUESTED")
                 .requestedBy(actorId)
@@ -516,15 +525,6 @@ public class ExceptionOperationsService {
         returnReq.setApprovedBy(actorId);
         returnReq.setUpdatedAt(Instant.now());
 
-        if ("REDELIVERY".equalsIgnoreCase(returnReq.getRequestType())) {
-            execution.reactivateForRedelivery(order, driverId);
-            returnReq.setStatus("COMPLETED");
-            returnReq.setCompletionNotes("Đã lên lịch giao lại");
-            returnReq.setReceivedBy(actorId);
-            returnReq.setReceivedAt(Instant.now());
-            return ReturnRequestResponse.from(returnReq);
-        }
-
         // Normal return custody execution
         execution.markDeliveryTaskFailed(order, driverId);
         order.setAssignedDriverId(driverId);
@@ -534,8 +534,11 @@ public class ExceptionOperationsService {
         returnReq.setCurrentHolderId(driverId);
         returnReq.setStatus("IN_EXECUTION");
 
+        OrderStatus previous = order.getStatus();
         order.setStatus(OrderStatus.RETURNING);
         order.setUpdatedAt(Instant.now());
+        recordStatusChange(order, previous, OrderStatus.RETURNING, actorId, role,
+                "Duyệt yêu cầu hoàn hàng về kho");
         execution.completeDeliveryPlanIfFinished(order);
 
         emitOutbox("return.approved", tenantId, returnReq.getId(), Map.of(
@@ -642,19 +645,27 @@ public class ExceptionOperationsService {
         ReturnRequest returnReq = returns.findByIdAndTenantId(id, tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-        if (!Set.of("IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED").contains(returnReq.getStatus())) {
+        if (!Set.of("IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED", "DISCREPANCY")
+                .contains(returnReq.getStatus())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+
+        boolean resolvingDiscrepancy = "DISCREPANCY".equals(returnReq.getStatus());
+        String cleanedNotes = notes == null || notes.isBlank() ? null : notes.trim();
+        // Require a documented resolution note when closing an active discrepancy return.
+        if (resolvingDiscrepancy && cleanedNotes == null) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
 
         Order order = returnReq.getOrder();
 
         // Authoritative custody release: driver is no longer responsible
-        custody.receiveReturn(order, receiverId, notes);
+        custody.receiveReturn(order, receiverId, cleanedNotes);
 
         returnReq.setStatus("COMPLETED");
         returnReq.setReceivedBy(receiverId);
         returnReq.setReceivedAt(Instant.now());
-        returnReq.setCompletionNotes(notes);
+        returnReq.setCompletionNotes(cleanedNotes);
         returnReq.setCurrentHolderId(null);
         returnReq.setUpdatedAt(Instant.now());
 
@@ -662,22 +673,30 @@ public class ExceptionOperationsService {
             returnReq.getReturnTask().setStatus(DeliveryTaskStatus.COMPLETED);
         }
 
+        OrderStatus previous = order.getStatus();
         order.setStatus(OrderStatus.RETURNED);
         order.setUpdatedAt(Instant.now());
+        String historyReason = resolvingDiscrepancy
+                ? "Chốt xử lý chênh lệch & nhập kho: " + cleanedNotes
+                : nonBlankOrDefault(cleanedNotes, "Kho xác nhận đã nhận lại hàng hoàn");
+        recordStatusChange(order, previous, OrderStatus.RETURNED, receiverId, role, historyReason);
         execution.completeDeliveryPlanIfFinished(order);
 
         // Resolve linked incident if open
         if (returnReq.getIncident() != null) {
             DeliveryIncident inc = returnReq.getIncident();
+            String resolutionType = resolvingDiscrepancy ? "RETURN_DISCREPANCY_RESOLVED" : "RETURN_COMPLETED";
             inc.setStatus("RESOLVED");
-            inc.setResolutionType("RETURN_COMPLETED");
+            inc.setResolutionType(resolutionType);
             inc.setResolvedBy(receiverId);
             inc.setResolvedAt(Instant.now());
-            inc.setResolutionNotes("Đã nhận hàng hoàn tại kho: " + (notes != null ? notes : ""));
+            inc.setResolutionNotes((resolvingDiscrepancy
+                    ? "Đã chốt xử lý chênh lệch và nhận kho: "
+                    : "Đã nhận hàng hoàn tại kho: ") + (cleanedNotes != null ? cleanedNotes : ""));
             emitOutbox("incident.resolved", tenantId, inc.getId(), Map.of(
                     "tenant_id", tenantId,
                     "incident_id", inc.getId(),
-                    "resolution_type", "RETURN_COMPLETED",
+                    "resolution_type", resolutionType,
                     "status", "RESOLVED",
                     "resolved_by", receiverId
             ));
@@ -687,10 +706,12 @@ public class ExceptionOperationsService {
                 "return_request_id", returnReq.getId(),
                 "order_id", order.getId(),
                 "received_by", receiverId,
+                "resolved_discrepancy", resolvingDiscrepancy,
                 "status", "COMPLETED"
         ));
 
-        log.info("Return receipt confirmed by {}: returnId={}, orderId={}", receiverId, returnReq.getId(), order.getId());
+        log.info("Return receipt confirmed by {}: returnId={}, orderId={}, resolvedDiscrepancy={}",
+                receiverId, returnReq.getId(), order.getId(), resolvingDiscrepancy);
 
         return ReturnRequestResponse.from(returnReq);
     }
@@ -720,7 +741,6 @@ public class ExceptionOperationsService {
         order.setUpdatedAt(Instant.now());
         returnReq.setStatus("DISCREPANCY");
         returnReq.setDiscrepancyType(request.discrepancyType().toUpperCase(Locale.ROOT));
-        returnReq.setActualQuantity(request.actualQuantity());
         returnReq.setDiscrepancyNotes(request.discrepancyNotes());
         returnReq.setDiscrepancyEvidenceUrl(request.evidenceUrl());
         returnReq.setUpdatedAt(Instant.now());
@@ -834,8 +854,6 @@ public class ExceptionOperationsService {
                         i.getSeverity(),
                         i.getStatus(),
                         i.getNotes(),
-                        i.getCanContinueDelivery() != null && i.getCanContinueDelivery(),
-                        i.getNeedsImmediateAssistance() != null && i.getNeedsImmediateAssistance(),
                         i.getCreatedAt()))
                 .toList();
 
@@ -846,7 +864,6 @@ public class ExceptionOperationsService {
                         r.getId(),
                         r.getOrder() != null ? r.getOrder().getId() : null,
                         r.getOrder() != null ? r.getOrder().getExternalOrderCode() : null,
-                        r.getRequestType(),
                         r.getReason(),
                         r.getStatus(),
                         r.getCurrentHolderId() != null
@@ -899,6 +916,29 @@ public class ExceptionOperationsService {
 
     private boolean isOperator(String role) {
         return OPERATOR_ROLES.contains(role == null ? "" : role.toUpperCase(Locale.ROOT));
+    }
+
+    private void recordStatusChange(
+            Order order,
+            OrderStatus from,
+            OrderStatus to,
+            UUID actorId,
+            String role,
+            String reason) {
+        if (statusHistory != null) {
+            statusHistory.record(order, from, to, actorId, role, reason);
+        }
+    }
+
+    private static String joinReason(String type, String notes) {
+        if (notes != null && !notes.isBlank()) {
+            return type != null && !type.isBlank() ? type + ": " + notes.trim() : notes.trim();
+        }
+        return type;
+    }
+
+    private static String nonBlankOrDefault(String value, String fallback) {
+        return value != null && !value.isBlank() ? value.trim() : fallback;
     }
 
     private void emitOutbox(String eventType, UUID tenantId, UUID aggregateId, Map<String, Object> payload) {

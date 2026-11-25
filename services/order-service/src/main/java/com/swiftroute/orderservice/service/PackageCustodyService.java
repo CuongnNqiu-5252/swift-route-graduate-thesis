@@ -14,14 +14,12 @@ import com.swiftroute.orderservice.dto.request.AssignPackageHandoverRequest;
 import com.swiftroute.orderservice.dto.request.CreatePackageHandoverRequest;
 import com.swiftroute.orderservice.dto.response.PackageHandoverResponse;
 import com.swiftroute.orderservice.entity.Order;
-import com.swiftroute.orderservice.entity.PackageCustodyEvent;
 import com.swiftroute.orderservice.entity.PackageHandover;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.OrderRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
-import com.swiftroute.orderservice.repository.PackageCustodyEventRepository;
 import com.swiftroute.orderservice.repository.PackageHandoverRepository;
 import com.swiftroute.orderservice.service.planning.DispatchOrchestrationService;
 
@@ -35,7 +33,6 @@ public class PackageCustodyService {
             "SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR", "WAREHOUSE_STAFF",
             "TENANT_OWNER", "MANAGER", "STAFF");
 
-    private final PackageCustodyEventRepository custodyEvents;
     private final PackageHandoverRepository handovers;
     private final OrderRepository orders;
     private final ReturnRequestRepository returns;
@@ -47,7 +44,7 @@ public class PackageCustodyService {
         requireAssignedDriver(order, driverId);
         requireNoActiveHandover(order);
         if (!holdsOrder(order)) {
-            record(order, "PICKUP_CONFIRMED", null, driverId, null, driverId, "Tài xế xác nhận lấy hàng");
+            order.setCustodianDriverId(driverId);
         }
     }
 
@@ -55,7 +52,7 @@ public class PackageCustodyService {
     public void releaseAtDelivery(Order order, UUID driverId) {
         requireHeldOrder(order, driverId);
         requireNoActiveHandover(order);
-        record(order, "DELIVERY_RELEASED", driverId, null, null, driverId, "Giao hàng thành công");
+        order.setCustodianDriverId(null);
     }
 
     @Transactional
@@ -63,14 +60,14 @@ public class PackageCustodyService {
         UUID driverId = order.getAssignedDriverId();
         requireAssignedDriver(order, driverId);
         requireNoActiveHandover(order);
-        record(order, "RETURN_STARTED", driverId, driverId, null, actorId, "Yêu cầu hoàn hàng được duyệt");
+        order.setCustodianDriverId(driverId);
     }
 
     @Transactional
     public void receiveReturn(Order order, UUID actorId, String notes) {
         UUID driverId = order.getAssignedDriverId();
         requireReturnCustody(order, driverId);
-        record(order, "RETURN_RECEIVED", driverId, null, null, actorId, notes);
+        order.setCustodianDriverId(null);
     }
 
     public void requireReturnCustody(Order order, UUID driverId) {
@@ -82,9 +79,7 @@ public class PackageCustodyService {
     }
 
     public boolean holdsOrder(Order order) {
-        return custodyEvents.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId())
-                .map(event -> event.getToCustodianId() != null)
-                .orElse(false);
+        return order.getCustodianDriverId() != null;
     }
 
     public void requireNoActiveHandover(Order order) {
@@ -101,8 +96,7 @@ public class PackageCustodyService {
 
     private void requireHeldOrder(Order order, UUID driverId) {
         requireAssignedDriver(order, driverId);
-        if (!custodyEvents.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId())
-                .map(event -> driverId.equals(event.getToCustodianId())).orElse(false)) {
+        if (!driverId.equals(order.getCustodianDriverId())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
     }
@@ -177,7 +171,7 @@ public class PackageCustodyService {
                     request.setCurrentHolderId(driverId);
                     request.setUpdatedAt(now);
                 });
-        record(order, "HANDOVER_COMPLETED", handover.getFromDriverId(), driverId, handover.getId(), driverId, notes);
+        order.setCustodianDriverId(driverId);
         handover.setStatus("COMPLETED");
         handover.setCompletedAt(now);
         handover.setUpdatedAt(now);
@@ -254,26 +248,6 @@ public class PackageCustodyService {
             throw new AppException(ErrorCode.ORDER_ACCESS_DENIED);
         }
         return handover;
-    }
-
-    private void record(
-            Order order,
-            String type,
-            UUID from,
-            UUID to,
-            UUID handoverId,
-            UUID actor,
-            String reason) {
-        custodyEvents.save(PackageCustodyEvent.builder()
-                .order(order)
-                .tenantId(order.getTenant().getId())
-                .eventType(type)
-                .fromCustodianId(from)
-                .toCustodianId(to)
-                .handoverId(handoverId)
-                .actorId(actor)
-                .reason(reason)
-                .build());
     }
 
     private boolean isOperator(String role) {

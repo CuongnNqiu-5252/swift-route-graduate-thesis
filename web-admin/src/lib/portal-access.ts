@@ -18,5 +18,5 @@ export function isSystemAdmin(roleOrUser?: RoleContext): boolean {
 }
 
 export function portalHome(roleOrUser?: RoleContext): string {
-  return isSystemAdmin(roleOrUser) ? '/admin/tenant-verifications' : '/organizations';
+  return isSystemAdmin(roleOrUser) ? '/admin' : '/organizations';
 }

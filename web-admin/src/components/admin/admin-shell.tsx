@@ -7,7 +7,8 @@ import { accountRoleLabel } from '@/domain/entities/member.entity';
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ClipboardCheck, LogOut, Menu, ShieldCheck, X } from 'lucide-react';
+import { ClipboardCheck, LogOut, Menu, ShieldCheck, X, LayoutDashboard, ScrollText } from 'lucide-react';
+import { PlatformConnection } from './platform-live-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -20,11 +21,13 @@ interface AdminShellProps {
 }
 
 const ADMIN_NAV_ITEMS = [
+  { href: '/admin', label: 'Tổng quan nền tảng', icon: LayoutDashboard },
   {
     href: '/admin/tenant-verifications',
     label: 'Xét duyệt doanh nghiệp',
     icon: ClipboardCheck,
   },
+  { href: '/admin/audit', label: 'Nhật ký hoạt động', icon: ScrollText },
 ];
 
 export function AdminShell({
@@ -54,7 +57,7 @@ export function AdminShell({
         <nav aria-label={t("Điều hướng quản trị hệ thống")} className="flex-1 px-3 py-4">
           <ul className="space-y-1">
             {ADMIN_NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-              const active = pathname.startsWith(href);
+              const active = href === '/admin' ? pathname === href : pathname.startsWith(href);
               return (
                 <li key={href}>
                   <Link
@@ -77,7 +80,7 @@ export function AdminShell({
         </nav>
 
         <div className="px-6 py-4 text-xs text-slate-500">
-          {t("Khu vực kiểm duyệt & vòng đời doanh nghiệp")}
+          <PlatformConnection />
         </div>
       </aside>
 
@@ -117,7 +120,7 @@ export function AdminShell({
             className="mx-3 mb-2 rounded-xl border border-slate-200 bg-white p-2 lg:hidden"
           >
             {ADMIN_NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-              const active = pathname.startsWith(href);
+              const active = href === '/admin' ? pathname === href : pathname.startsWith(href);
               return (
                 <Link
                   key={href}

@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +58,11 @@ public class DeliveryExecutionService {
     private final PackageCustodyService custody;
     private final OutboxEventRepository outboxEvents;
     private final DispatchPlanRepository dispatchPlans;
+    private final RecipientDeliveryEvents recipientDeliveryEvents;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OrderStatusHistoryRecorder statusHistory;
+    @Value("${recipient-notifications.delivery-started.enabled:false}")
+    private boolean deliveryStartedEventEnabled;
 
     public boolean holdsOrder(Order order) {
         return custody.holdsOrder(order);
@@ -69,13 +75,22 @@ public class DeliveryExecutionService {
         }
         return tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                 .map(task -> {
-                    if (!task.getDriverId().equals(driverId)) {
+                    boolean driverChanged = !task.getDriverId().equals(driverId);
+                    if (driverChanged) {
                         if (task.getStatus().ordinal() >= DeliveryTaskStatus.PICKED_UP.ordinal()
-                                && task.getStatus() != DeliveryTaskStatus.FAILED) {
+                                && task.getStatus() != DeliveryTaskStatus.FAILED
+                                && task.getStatus() != DeliveryTaskStatus.CANCELLED) {
                             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                         }
                         task.setDriverId(driverId);
                     }
+                    // Reactivate cancelled tasks from a discarded plan, and reset pre-pickup
+                    // acceptance when a task moves to a different driver.
+                    if (task.getStatus() == DeliveryTaskStatus.CANCELLED
+                            || (driverChanged && task.getStatus().ordinal() < DeliveryTaskStatus.PICKED_UP.ordinal())) {
+                        task.setStatus(DeliveryTaskStatus.ASSIGNED);
+                    }
+                    task.setUpdatedAt(Instant.now());
                     return task;
                 })
                 .orElseGet(() -> tasks.save(DeliveryTask.builder()
@@ -139,12 +154,14 @@ public class DeliveryExecutionService {
         if (task.getStatus() == DeliveryTaskStatus.COMPLETED || task.getStatus() == DeliveryTaskStatus.CANCELLED) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
+        OrderStatus previous = order.getStatus();
         task.setDriverId(driverId);
         task.setStatus(DeliveryTaskStatus.ASSIGNED);
         task.setUpdatedAt(Instant.now());
         order.setAssignedDriverId(driverId);
         order.setStatus(OrderStatus.PLANNED);
         order.setUpdatedAt(Instant.now());
+        recordStatusChange(order, previous, OrderStatus.PLANNED, driverId, "OPERATOR", "Kích hoạt giao lại đơn hàng");
         return tasks.save(task);
     }
 
@@ -235,12 +252,17 @@ public class DeliveryExecutionService {
         task.setUpdatedAt(Instant.now());
         applyOrderState(task, order, driverId, request);
 
+        if (deliveryStartedEventEnabled && "DELIVERY".equals(task.getTaskType())
+                && request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
+            publishDeliveryStarted(task, order);
+        }
+
         if ("DELIVERY".equals(task.getTaskType()) && request.status() == DeliveryTaskStatus.COMPLETED) {
             publishDeliveryCompleted(task, order);
         }
 
         if (request.status() == DeliveryTaskStatus.COMPLETED || request.status() == DeliveryTaskStatus.FAILED) {
-            attempts.save(DeliveryAttempt.builder()
+            DeliveryAttempt attempt = DeliveryAttempt.builder()
                     .order(order)
                     .task(task)
                     .tenantId(task.getTenantId())
@@ -250,7 +272,11 @@ public class DeliveryExecutionService {
                     .notes(request.notes())
                     .proofUrl(request.proofUrl())
                     .completedBy(driverId)
-                    .build());
+                    .build();
+            attempts.save(attempt);
+            if ("DELIVERY".equals(task.getTaskType())) {
+                recipientDeliveryEvents.recordResult(attempt);
+            }
         }
 
         orders.save(order);
@@ -316,6 +342,22 @@ public class DeliveryExecutionService {
                 .build());
     }
 
+    private void publishDeliveryStarted(DeliveryTask task, Order order) {
+        UUID eventId = UUID.randomUUID();
+        outboxEvents.save(OutboxEvent.builder()
+                .eventId(eventId)
+                .aggregateType("DELIVERY_TASK")
+                .aggregateId(task.getId())
+                .eventType(RecipientDeliveryEvents.STARTED)
+                .payload(Map.of(
+                        "event_id", eventId.toString(),
+                        "tenant_id", task.getTenantId().toString(),
+                        "order_id", order.getId().toString(),
+                        "delivery_task_id", task.getId().toString(),
+                        "started_at", task.getUpdatedAt().toString()))
+                .build());
+    }
+
     private void publishDeliveryCompleted(DeliveryTask task, Order order) {
         UUID eventId = UUID.randomUUID();
         Instant completedAt = Instant.now();
@@ -330,7 +372,6 @@ public class DeliveryExecutionService {
                 order.getDeliveryLat(),
                 order.getDeliveryLng(),
                 order.getWeightKg(),
-                order.getDeliveryFee(),
                 completedAt,
                 order.getExternalOrderCode(),
                 order.getRecipientName(),
@@ -350,6 +391,7 @@ public class DeliveryExecutionService {
             Order order,
             UUID driverId,
             UpdateDeliveryTaskRequest request) {
+        OrderStatus previous = order.getStatus();
         if ("RETURN".equals(task.getTaskType())) {
             if (request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
                 order.setStatus(OrderStatus.RETURNING);
@@ -370,6 +412,8 @@ public class DeliveryExecutionService {
                 });
             }
             order.setUpdatedAt(Instant.now());
+            recordStatusChange(order, previous, order.getStatus(), driverId, "DRIVER",
+                    buildTransitionReason(task, request, order.getStatus()));
             return;
         }
 
@@ -393,6 +437,44 @@ public class DeliveryExecutionService {
             order.setStatus(OrderStatus.FAILED);
         }
         order.setUpdatedAt(Instant.now());
+        recordStatusChange(order, previous, order.getStatus(), driverId, "DRIVER",
+                buildTransitionReason(task, request, order.getStatus()));
+    }
+
+    private void recordStatusChange(
+            Order order,
+            OrderStatus from,
+            OrderStatus to,
+            UUID actorId,
+            String role,
+            String reason) {
+        if (statusHistory != null) {
+            statusHistory.record(order, from, to, actorId, role, reason);
+        }
+    }
+
+    private static String buildTransitionReason(
+            DeliveryTask task,
+            UpdateDeliveryTaskRequest request,
+            OrderStatus targetStatus) {
+        if (targetStatus == OrderStatus.FAILED) {
+            if (request.notes() != null && !request.notes().isBlank()) {
+                return request.failureReason() + ": " + request.notes().trim();
+            }
+            return request.failureReason();
+        }
+        if (request.notes() != null && !request.notes().isBlank()) {
+            return request.notes().trim();
+        }
+        return switch (targetStatus) {
+            case IN_TRANSIT -> "Tài xế bắt đầu giao hàng";
+            case DELIVERED -> "Tài xế xác nhận giao hàng thành công";
+            case RETURNING -> "RETURN".equals(task.getTaskType())
+                    ? "Tài xế mang hàng hoàn về kho"
+                    : "Cập nhật trạng thái hoàn hàng";
+            case PLANNED -> "Tài xế xác nhận tiếp nhận đơn";
+            default -> "Cập nhật tiến độ giao hàng (" + request.status().name() + ")";
+        };
     }
 
     private void audit(
@@ -506,8 +588,15 @@ public class DeliveryExecutionService {
     }
 
     private boolean matchesCurrentDispatchPlan(DeliveryTask task) {
-        return !"DELIVERY".equals(task.getTaskType())
-                || task.getDispatchPlanId() == null
+        if (!"DELIVERY".equals(task.getTaskType())) {
+            return true;
+        }
+        // Reject orphaned tasks whose order was released back to the queue or reassigned.
+        UUID assignedDriverId = task.getOrder().getAssignedDriverId();
+        if (assignedDriverId == null || !assignedDriverId.equals(task.getDriverId())) {
+            return false;
+        }
+        return task.getDispatchPlanId() == null
                 || task.getDispatchPlanId().equals(task.getOrder().getPlanId());
     }
 

@@ -245,4 +245,16 @@ class JwtAuthFilterTest {
         assertThat(forwarded.getFirst("X-User-Id")).isEqualTo("sysadmin-1");
         assertThat(forwarded.getFirst("X-System-Role")).isEqualTo("SYSTEM_ADMIN");
     }
+
+    @Test
+    @DisplayName("Public tracking endpoint bypasses JWT verification")
+    void publicTrackingEndpointIsPublic() {
+        when(chain.filter(any(ServerWebExchange.class))).thenReturn(Mono.empty());
+
+        jwtAuthFilter.filter(MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/public/tracking/TRK123456789").build()), chain).block();
+
+        verify(chain).filter(any(ServerWebExchange.class));
+        verifyNoInteractions(jwtVerifier);
+    }
 }

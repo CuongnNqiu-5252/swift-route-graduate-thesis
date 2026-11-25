@@ -134,7 +134,6 @@ def measure_ordered_route(request: BatchOptimizationRequest) -> BatchOptimizatio
     )
     return BatchOptimizationResponse(
         job_id=str(uuid.uuid4()),
-        algorithm_used="manual",
         total_distance_km=round(distance, 3),
         total_duration_minutes=round(duration, 1),
         ordered_stops=stops,
@@ -175,7 +174,6 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     cost_matrix = build_multi_objective_matrix(dist_matrix, time_matrix, time_w, cost_w)
     logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (%s, W_time=%.2f, W_cost=%.2f)", n_total, n_total, distance_source, time_w, cost_w)
 
-    algorithm_used = "ortools"
     windows = _delivery_windows(request)
     start_ns = time.perf_counter_ns()
 
@@ -237,14 +235,9 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
                     ordered_stops=v_stops,
                 ))
 
-        logger.info(
-            "✅ [RoutingEngine] Hoàn thành giải CVRP (%d xe) bằng '%s' trong %.2f ms | Tổng quãng đường đội xe: %.3f km",
-            len(vehicle_routes), algorithm_used, elapsed_ms, fleet_dist
-        )
 
         return BatchOptimizationResponse(
             job_id=str(uuid.uuid4()),
-            algorithm_used=algorithm_used,
             total_distance_km=round(fleet_dist, 3),
             total_duration_minutes=round(fleet_minutes, 1),
             ordered_stops=all_ordered_stops,
@@ -262,10 +255,6 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     )
     elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-    logger.info(
-        "✅ [RoutingEngine] Hoàn thành giải TSP bằng '%s' trong %.2f ms | Tổng quãng đường: %.3f km | Thời gian dự kiến: %.1f phút",
-        algorithm_used, elapsed_ms, total_dist, total_minutes
-    )
 
     total_load_kg = round(total_load_kg, 2)
     single_vehicle_route = [
@@ -280,7 +269,6 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
 
     return BatchOptimizationResponse(
         job_id=str(uuid.uuid4()),
-        algorithm_used=algorithm_used,
         total_distance_km=round(total_dist, 3),
         total_duration_minutes=round(total_minutes, 1),
         ordered_stops=ordered_stops,
@@ -312,6 +300,7 @@ def solve_insert(request: RouteInsertRequest) -> RouteInsertResponse:
     ]
 
     # Baseline cost of remaining stops without the new stop
+    now_utc = datetime.now(timezone.utc)
     baseline_dist = 0.0
     baseline_dur = 0.0
     if remaining:
@@ -322,6 +311,7 @@ def solve_insert(request: RouteInsertRequest) -> RouteInsertResponse:
                 algorithm="ortools",
                 time_weight=request.time_weight,
                 cost_weight=request.cost_weight,
+                planned_departure_at=now_utc,
             )
         )
         baseline_dist = base_res.total_distance_km
@@ -336,6 +326,7 @@ def solve_insert(request: RouteInsertRequest) -> RouteInsertResponse:
             algorithm="ortools",
             time_weight=request.time_weight,
             cost_weight=request.cost_weight,
+            planned_departure_at=now_utc,
         )
     )
 
@@ -368,13 +359,13 @@ def solve_insert(request: RouteInsertRequest) -> RouteInsertResponse:
                 location=stop.location,
                 cumulative_distance_km=stop.cumulative_distance_km,
                 estimated_arrival_minutes=stop.estimated_arrival_minutes,
+                late_by_minutes=stop.late_by_minutes,
             )
         )
 
     elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
     return RouteInsertResponse(
         job_id=str(uuid.uuid4()),
-        algorithm_used=candidate_res.algorithm_used,
         feasible=feasible,
         inserted_stop_index=inserted_index,
         added_distance_km=added_dist,
@@ -411,7 +402,6 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
         elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
         return RouteReoptimizeResponse(
             job_id=str(uuid.uuid4()),
-            algorithm_used="ortools",
             stops_changed=False,
             distance_saved_km=0.0,
             total_distance_km=0.0,
@@ -434,9 +424,46 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
     cost_w = request.cost_weight if request.cost_weight is not None else 0.5
     cost_matrix = build_multi_objective_matrix(seq_dist_matrix, seq_time_matrix, time_w, cost_w)
 
-    route, _ = ortools_tsp(cost_matrix, start=0)
+    now_utc = datetime.now(timezone.utc)
+    remaining_items = [
+        StopItem(
+            id=s.id,
+            name=s.name,
+            location=s.location,
+            demand_kg=s.demand_kg,
+            service_time=s.service_time,
+            time_window_start=s.time_window_start,
+            time_window_end=s.time_window_end,
+        )
+        for s in remaining_states
+    ]
+    windows = _delivery_windows(
+        BatchOptimizationRequest(
+            depot=request.driver_location,
+            stops=remaining_items,
+            planned_departure_at=now_utc,
+        )
+    )
+
+    if windows is not None and len(remaining_states) > 1:
+        demands = [0.0] + [max(0.0, s.demand_kg) for s in remaining_states]
+        total_demand = sum(demands)
+        vrp_sol = ortools_vrp(
+            cost_matrix=cost_matrix,
+            demands=demands,
+            capacities=[max(100.0, total_demand + 10.0)],
+            num_vehicles=1,
+            start=0,
+            time_matrix=seq_time_matrix,
+            delivery_windows=windows,
+            service_times=[0.0] + [s.service_time for s in remaining_states],
+        )
+        route = vrp_sol["routes"].get(0, list(range(len(remaining_states) + 1)))
+    else:
+        route, _ = ortools_tsp(cost_matrix, start=0)
+
     reopt_stops, cum_dist, cum_time, _ = _trace_open_route(
-        route, remaining_states, seq_dist_matrix, seq_time_matrix
+        route, remaining_states, seq_dist_matrix, seq_time_matrix, windows
     )
 
     old_ids = [s.id for s in remaining_states]
@@ -466,11 +493,12 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
                     location=stop.location,
                     cumulative_distance_km=stop.cumulative_distance_km,
                     estimated_arrival_minutes=stop.estimated_arrival_minutes,
+                    late_by_minutes=stop.late_by_minutes,
                 )
             )
     else:
         original_stops, _, cum_time, _ = _trace_open_route(
-            list(range(len(remaining_states) + 1)), remaining_states, seq_dist_matrix, seq_time_matrix
+            list(range(len(remaining_states) + 1)), remaining_states, seq_dist_matrix, seq_time_matrix, windows
         )
         for idx, s in enumerate(original_stops, start=1):
             combined_stops.append(
@@ -480,13 +508,13 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
                     location=s.location,
                     cumulative_distance_km=s.cumulative_distance_km,
                     estimated_arrival_minutes=s.estimated_arrival_minutes,
+                    late_by_minutes=s.late_by_minutes,
                 )
             )
 
     elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
     return RouteReoptimizeResponse(
         job_id=str(uuid.uuid4()),
-        algorithm_used="ortools",
         stops_changed=stops_changed,
         distance_saved_km=distance_saved if stops_changed else 0.0,
         total_distance_km=round(cum_dist, 3) if stops_changed else round(current_remaining_dist, 3),

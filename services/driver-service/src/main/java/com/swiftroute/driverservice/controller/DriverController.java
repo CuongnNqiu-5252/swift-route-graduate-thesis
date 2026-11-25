@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.driverservice.dto.request.RegisterDriverRequest;
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
+import com.swiftroute.driverservice.dto.request.UpdateDriverBankAccountRequest;
 import com.swiftroute.driverservice.dto.request.UpdateDriverRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
 import com.swiftroute.driverservice.dto.response.ApiResponse;
@@ -157,6 +158,27 @@ public class DriverController {
 
         DriverResponse response = driverService.updateMyLocation(resolveUserId(authentication), request);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Update a driver's payout bank account for VietQR payroll")
+    @org.springframework.web.bind.annotation.PatchMapping("/{driverId}/bank-account")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPERATOR', 'OWNER')")
+    public ResponseEntity<ApiResponse<DriverResponse>> updateBankAccount(
+            @PathVariable UUID driverId,
+            @Valid @RequestBody UpdateDriverBankAccountRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.updateBankAccount(driverId, request, resolveRole(authentication))));
+    }
+
+    @Operation(summary = "Update the current driver's payout bank account")
+    @org.springframework.web.bind.annotation.PatchMapping("/me/bank-account")
+    @PreAuthorize("hasRole('DRIVER')")
+    public ResponseEntity<ApiResponse<DriverResponse>> updateMyBankAccount(
+            @Valid @RequestBody UpdateDriverBankAccountRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.updateMyBankAccount(resolveUserId(authentication), request)));
     }
 
     private UUID resolveUserId(Authentication authentication) {

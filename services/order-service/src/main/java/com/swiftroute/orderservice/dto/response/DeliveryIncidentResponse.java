@@ -19,18 +19,16 @@ public record DeliveryIncidentResponse(
         String severity,
         String notes,
         List<String> evidenceUrls,
-        boolean canContinueDelivery,
-        boolean needsImmediateAssistance,
         String status,
         UUID assignedOperatorId,
         String resolutionType,
         UUID resolvedBy,
         String resolutionNotes,
         Instant createdAt,
-        Instant resolvedAt
-) {
+        Instant resolvedAt) {
     public static DeliveryIncidentResponse from(DeliveryIncident incident) {
-        if (incident == null) return null;
+        if (incident == null)
+            return null;
 
         List<String> urls = Collections.emptyList();
         if (incident.getEvidenceUrls() != null && !incident.getEvidenceUrls().isBlank()) {
@@ -55,16 +53,12 @@ public record DeliveryIncidentResponse(
                 incident.getSeverity(),
                 incident.getNotes(),
                 urls,
-                incident.getCanContinueDelivery() != null && incident.getCanContinueDelivery(),
-                incident.getNeedsImmediateAssistance() != null && incident.getNeedsImmediateAssistance(),
                 incident.getStatus(),
                 incident.getAssignedOperatorId(),
                 incident.getResolutionType(),
                 incident.getResolvedBy(),
                 incident.getResolutionNotes(),
                 incident.getCreatedAt(),
-                incident.getResolvedAt()
-        );
+                incident.getResolvedAt());
     }
 }
-

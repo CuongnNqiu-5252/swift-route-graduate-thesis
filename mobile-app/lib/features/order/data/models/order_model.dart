@@ -114,7 +114,7 @@ enum DeliveryTaskStatus {
   };
 
   String get displayName => switch (this) {
-    DeliveryTaskStatus.assigned => 'Chờ nhận chuyến',
+    DeliveryTaskStatus.assigned => 'Chờ lấy hàng',
     DeliveryTaskStatus.accepted => 'Chờ lấy hàng',
     DeliveryTaskStatus.arrived => 'Tại điểm lấy',
     DeliveryTaskStatus.pickedUp => 'Đã lấy hàng',

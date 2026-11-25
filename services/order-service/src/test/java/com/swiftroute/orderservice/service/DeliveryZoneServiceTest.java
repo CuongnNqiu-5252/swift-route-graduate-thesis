@@ -67,8 +67,6 @@ class DeliveryZoneServiceTest {
                 .id(tenantId)
                 .businessName("Can Tho Express")
                 .status(TenantStatus.APPROVED)
-                .pickupLat(10.03)
-                .pickupLng(105.78)
                 .address("123 Ninh Kieu, Can Tho")
                 .build();
 
@@ -210,10 +208,7 @@ class DeliveryZoneServiceTest {
                 null,
                 null,
                 OrderPriority.NORMAL,
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                "SENDER");
+                BigDecimal.ZERO);
 
         assertThatThrownBy(() -> orderService.createOrder(request, UUID.randomUUID(), tenantId, "OWNER"))
                 .isInstanceOf(AppException.class)

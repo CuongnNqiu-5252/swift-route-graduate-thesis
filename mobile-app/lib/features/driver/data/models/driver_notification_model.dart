@@ -4,7 +4,6 @@ class DriverNotificationModel {
   final String id;
   final String templateCode;
   final String category;
-  final String severity;
   final String title;
   final String body;
   final String? incidentId;
@@ -16,7 +15,6 @@ class DriverNotificationModel {
     required this.id,
     required this.templateCode,
     required this.category,
-    required this.severity,
     required this.title,
     required this.body,
     this.incidentId,
@@ -33,7 +31,6 @@ class DriverNotificationModel {
       templateCode:
           (json['template_code'] ?? json['templateCode'] ?? '').toString(),
       category: (json['category'] ?? 'SYSTEM').toString(),
-      severity: (json['severity'] ?? 'LOW').toString(),
       title: (json['title'] ?? 'Thông báo vận hành').toString(),
       body: (json['body'] ?? '').toString(),
       incidentId: (json['incident_id'] ?? json['incidentId'])?.toString(),

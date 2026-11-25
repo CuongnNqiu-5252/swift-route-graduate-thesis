@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 export interface OrderTrackingMapProps {
   pickup: [number, number];
   delivery: [number, number];
+  showRoute: boolean;
   driver?: [number, number];
   driverName?: string;
   orderCode?: string;

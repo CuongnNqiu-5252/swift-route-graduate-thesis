@@ -1,4 +1,4 @@
-export type ReviewDecisionValue = 'UNDER_REVIEW' | 'APPROVED' | 'CHANGES_REQUIRED' | 'REJECTED';
+export type ReviewDecisionValue = 'APPROVED' | 'CHANGES_REQUIRED' | 'REJECTED';
 
 export interface VerificationPickupSnapshot {
   id?: string;
@@ -18,7 +18,6 @@ export interface VerificationSnapshot {
   contact_phone?: string;
   address?: string;
   country_code?: string;
-  delivery_mode?: string;
   delivery_settings?: {
     preparation_enabled?: boolean;
     preparation_minutes?: number;
@@ -63,7 +62,6 @@ export const VERIFICATION_STATUS_META: Record<
 
 export const VERIFICATION_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'SUBMITTED', label: 'Chờ tiếp nhận' },
-  { value: 'UNDER_REVIEW', label: 'Đang xem xét' },
   { value: 'CHANGES_REQUIRED', label: 'Cần bổ sung' },
   { value: 'APPROVED', label: 'Đã duyệt' },
   { value: 'REJECTED', label: 'Từ chối' },
@@ -96,23 +94,11 @@ export const BUSINESS_TYPE_LABEL: Record<string, string> = {
   OTHER: 'Khác',
 };
 
-export const DELIVERY_MODE_LABEL: Record<string, string> = {
-  OWN_FLEET: 'Đội giao hàng riêng',
-  SHARED_POOL: 'Mạng lưới tài xế dùng chung',
-  SHARED_NETWORK: 'Mạng lưới tài xế dùng chung',
-  HYBRID: 'Kết hợp nội bộ và dùng chung',
-};
-
 export const REVIEW_DECISION_OPTIONS: Array<{
   value: ReviewDecisionValue;
   label: string;
   description: string;
 }> = [
-  {
-    value: 'UNDER_REVIEW',
-    label: 'Nhận xem xét',
-    description: 'Đánh dấu hồ sơ đang được quản trị viên đối chiếu.',
-  },
   {
     value: 'APPROVED',
     label: 'Phê duyệt',

@@ -30,6 +30,24 @@ void main() {
     });
   }
 
+  testWidgets('An assigned order offers pickup immediately', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: NextStopSpotlightCard(
+              orders: [createOrder(status: 'ASSIGNED')],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Mở Bản đồ Dẫn đường tới Kho'), findsOneWidget);
+    expect(find.text('Vuốt xác nhận Đã lấy hàng'), findsOneWidget);
+    expect(find.textContaining('Bắt đầu chuyến'), findsNothing);
+  });
+
   testWidgets(
     'NextStopSpotlightCard renders active delivery without overflow on standard width',
     (tester) async {
@@ -63,10 +81,7 @@ void main() {
   testWidgets(
     'NextStopSpotlightCard renders without overflow on narrow 320px screen with large COD',
     (tester) async {
-      final order = createOrder(
-        code: 'LONG-CODE-999999',
-        cod: 2500000,
-      );
+      final order = createOrder(code: 'LONG-CODE-999999', cod: 2500000);
 
       tester.view.physicalSize = const Size(320 * 2, 568 * 2);
       tester.view.devicePixelRatio = 2.0;
@@ -96,10 +111,7 @@ void main() {
   testWidgets(
     'NextStopSpotlightCard renders return-to-sender task without overflow',
     (tester) async {
-      final order = createOrder(
-        isReturn: true,
-        status: 'OUT_FOR_DELIVERY',
-      );
+      final order = createOrder(isReturn: true, status: 'OUT_FOR_DELIVERY');
 
       tester.view.physicalSize = const Size(375 * 3, 812 * 3);
       tester.view.devicePixelRatio = 3.0;

@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -77,11 +78,8 @@ public class DispatchAlertController {
                   AND n.channel = 'IN_APP'
                   AND COALESCE(n.template_code, '') NOT IN (
                       'user.email_verification.v1',
-                      'tenant.driver_invited.v1',
-                      'tenant.created.v1',
-                      'tenant.verification_submitted.v1',
-                      'assignment.timeout',
-                      'assignment.escalated'
+                      'user.password_reset_requested.v1',
+                      'tenant.driver_invited.v1'
                   )
                 ORDER BY n.created_at DESC
                 LIMIT 40
@@ -179,5 +177,13 @@ public class DispatchAlertController {
             @RequestHeader(value = "X-Tenant-Id", required = false) UUID tenantIdHeader) {
         UUID tenantId = authorization.resolveOperatorTenantId(bearer, tenantIdHeader);
         return sseService.subscribe(tenantId);
+    }
+
+    @GetMapping(value = "/platform/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> platformStream(
+            @RequestHeader(value = "Authorization", required = false) String bearer) {
+        long lifetime = authorization.requireSystemAdmin(bearer);
+        return ResponseEntity.ok().header("Cache-Control", "no-cache, no-transform")
+                .header("X-Accel-Buffering", "no").body(sseService.subscribePlatform(lifetime));
     }
 }

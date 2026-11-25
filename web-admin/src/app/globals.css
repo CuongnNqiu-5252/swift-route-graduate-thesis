@@ -24,8 +24,26 @@ body {
 }
 
 ::selection { background: #dbeafe; color: #172554; }
-:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+@layer base {
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-offset-shadow: 0 0 #0000;
+}
 * { scrollbar-width: thin; scrollbar-color: #b8c1cc transparent; }
+.workspace-sidebar-nav { scrollbar-width: none; }
+.workspace-sidebar-nav::-webkit-scrollbar { display: none; }
 .workspace-sheet { scrollbar-gutter: stable; }
 .workspace-sheet h1 { letter-spacing: -0.025em; text-wrap: balance; }
 .workspace-sheet table { font-variant-numeric: tabular-nums; }

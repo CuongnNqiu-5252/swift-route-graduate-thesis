@@ -424,7 +424,7 @@ function Chat({ initialPeer }: { initialPeer: string }) {
                   if (picked) attachImageFile(picked);
                 }} />
             </label>
-            <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-slate-300 bg-white focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600">
+            <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-slate-300 bg-white">
               {file && filePreviewUrl && (
                 <div className="px-3 pt-2.5">
                   <div className="relative inline-block">

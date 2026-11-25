@@ -48,3 +48,5 @@ data/
 **/*.log
 .impeccable/
 .codex/
+*.drawio
+*.md

@@ -10,7 +10,6 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   FileCheck2,
   MapPin,
   PauseCircle,
@@ -25,7 +24,6 @@ import {
 } from 'lucide-react';
 import {
   BUSINESS_TYPE_LABEL,
-  DELIVERY_MODE_LABEL,
   formatAdminDateTime,
   parseTimelineDetails,
   parseVerificationSnapshot,
@@ -88,14 +86,11 @@ function DecisionIcon({ value, active }: { value: ReviewDecisionValue; active: b
       ? 'text-rose-600'
       : value === 'CHANGES_REQUIRED'
         ? 'text-amber-600'
-        : value === 'APPROVED'
-          ? 'text-emerald-600'
-          : 'text-blue-600';
+        : 'text-emerald-600';
 
   if (value === 'APPROVED') return <CheckCircle2 className={`h-4 w-4 shrink-0 ${colorClass}`} />;
   if (value === 'CHANGES_REQUIRED') return <AlertTriangle className={`h-4 w-4 shrink-0 ${colorClass}`} />;
-  if (value === 'REJECTED') return <XCircle className={`h-4 w-4 shrink-0 ${colorClass}`} />;
-  return <Clock3 className={`h-4 w-4 shrink-0 ${colorClass}`} />;
+  return <XCircle className={`h-4 w-4 shrink-0 ${colorClass}`} />;
 }
 
 function safeText(value: unknown, fallback = 'Chưa cung cấp'): string {
@@ -177,9 +172,7 @@ function VerificationDetailContent({
       ? t("Phê duyệt doanh nghiệp")
       : decision === 'CHANGES_REQUIRED'
         ? t("Gửi yêu cầu bổ sung")
-        : decision === 'REJECTED'
-          ? t("Từ chối hồ sơ")
-          : t("Nhận xử lý hồ sơ");
+        : t("Từ chối hồ sơ");
 
   async function handleConfirmDecision() {
     if (!decision) return;
@@ -292,13 +285,15 @@ function VerificationDetailContent({
                                   : safeText(snapshot.country_code)}
                               </dd>
                             </div>
-                            <div className="sm:col-span-2">
-                              <dt className="text-xs text-slate-500">{t("Địa chỉ đăng ký")}</dt>
-                              <dd className="mt-1 flex items-start gap-1.5 text-sm font-medium leading-6 text-slate-950">
-                                <MapPin className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
-                                {safeText(snapshot.address)}
-                              </dd>
-                            </div>
+                            {pickupPoints.length === 0 && snapshot.address && (
+                              <div className="sm:col-span-2">
+                                <dt className="text-xs text-slate-500">{t("Địa chỉ đăng ký")}</dt>
+                                <dd className="mt-1 flex items-start gap-1.5 text-sm font-medium leading-6 text-slate-950">
+                                  <MapPin className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+                                  {safeText(snapshot.address)}
+                                </dd>
+                              </div>
+                            )}
                           </dl>
                         </section>
 
@@ -311,13 +306,8 @@ function VerificationDetailContent({
                           </div>
                           <div className="mt-4 grid gap-5 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                             <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-                              <p className="text-xs text-slate-500">{t("Phương thức giao hàng")}</p>
+                              <p className="text-xs text-slate-500">{t("Ưu tiên điều phối")}</p>
                               <p className="mt-1.5 text-sm font-semibold text-slate-950">
-                                {t(DELIVERY_MODE_LABEL[safeText(snapshot.delivery_mode, '')] ||
-                                  t("Chưa xác định"))}
-                              </p>
-                              <p className="mt-2 text-xs text-slate-500">
-                                {t("Ưu tiên:")}{' '}
                                 {deliverySettings.service_priority === 'BALANCED'
                                   ? t("Cân bằng thời gian và chi phí")
                                   : safeText(deliverySettings.service_priority)}

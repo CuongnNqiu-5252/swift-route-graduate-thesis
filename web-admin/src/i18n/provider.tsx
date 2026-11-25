@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext } from 'react';
+import { useGlobalFormValidation } from '@/components/ui/input';
 import { translate, type Translator } from './translate';
 import { formatLocale, type Locale } from './locale';
 
@@ -12,6 +13,7 @@ const preferences = {
 } satisfies Record<Locale, { locale: Locale; intlLocale: string; t: Translator }>;
 
 export function LocaleProvider({ locale, children }: { locale: Locale; children: React.ReactNode }) {
+  useGlobalFormValidation();
   return <LocaleContext.Provider value={locale}>{children}</LocaleContext.Provider>;
 }
 

@@ -1,5 +1,10 @@
 'use client';
 
+import { reportDispatchPlanning } from '@/application/dispatch-planning';
+import {
+  EMPTY_DISPATCH_MAP_FILTERS, filterDispatchMapRoutes, UNASSIGNED_DRIVER, UNKNOWN_WAREHOUSE,
+  type DispatchMapFilters,
+} from '@/application/dispatch-map-filters';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useDrivers } from '@/application/hooks/use-drivers';
 import { useFleetLiveTracking } from '@/application/hooks/use-fleet-live-tracking';
@@ -9,6 +14,7 @@ import { AccessDeniedNotice } from '@/components/auth/permission-guard';
 import { DispatchStopTimeline } from '@/components/dispatch/dispatch-stop-timeline';
 import { PlanApprovalPanel } from '@/components/dispatch/plan-approval-panel';
 import { RouteMap } from '@/components/dispatch/route-map';
+import { RouteMapFilters } from '@/components/dispatch/route-map-filters';
 import { Button } from '@/components/ui/button';
 import { Order } from '@/domain/entities/order.entity';
 import { PickupLocation } from '@/domain/entities/pickup-location.entity';
@@ -25,7 +31,7 @@ import { ApiError } from '@/lib/api';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
-import { ClipboardList, RefreshCw } from 'lucide-react';
+import { ClipboardList, Play, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 const ROUTE_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
@@ -43,20 +49,28 @@ export default function DispatchPage() {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [isPlansOpen, setIsPlansOpen] = useState(false);
   const [highlightedPlan, setHighlightedPlan] = useState<MapPlanHighlight | null>(null);
+  const [mapFilters, setMapFilters] = useState(EMPTY_DISPATCH_MAP_FILTERS);
+  const [showDeliveryStops, setShowDeliveryStops] = useState(true);
   const [linkedPlanId, setLinkedPlanId] = useState<string | null>(null);
   const [maxOrdersPerDriver, setMaxOrdersPerDriver] = useState<number | undefined>(undefined);
   const plansButtonRef = useRef<HTMLButtonElement | null>(null);
   const plans = useMemo(() => {
     const ordersById = new Map(orders.map((order) => [order.id, order]));
-    return fetchedPlans.map((plan) => {
-      if (plan.plan_status !== 'DISPATCHED' || !plan.ordered_stop_ids?.length) return plan;
-      const stops = plan.ordered_stop_ids.map((id) => ordersById.get(id));
-      const hasFinishedReturn = stops.some((order) => order?.status === 'RETURNED');
-      const allFinished = stops.every(
-        (order) => order && ['DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status),
+    return fetchedPlans
+      .map((plan) => {
+        if (plan.plan_status !== 'DISPATCHED' || !plan.ordered_stop_ids?.length) return plan;
+        const stops = plan.ordered_stop_ids.map((id) => ordersById.get(id));
+        const hasFinishedReturn = stops.some((order) => order?.status === 'RETURNED');
+        const allFinished = stops.every(
+          (order) => order && ['DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status),
+        );
+        return hasFinishedReturn && allFinished ? { ...plan, plan_status: 'COMPLETED' as const } : plan;
+      })
+      .filter((plan) =>
+        plan.plan_status === 'DRAFT'
+        || plan.plan_status === 'APPROVED'
+        || plan.plan_status === 'DISPATCHED',
       );
-      return hasFinishedReturn && allFinished ? { ...plan, plan_status: 'COMPLETED' as const } : plan;
-    });
   }, [fetchedPlans, orders]);
 
   const selectedPlan = plans.find((plan) => plan.plan_id === selectedPlanId) ?? null;
@@ -68,17 +82,6 @@ export default function DispatchPage() {
     };
   }, [selectedPlanId]);
 
-  useEffect(() => {
-    const openPlan = (event: Event) => {
-      const { planId } = (event as CustomEvent<{ planId: string }>).detail;
-      if (!plans.some((plan) => plan.plan_id === planId)) return;
-      setLinkedPlanId(planId);
-      setSelectedPlanId(planId);
-      setIsPlansOpen(true);
-    };
-    window.addEventListener('swiftroute:assistant-open-plan', openPlan);
-    return () => window.removeEventListener('swiftroute:assistant-open-plan', openPlan);
-  }, [plans]);
   const selectedDriverId = selectedPlan?.driver_id ?? null;
   const isSelectedPlanDispatched = selectedPlan?.plan_status === 'DISPATCHED';
 
@@ -185,6 +188,21 @@ export default function DispatchPage() {
   }, []);
 
   useEffect(() => {
+    function openPlan(event: Event) {
+      const { planId } = (event as CustomEvent<{ planId: string }>).detail;
+      setMapFilters(EMPTY_DISPATCH_MAP_FILTERS);
+      setLinkedPlanId(planId);
+      setSelectedPlanId(planId);
+      setIsPlansOpen(true);
+      if (!plans.some((plan) => plan.plan_id === planId)) {
+        void Promise.all([loadPlans(), refetchOrders()]);
+      }
+    }
+    window.addEventListener('swiftroute:assistant-open-plan', openPlan);
+    return () => window.removeEventListener('swiftroute:assistant-open-plan', openPlan);
+  }, [loadPlans, plans, refetchOrders]);
+
+  useEffect(() => {
     let active = true;
     tenantSettingsRepository
       .getSettings()
@@ -227,7 +245,7 @@ export default function DispatchPage() {
       document.getElementById(`dispatch-plan-${linkedPlanId}`)?.scrollIntoView({ block: 'nearest' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [linkedPlanId, isPlansOpen]);
+  }, [linkedPlanId, isPlansOpen, selectedPlan]);
 
   useEffect(() => {
     const refresh = () => {
@@ -260,16 +278,10 @@ export default function DispatchPage() {
     try {
       const result = await orderRepository.triggerDispatchPlanning();
       await Promise.all([loadPlans(), refetchOrders()]);
-      if (result.outcome === 'PLANNED' && result.plan_ids.length > 0) {
-        setSelectedPlanId(result.plan_ids[0]);
-        toast.success(`${t('Đã tạo tuyến nháp chưa gán tài xế')}: ${result.plan_ids.length}`);
+      const planId = reportDispatchPlanning(result, t);
+      if (planId) {
+        setSelectedPlanId(planId);
         return true;
-      } else if (result.outcome === 'NO_ORDERS') {
-        toast.info(t('Chưa có đơn đủ điều kiện lập kế hoạch.'));
-      } else if (result.outcome === 'IN_PROGRESS') {
-        toast.info(t('Một lượt lập kế hoạch khác đang chạy.'));
-      } else {
-        toast.warning(t('Chưa tạo được tuyến từ các đơn đang chờ.'));
       }
     } catch {
       toast.error(t('Không thể chạy lập kế hoạch. Vui lòng thử lại.'));
@@ -460,9 +472,9 @@ export default function DispatchPage() {
     fallbackDepot: DispatchDepot | null,
     fallbackLabel: string,
   ): DispatchDepot | null {
-    const firstOrderId = plan.ordered_stop_ids?.[0];
-    const matchedOrder = firstOrderId ? orders.find((o) => o.id === firstOrderId) : undefined;
-    if (matchedOrder) {
+    for (const orderId of plan.ordered_stop_ids ?? []) {
+      const matchedOrder = orders.find((order) => order.id === orderId);
+      if (!matchedOrder) continue;
       return {
         lat: matchedOrder.pickup_lat,
         lng: matchedOrder.pickup_lng,
@@ -492,7 +504,8 @@ export default function DispatchPage() {
     return plans
       .map((plan): MapOverviewRoute | null => {
         const stops = getPlanStops(plan, orders, t('Điểm giao hàng'));
-        const depot = getPlanDepot(plan, orders, fallbackDepot, t('Điểm lấy hàng'));
+        const planDepot = getPlanDepot(plan, orders, null, t('Điểm lấy hàng'));
+        const depot = planDepot ?? fallbackDepot;
         if (!depot || stops.length === 0) return null;
         const driver = drivers.find((d) => d.id === plan.driver_id || d.user_id === plan.driver_id);
         return {
@@ -502,27 +515,57 @@ export default function DispatchPage() {
           color: routeColors.get(plan.plan_id) ?? ROUTE_COLORS[0],
           depot,
           stops,
+          driverId: driver?.user_id || driver?.id || plan.driver_id || undefined,
           driverName: driver?.name,
+          warehouseId: planDepot ? (planDepot.pickup_location_id || `location:${planDepot.lat}:${planDepot.lng}`) : undefined,
         };
       })
       .filter((item): item is MapOverviewRoute => item !== null);
   }, [drivers, fallbackDepot, orders, plans, routeColors, t]);
-  const overviewRoutes = useMemo(() => mapRoutes.filter((route) =>
-    route.id === selectedPlanId || ['DRAFT', 'APPROVED', 'DISPATCHED'].includes(route.status),
-  ), [mapRoutes, selectedPlanId]);
-  const previewOverviewRoute = highlightedPlan && !overviewRoutes.some((route) => route.id === highlightedPlan.planId)
-    ? mapRoutes.find((route) => route.id === highlightedPlan.planId)
-    : undefined;
+  const overviewRoutes = useMemo(() => filterDispatchMapRoutes(mapRoutes, mapFilters), [mapRoutes, mapFilters]);
+  const mapFilterKey = Object.values(mapFilters).some(Boolean) ? JSON.stringify(mapFilters) : '';
+  const filterDrivers = new Map(drivers.map((driver) => [driver.user_id || driver.id, driver.name]));
+  const filterWarehouses = new Map(pickupLocations.map((pickup) => [pickup.id, pickup.name]));
+  for (const route of mapRoutes) {
+    const driverKey = route.driverId ?? UNASSIGNED_DRIVER;
+    const warehouseKey = route.warehouseId ?? UNKNOWN_WAREHOUSE;
+    if (!filterDrivers.has(driverKey)) {
+      filterDrivers.set(driverKey, route.driverId ? `${t('Tài xế')} #${route.driverId.slice(0, 8)}` : t('Chưa gán tài xế'));
+    }
+    if (!filterWarehouses.has(warehouseKey)) {
+      filterWarehouses.set(warehouseKey, route.warehouseId ? route.depot.name : t('Kho chưa xác định'));
+    }
+  }
+  const visibleFleetDrivers = useMemo(() => {
+    if (!mapFilterKey) return fleetDrivers;
+    const matchingDriverIds = new Set(overviewRoutes.map((route) => route.driverId));
+    return fleetDrivers.filter((driver) => matchingDriverIds.has(driver.id));
+  }, [mapFilterKey, fleetDrivers, overviewRoutes]);
+  const visibleSelectedPlan = selectedPlan && overviewRoutes.some((route) => route.id === selectedPlan.plan_id)
+    ? selectedPlan : null;
+  const visibleHighlight = highlightedPlan && overviewRoutes.some((route) => route.id === highlightedPlan.planId)
+    ? highlightedPlan : null;
   if (!hasPermission(['dispatch:read', 'dispatch:execute'])) {
     return <AccessDeniedNotice requiredPermission="dispatch:read" />;
   }
   const canExecute = user?.role !== 'DRIVER' && hasPermission('dispatch:execute');
+  const changeMapFilters = (filters: DispatchMapFilters) => {
+    setMapFilters(filters);
+    setSelectedPlanId(null);
+    setHighlightedPlan(null);
+  };
+  const selectPlanFromPanel = (planId: string | null) => {
+    if (planId && mapFilterKey && !overviewRoutes.some((route) => route.id === planId)) {
+      setMapFilters(EMPTY_DISPATCH_MAP_FILTERS);
+    }
+    setSelectedPlanId(planId);
+  };
   const closePlansPanel = () => {
     setHighlightedPlan(null);
     setIsPlansOpen(false);
     plansButtonRef.current?.focus();
   };
-  const selectedPlanTimeline = selectedPlan && (
+  const selectedPlanTimeline = selectedPlan && (!mapFilterKey || visibleSelectedPlan) && (
     <DispatchStopTimeline
       key={selectedPlan.plan_id}
       plan={selectedPlan}
@@ -531,6 +574,10 @@ export default function DispatchPage() {
       orders={orders}
       driver={selectedDriver}
       routeColor={routeColors.get(selectedPlan.plan_id)}
+      highlightedStopId={highlightedPlan?.planId === selectedPlan.plan_id ? highlightedPlan.stopId : undefined}
+      onHighlightStop={(stopId) =>
+        setHighlightedPlan(stopId ? { planId: selectedPlan.plan_id, stopId } : null)
+      }
       onClose={() => setSelectedPlanId(null)}
     />
   );
@@ -559,74 +606,122 @@ export default function DispatchPage() {
 
       <section
         aria-label={t('Bản đồ điều phối theo đường phố')}
-        className={`relative isolate flex-1 overflow-hidden bg-slate-100 ${isPlansOpen ? 'min-h-60' : 'min-h-[24rem]'}`}
+        className="relative isolate min-h-[26rem] flex-1 overflow-hidden bg-slate-100"
       >
-        <Button
-          ref={plansButtonRef}
-          type="button"
-          variant={isPlansOpen ? 'default' : 'outline'}
-          size="sm"
-          className="absolute left-2 top-2 z-20 min-h-11 gap-1.5 px-3 shadow-md sm:left-3 sm:top-3"
-          aria-expanded={isPlansOpen}
-          aria-controls="dispatch-tool-plans"
-          onClick={isPlansOpen ? closePlansPanel : () => setIsPlansOpen(true)}
-        >
-          <ClipboardList size={16} aria-hidden="true" />
-          {t('Kế hoạch')}
-        </Button>
+        <div className="absolute left-2 right-14 top-2 z-20 flex flex-wrap items-center gap-2 sm:left-3 sm:top-3">
+          <Button
+            ref={plansButtonRef}
+            type="button"
+            variant={isPlansOpen ? 'default' : 'outline'}
+            size="sm"
+            className="min-h-11 gap-2 rounded-xl px-3.5 shadow-lg backdrop-blur-md transition-all"
+            aria-expanded={isPlansOpen}
+            aria-controls="dispatch-tool-plans"
+            onClick={isPlansOpen ? closePlansPanel : () => setIsPlansOpen(true)}
+          >
+            <ClipboardList size={16} aria-hidden="true" />
+            <span>{t('Kế hoạch')}</span>
+            {plans.length > 0 && (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none tabular-nums ${
+                  isPlansOpen ? 'bg-white/20 text-white' : 'bg-[#17766c]/10 text-[#17766c]'
+                }`}
+              >
+                {plans.length}
+              </span>
+            )}
+          </Button>
+          {!isPlansOpen && <RouteMapFilters
+            filters={mapFilters}
+            drivers={filterDrivers}
+            warehouses={filterWarehouses}
+            showDeliveryStops={showDeliveryStops}
+            visibleCount={overviewRoutes.length}
+            totalCount={mapRoutes.length}
+            onChange={changeMapFilters}
+            onShowDeliveryStopsChange={(visible) => {
+              setShowDeliveryStops(visible);
+              if (!visible) setHighlightedPlan(null);
+            }}
+          />}
+          {canExecute && !isPlansOpen && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 gap-1.5 rounded-xl border-slate-200/90 bg-white/95 px-3 shadow-lg backdrop-blur-md hover:border-[#17766c]/40 hover:bg-white hover:text-[#17766c]"
+              onClick={() => {
+                void handleTriggerPlanning();
+              }}
+              isLoading={isTriggeringPlan}
+            >
+              {!isTriggeringPlan && <Play size={15} aria-hidden="true" />}
+              <span>{t('Lập kế hoạch')}</span>
+            </Button>
+          )}
+        </div>
 
         <div className="absolute inset-0">
           <RouteMap
-            depot={depotForMap}
-            fleetDrivers={fleetDrivers}
-            driver={activeDriverPosition}
+            depot={depotForMap ?? mapRoutes[0]?.depot ?? null}
+            fleetDrivers={visibleFleetDrivers}
+            fleetOrigin={fleetDrivers[0]}
+            driver={!mapFilterKey || visibleSelectedPlan ? activeDriverPosition : undefined}
             driverName={selectedDriver?.name}
             driverVehicle={selectedDriver?.vehicle_plate || selectedDriver?.vehicle_type}
             trackingSignal={planTracking.signal}
             overviewRoutes={overviewRoutes}
-            selectedOverviewRouteId={selectedPlanId}
-            highlightedPlan={highlightedPlan}
-            previewOverviewRoute={previewOverviewRoute}
-            showPlanDetails={Boolean(selectedPlan) && !isPlansOpen}
+            selectedOverviewRouteId={visibleSelectedPlan?.plan_id}
+            highlightedPlan={visibleHighlight}
+            filterKey={mapFilterKey}
+            showDeliveryStops={showDeliveryStops}
+            showPlanDetails={Boolean(visibleSelectedPlan) && !isPlansOpen}
+            isPlansOpen={isPlansOpen}
+            onHoverOverviewPlan={setHighlightedPlan}
             onSelectOverviewRoute={(planId) =>
               setSelectedPlanId((current) => (current === planId ? null : planId))
             }
           />
           {!isPlansOpen && selectedPlanTimeline}
         </div>
-      </section>
-      <section
-        id="dispatch-tool-plans"
-        hidden={!isPlansOpen}
-        aria-labelledby="dispatch-tool-heading-plans"
-        className="min-w-0 shrink-0 border-t border-slate-200"
-      >
-        <PlanApprovalPanel
-          key={linkedPlanId ?? 'default'}
-          initialFilter={linkedPlanId ? 'ALL' : undefined}
-          plans={plans}
-          drivers={drivers}
-          orders={orders}
-          routeColors={routeColors}
-          eligibleOrders={dispatchableOrders}
-          canExecute={canExecute}
-          isLoading={isLoadingPlans}
-          isTriggering={isTriggeringPlan}
-          selectedPlanId={selectedPlanId}
-          onSelectPlan={setSelectedPlanId}
-          onHighlightPlan={setHighlightedPlan}
-          onClose={closePlansPanel}
-          onRefresh={loadPlans}
-          onTriggerPlanning={handleTriggerPlanning}
-          onApprovePlan={handleApprovePlan}
-          onDispatchPlan={handleDispatchPlan}
-          onCancelPlan={handleCancelPlan}
-          onInsertOrderIntoPlan={handleInsertOrderIntoPlan}
-          onReorderStops={handleReorderStops}
-          onMoveStop={handleMoveStop}
-          editingPlanId={editingPlanId}
-          maxOrdersPerDriver={maxOrdersPerDriver}
-        />
+
+        <section
+          id="dispatch-tool-plans"
+          aria-hidden={!isPlansOpen}
+          aria-labelledby="dispatch-tool-heading-plans"
+          className={`absolute inset-x-2 bottom-2 z-30 min-w-0 transition-all duration-200 ease-out sm:inset-x-4 sm:bottom-4 ${
+            isPlansOpen
+              ? 'visible translate-y-0 scale-100 opacity-100'
+              : 'pointer-events-none invisible translate-y-4 scale-[0.98] opacity-0'
+          }`}
+        >
+          <PlanApprovalPanel
+            key={linkedPlanId ?? 'default'}
+            plans={plans}
+            drivers={drivers}
+            orders={orders}
+            routeColors={routeColors}
+            eligibleOrders={dispatchableOrders}
+            canExecute={canExecute}
+            isLoading={isLoadingPlans}
+            isTriggering={isTriggeringPlan}
+            selectedPlanId={selectedPlanId}
+            highlightedPlan={highlightedPlan}
+            onSelectPlan={selectPlanFromPanel}
+            onHighlightPlan={setHighlightedPlan}
+            onClose={closePlansPanel}
+            onRefresh={loadPlans}
+            onTriggerPlanning={handleTriggerPlanning}
+            onApprovePlan={handleApprovePlan}
+            onDispatchPlan={handleDispatchPlan}
+            onCancelPlan={handleCancelPlan}
+            onInsertOrderIntoPlan={handleInsertOrderIntoPlan}
+            onReorderStops={handleReorderStops}
+            onMoveStop={handleMoveStop}
+            editingPlanId={editingPlanId}
+            maxOrdersPerDriver={maxOrdersPerDriver}
+          />
+        </section>
       </section>
     </div>
   );

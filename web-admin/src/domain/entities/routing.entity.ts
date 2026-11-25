@@ -15,7 +15,9 @@ export interface MapOverviewRoute {
   color: string;
   depot: DispatchDepot;
   stops: OptimizationStop[];
+  driverId?: string;
   driverName?: string;
+  warehouseId?: string;
 }
 
 export interface MapPlanHighlight {
@@ -58,7 +60,6 @@ export interface VehicleRouteResult {
 }
 
 export interface OptimizationResult {
-  algorithm_used: string;
   execution_time_ms: number;
   total_distance_km: number;
   total_duration_min: number;
@@ -75,22 +76,14 @@ export interface DispatchPlanRecord {
   tenant_id: string;
   plan_status: PlanStatus;
   driver_id?: string | null;
-  algorithm_used?: string | null;
   total_distance_km?: number | null;
   estimated_duration_minutes?: number | null;
   trigger_type?: string | null;
-  requires_approval?: boolean;
   order_count: number;
   ordered_stop_ids: string[];
-  planned_at?: string | null;
-  approved_at?: string | null;
   dispatched_at?: string | null;
-  declined_at?: string | null;
-  decline_reason?: string | null;
-  reassignment_count?: number | null;
-  ack_deadline_at?: string | null;
-  acknowledged_at?: string | null;
   route_waypoints?: string | null;
   created_at: string;
+  updated_at?: string | null;
 }
 

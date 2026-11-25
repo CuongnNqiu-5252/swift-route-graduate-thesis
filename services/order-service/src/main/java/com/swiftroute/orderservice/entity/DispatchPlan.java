@@ -68,10 +68,6 @@ public class DispatchPlan {
     @Column(name = "driver_id")
     private UUID driverId;
 
-    /** Algorithm identifier returned by the routing engine. */
-    @Column(name = "algorithm_used", length = 60)
-    private String algorithmUsed;
-
     /**
      * Full route waypoints JSON returned by the routing engine.
      * Stored as text to avoid mapping complexity; parsed at read time when needed.
@@ -89,34 +85,6 @@ public class DispatchPlan {
     @Enumerated(EnumType.STRING)
     @Column(name = "trigger_type", length = 30)
     private PlanTriggerType triggerType;
-
-    /** Whether this plan required manual approval per tenant dispatch config. */
-    @Column(name = "requires_approval", nullable = false)
-    @Builder.Default
-    private Boolean requiresApproval = false;
-
-    /** Deadline by which the driver must acknowledge. Null if not yet dispatched. */
-    @Column(name = "ack_deadline_at", columnDefinition = "TIMESTAMPTZ")
-    private Instant ackDeadlineAt;
-
-    @Column(name = "acknowledged_at", columnDefinition = "TIMESTAMPTZ")
-    private Instant acknowledgedAt;
-
-    @Column(name = "declined_at", columnDefinition = "TIMESTAMPTZ")
-    private Instant declinedAt;
-
-    @Column(name = "decline_reason", length = 500)
-    private String declineReason;
-
-    @Column(name = "reassignment_count", nullable = false)
-    @Builder.Default
-    private Short reassignmentCount = 0;
-
-    @Column(name = "planned_at", columnDefinition = "TIMESTAMPTZ")
-    private Instant plannedAt;
-
-    @Column(name = "approved_at", columnDefinition = "TIMESTAMPTZ")
-    private Instant approvedAt;
 
     /** Logical reference to auth_db.users — the operator who approved this plan. */
     @Column(name = "approved_by")
@@ -185,7 +153,6 @@ public class DispatchPlan {
             throw new IllegalStateException("Plan can only be approved from DRAFT state. Current: " + planStatus);
         }
         this.planStatus = PlanStatus.APPROVED;
-        this.approvedAt = Instant.now();
         this.approvedBy = approvedByUserId;
         this.updatedAt = Instant.now();
     }
@@ -193,17 +160,16 @@ public class DispatchPlan {
     /**
      * Transitions APPROVED → DISPATCHED.
      *
-     * @param ackDeadline deadline timestamp by which the driver must acknowledge
      * @throws IllegalStateException if current status is not APPROVED
      */
-    public void dispatch(Instant ackDeadline) {
+    public void dispatch() {
         if (this.planStatus != PlanStatus.APPROVED) {
             throw new IllegalStateException("Plan can only be dispatched from APPROVED state. Current: " + planStatus);
         }
+        Instant now = Instant.now();
         this.planStatus = PlanStatus.DISPATCHED;
-        this.dispatchedAt = Instant.now();
-        this.ackDeadlineAt = ackDeadline;
-        this.updatedAt = Instant.now();
+        this.dispatchedAt = now;
+        this.updatedAt = now;
     }
 
     /**
@@ -225,7 +191,6 @@ public class DispatchPlan {
         if (this.planStatus != PlanStatus.DISPATCHED) {
             throw new IllegalStateException("Plan must be DISPATCHED to acknowledge. Current: " + planStatus);
         }
-        this.acknowledgedAt = Instant.now();
         this.updatedAt = Instant.now();
     }
 
@@ -234,8 +199,6 @@ public class DispatchPlan {
         if (this.planStatus != PlanStatus.DISPATCHED) {
             throw new IllegalStateException("Plan must be DISPATCHED to decline. Current: " + planStatus);
         }
-        this.declinedAt = Instant.now();
-        this.declineReason = reason;
         this.updatedAt = Instant.now();
     }
 }

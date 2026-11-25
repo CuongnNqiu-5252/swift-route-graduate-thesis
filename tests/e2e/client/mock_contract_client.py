@@ -1075,7 +1075,7 @@ class MockContractClient(BaseClient):
                 return self._make_error(401, "Unauthorized", "Internal key authentication disabled or empty")
             if internal_key != self.server_routing_internal_key:
                 return self._make_error(401, "Unauthorized", "Invalid internal key")
-            return self._make_data({"route_id": "rt-opt-01", "algorithm_used": "dp_ml_pruning", "total_distance": 12.5})
+            return self._make_data({"route_id": "rt-opt-01", "total_distance": 12.5})
 
         # Token auth
         claims = self._verify_token(token)
@@ -1088,7 +1088,6 @@ class MockContractClient(BaseClient):
 
         return self._make_data({
             "route_id": "rt-opt-batch-01",
-            "algorithm_used": "dp_ml_pruning",
             "total_distance": 15.2,
             "stops": [{"order_id": IDS.ORDER_1_ID, "seq": 1}],
         })
@@ -1103,7 +1102,7 @@ class MockContractClient(BaseClient):
         if claims.get("tenant_role") == "VIEWER":
             return self._make_error(403, "Forbidden", "VIEWER cannot directly invoke optimization APIs")
 
-        return self._make_data({"route_id": "rt-opt-insert-01", "algorithm_used": "dp_ml_pruning", "total_distance": 18.0})
+        return self._make_data({"route_id": "rt-opt-insert-01", "total_distance": 18.0})
 
     def optimize_reoptimize(
         self, reoptimize_data: Dict[str, Any], token: Optional[str] = None, internal_key: Optional[str] = None, tenant_id: Optional[str] = None
@@ -1116,7 +1115,7 @@ class MockContractClient(BaseClient):
         if claims.get("tenant_role") == "VIEWER":
             return self._make_error(403, "Forbidden", "VIEWER cannot directly invoke optimization APIs")
 
-        return self._make_data({"route_id": "rt-opt-reopt-01", "algorithm_used": "dp_ml_pruning", "total_distance": 14.0})
+        return self._make_data({"route_id": "rt-opt-reopt-01", "total_distance": 14.0})
 
     def get_routing_plans(
         self, token: Optional[str] = None, tenant_id: Optional[str] = None

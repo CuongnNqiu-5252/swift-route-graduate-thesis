@@ -31,6 +31,27 @@ export interface PendingAddress {
   deliveryAddress: string | null;
 }
 
+type ImportedRowPayload = {
+  line: number;
+  external_order_code: string;
+  recipient_name: string;
+  recipient_phone: string;
+  delivery_address: string;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
+  time_window_start: string | null;
+  time_window_end: string | null;
+  weight_kg: number | null;
+  cod_amount: string | number | null;
+  notes: string;
+};
+
+type ImportResultPayload = Omit<ImportResult, 'externalOrderCode'> & { external_order_code: string };
+
+function importResult({ external_order_code, ...row }: ImportResultPayload): ImportResult {
+  return { ...row, externalOrderCode: external_order_code };
+}
+
 function addressPayload(address: ImportAddress) {
   return {
     delivery_address: address.deliveryAddress,
@@ -40,10 +61,33 @@ function addressPayload(address: ImportAddress) {
 }
 
 export const orderImportRepository = {
+  async previewExcel(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post<{ rows: ImportedRowPayload[]; errors: ImportResultPayload[] }>('/orders/import/file/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return {
+      name: file.name,
+      rows: data.rows.map((row): ImportRow => ({
+        line: row.line,
+        externalOrderCode: row.external_order_code,
+        recipientName: row.recipient_name,
+        recipientPhone: row.recipient_phone,
+        deliveryAddress: row.delivery_address,
+        deliveryLat: row.delivery_lat,
+        deliveryLng: row.delivery_lng,
+        timeWindowStart: row.time_window_start,
+        timeWindowEnd: row.time_window_end,
+        weightKg: row.weight_kg,
+        codAmount: row.cod_amount == null ? null : String(row.cod_amount),
+        notes: row.notes,
+      })),
+      errors: data.errors.map(importResult),
+    };
+  },
   async submit(rows: ImportRow[]) {
-    const response = await api.post<(Omit<ImportResult, 'externalOrderCode'> & {
-      external_order_code: string;
-    })[]>('/orders/import', rows.map((row) => ({
+    const response = await api.post<ImportResultPayload[]>('/orders/import', rows.map((row) => ({
       ...addressPayload(row),
       line: row.line,
       external_order_code: row.externalOrderCode,
@@ -55,10 +99,7 @@ export const orderImportRepository = {
       cod_amount: row.codAmount,
       notes: row.notes,
     })));
-    return response.data.map(({ external_order_code, ...row }) => ({
-      ...row,
-      externalOrderCode: external_order_code,
-    }));
+    return response.data.map(importResult);
   },
   async pending(after: string) {
     const response = await api.get<{

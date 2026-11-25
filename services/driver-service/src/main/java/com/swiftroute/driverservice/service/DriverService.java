@@ -2,8 +2,10 @@ package com.swiftroute.driverservice.service;
 
 import com.swiftroute.driverservice.dto.response.PageRequests;
 import com.swiftroute.driverservice.dto.response.PageResponse;
+import java.text.Normalizer;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -15,6 +17,7 @@ import com.swiftroute.driverservice.dto.event.DriverAvailabilityEventPayload;
 import com.swiftroute.driverservice.dto.event.DriverLocationUpdatedEvent;
 import com.swiftroute.driverservice.dto.request.RegisterDriverRequest;
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
+import com.swiftroute.driverservice.dto.request.UpdateDriverBankAccountRequest;
 import com.swiftroute.driverservice.dto.request.UpdateDriverRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
 import com.swiftroute.driverservice.dto.response.DriverResponse;
@@ -69,6 +72,9 @@ public class DriverService {
                 .driverType(request.driverType())
                 .shiftStart(request.shiftStart())
                 .shiftEnd(request.shiftEnd())
+                .bankCode(normalizeOptionalBankCode(request.bankCode()))
+                .bankAccountNumber(normalizeOptionalText(request.bankAccountNumber()))
+                .bankAccountName(normalizeAccountName(request.bankAccountName()))
                 .status(DriverStatus.INACTIVE)
                 .isAvailable(false)
                 .build();
@@ -163,6 +169,12 @@ public class DriverService {
             driver.setShiftStart(request.shiftStart());
         if (request.shiftEnd() != null)
             driver.setShiftEnd(request.shiftEnd());
+        if (request.bankCode() != null)
+            driver.setBankCode(normalizeOptionalBankCode(request.bankCode()));
+        if (request.bankAccountNumber() != null)
+            driver.setBankAccountNumber(normalizeOptionalText(request.bankAccountNumber()));
+        if (request.bankAccountName() != null)
+            driver.setBankAccountName(normalizeAccountName(request.bankAccountName()));
 
         if (driver.getStatus() != DriverStatus.SUSPENDED) driver.setStatus(DriverStatus.INACTIVE);
         driver.setIsAvailable(false);
@@ -344,12 +356,76 @@ public class DriverService {
                 .isAvailable(driver.getIsAvailable())
                 .status(driver.getStatus())
                 .reviewNote(driver.getReviewNote())
+                .bankCode(driver.getBankCode())
+                .bankAccountNumber(driver.getBankAccountNumber())
+                .bankAccountName(driver.getBankAccountName())
                 .build();
     }
 
     private DriverResponse toResponse(Driver driver) {
         locationCache.enrichWithCachedLocation(driver);
         return DriverResponse.fromEntity(driver);
+    }
+
+    /**
+     * Tenant managers/operators record the bank account used for VietQR payroll payouts.
+     * Only payout metadata changes, so the driver's review status and availability are untouched.
+     */
+    @Transactional
+    public DriverResponse updateBankAccount(UUID driverId, UpdateDriverBankAccountRequest request, String requesterRole) {
+        if (!OPERATOR_ROLES.contains(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        Driver driver = driverRepository.findById(driverId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(driver.getTenantId());
+        applyBankAccount(driver, request);
+        return toResponse(driverRepository.save(driver));
+    }
+
+    /** The authenticated driver records their own payout bank account. */
+    @Transactional
+    public DriverResponse updateMyBankAccount(UUID userId, UpdateDriverBankAccountRequest request) {
+        Driver driver = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        applyBankAccount(driver, request);
+        return toResponse(driverRepository.save(driver));
+    }
+
+    private void applyBankAccount(Driver driver, UpdateDriverBankAccountRequest request) {
+        driver.setBankCode(normalizeOptionalBankCode(request.bankCode()));
+        driver.setBankAccountNumber(normalizeOptionalText(request.bankAccountNumber()));
+        driver.setBankAccountName(normalizeAccountName(request.bankAccountName()));
+        driver.setUpdatedAt(Instant.now());
+    }
+
+    private static String normalizeOptionalBankCode(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        return code.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeOptionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    /** Bank apps expect the holder name as uppercase ASCII without Vietnamese diacritics. */
+    static String normalizeAccountName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String ascii = Normalizer.normalize(name.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D');
+        return ascii.replaceAll("[^A-Za-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toUpperCase(Locale.ROOT);
     }
 
     private void saveOutboxEvent(UUID eventId, String aggregateType, UUID aggregateId, String eventType, Object payload) {

@@ -4,9 +4,6 @@
 // Backend wraps all responses in: { "data": {...}, "error": null, "timestamp": "..." }
 // Login:    POST /api/auth/login       { username, password }
 //           -> { data: { accessToken, refreshToken } }
-// Register: POST /api/auth/register    { email, password, fullName, phoneNumber,
-//                                        address, city, state, zipCode, country }
-//           -> 201 { data: null }
 
 import 'package:swiftroute_app/domain/entities/user.dart';
 
@@ -19,42 +16,6 @@ class LoginRequest {
   LoginRequest({required this.username, required this.password});
 
   Map<String, dynamic> toJson() => {'username': username, 'password': password};
-}
-
-class RegisterRequest {
-  final String email;
-  final String password;
-  final String fullName;
-  final String phoneNumber;
-  final String address;
-  final String city;
-  final String state;
-  final String zipCode;
-  final String country;
-
-  RegisterRequest({
-    required this.email,
-    required this.password,
-    required this.fullName,
-    required this.phoneNumber,
-    required this.address,
-    required this.city,
-    required this.state,
-    required this.zipCode,
-    required this.country,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'email': email,
-    'password': password,
-    'full_name': fullName,
-    'phone_number': phoneNumber,
-    'address': address,
-    'city': city,
-    'state': state,
-    'zip_code': zipCode,
-    'country': country,
-  };
 }
 
 // ── Response models ───────────────────────────────────────────────────────────

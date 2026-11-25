@@ -619,7 +619,7 @@ public final class RoutingGrpcProtocol {
             }
         }
         return new BatchOptimizationResponse(
-                jobId, algorithmUsed, totalDistanceKm, totalDurationMinutes,
+                jobId, totalDistanceKm, totalDurationMinutes,
                 orderedStops, vehicleRoutes, executionTimeMs, timestamp);
     }
 
@@ -699,7 +699,6 @@ public final class RoutingGrpcProtocol {
         }
         return new RouteInsertResponse(
                 jobId,
-                algorithmUsed,
                 feasible,
                 insertedStopIndex,
                 addedDistanceKm,
@@ -760,7 +759,6 @@ public final class RoutingGrpcProtocol {
         }
         return new RouteReoptimizeResponse(
                 jobId,
-                algorithmUsed,
                 stopsChanged,
                 distanceSavedKm,
                 totalDistanceKm,

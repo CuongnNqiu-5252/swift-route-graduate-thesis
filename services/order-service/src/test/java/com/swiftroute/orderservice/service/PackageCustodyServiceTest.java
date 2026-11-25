@@ -3,7 +3,6 @@ package com.swiftroute.orderservice.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,21 +21,18 @@ import org.springframework.beans.factory.ObjectProvider;
 import com.swiftroute.orderservice.dto.request.AssignPackageHandoverRequest;
 import com.swiftroute.orderservice.dto.request.CreatePackageHandoverRequest;
 import com.swiftroute.orderservice.entity.Order;
-import com.swiftroute.orderservice.entity.PackageCustodyEvent;
 import com.swiftroute.orderservice.entity.PackageHandover;
 import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.repository.OrderRepository;
-import com.swiftroute.orderservice.repository.PackageCustodyEventRepository;
 import com.swiftroute.orderservice.repository.PackageHandoverRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
 import com.swiftroute.orderservice.service.planning.DispatchOrchestrationService;
 
 @ExtendWith(MockitoExtension.class)
 class PackageCustodyServiceTest {
-    @Mock private PackageCustodyEventRepository events;
     @Mock private PackageHandoverRepository handovers;
     @Mock private OrderRepository orders;
     @Mock private ReturnRequestRepository returns;
@@ -60,16 +56,14 @@ class PackageCustodyServiceTest {
     @Test
     void pickupRecordsCustodyAgainstOrder() {
         service.acquireAtPickup(order, driver);
-        verify(events).save(org.mockito.ArgumentMatchers.argThat(event ->
-                event.getOrder() == order && driver.equals(event.getToCustodianId())
-                        && "PICKUP_CONFIRMED".equals(event.getEventType())));
+        assertThat(order.getCustodianDriverId()).isEqualTo(driver);
     }
 
     @Test
     void repeatedPickupKeepsExistingCustodyHistory() {
         givenHeldOrder();
         service.acquireAtPickup(order, driver);
-        verify(events, never()).save(any());
+        assertThat(order.getCustodianDriverId()).isEqualTo(driver);
     }
 
     @Test
@@ -90,7 +84,7 @@ class PackageCustodyServiceTest {
         when(handovers.existsByOrder_IdAndStatusIn(order.getId(), List.of("REQUESTED", "ASSIGNED")))
                 .thenReturn(true);
         assertThatThrownBy(() -> service.releaseAtDelivery(order, driver)).isInstanceOf(AppException.class);
-        verify(events, never()).save(any());
+        assertThat(order.getCustodianDriverId()).isEqualTo(driver);
     }
 
     @Test
@@ -120,9 +114,7 @@ class PackageCustodyServiceTest {
         assertThat(result.status()).isEqualTo("COMPLETED");
         assertThat(request.getCurrentHolderId()).isEqualTo(receiver);
         verify(dispatch).synchronizePackageTransfer(order, driver, receiver, "RETURN");
-        verify(events).save(org.mockito.ArgumentMatchers.argThat(event ->
-                event.getOrder() == order && receiver.equals(event.getToCustodianId())
-                        && handover.getId().equals(event.getHandoverId())));
+        assertThat(order.getCustodianDriverId()).isEqualTo(receiver);
     }
 
     @Test
@@ -141,23 +133,36 @@ class PackageCustodyServiceTest {
         assertThat(result.status()).isEqualTo("COMPLETED");
         assertThat(request.getCurrentHolderId()).isEqualTo(receiver);
         verify(dispatch).synchronizePackageTransfer(order, driver, receiver, "DELIVERY");
-        verify(events).save(org.mockito.ArgumentMatchers.argThat(event ->
-                event.getOrder() == order && receiver.equals(event.getToCustodianId())
-                        && handover.getId().equals(event.getHandoverId())));
+        assertThat(order.getCustodianDriverId()).isEqualTo(receiver);
     }
 
     @Test
     void cancellingHandoverDoesNotChangeAssignment() {
+        givenHeldOrder();
         PackageHandover handover = givenHandover("ASSIGNED", receiver);
         var response = service.cancel(handover.getId(), tenantId, operator, "OPERATOR", "Đổi kế hoạch");
         assertThat(response.status()).isEqualTo("CANCELLED");
         assertThat(order.getAssignedDriverId()).isEqualTo(driver);
-        verify(events, never()).save(any());
+        assertThat(order.getCustodianDriverId()).isEqualTo(driver);
+    }
+
+    @Test
+    void deliveryReleasesCustody() {
+        givenHeldOrder();
+        service.releaseAtDelivery(order, driver);
+        assertThat(order.getCustodianDriverId()).isNull();
+    }
+
+    @Test
+    void receiveReturnReleasesCustody() {
+        order.setStatus(OrderStatus.RETURNING);
+        givenHeldOrder();
+        service.receiveReturn(order, operator, "Đã kiểm nhận");
+        assertThat(order.getCustodianDriverId()).isNull();
     }
 
     private void givenHeldOrder() {
-        when(events.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId()))
-                .thenReturn(Optional.of(PackageCustodyEvent.builder().toCustodianId(driver).build()));
+        order.setCustodianDriverId(driver);
     }
 
     private PackageHandover givenHandover(String status, UUID toDriverId) {

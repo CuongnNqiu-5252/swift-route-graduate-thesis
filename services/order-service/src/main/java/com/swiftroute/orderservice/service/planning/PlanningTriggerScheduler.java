@@ -91,16 +91,17 @@ public class PlanningTriggerScheduler {
      * eligible orders.
      *
      * @param tenantId UUID of the tenant to trigger planning for
+     * @param pickupLocationId optional depot to restrict planning to
      */
     @Transactional
-    public DispatchOrchestrationService.CycleResult triggerManual(UUID tenantId) {
+    public DispatchOrchestrationService.CycleResult triggerManual(UUID tenantId, UUID pickupLocationId) {
         log.info("Manual planning trigger for tenant {}.", tenantId);
         boolean acquired = advisoryLockHelper.tryLock(tenantId.getMostSignificantBits());
         if (!acquired) {
             log.warn("Manual trigger for tenant {} skipped — concurrent planning already in progress.", tenantId);
             return new DispatchOrchestrationService.CycleResult("IN_PROGRESS", 0, List.of());
         }
-        return orchestrationService.executeFlowCycle(tenantId, PlanTriggerType.MANUAL, null);
+        return orchestrationService.executeFlowCycle(tenantId, PlanTriggerType.MANUAL, pickupLocationId);
     }
 
     // -------------------------------------------------------------------------

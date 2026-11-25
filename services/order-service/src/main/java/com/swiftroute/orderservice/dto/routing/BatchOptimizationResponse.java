@@ -10,7 +10,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  */
 public record BatchOptimizationResponse(
         @JsonProperty("job_id") String jobId,
-        @JsonProperty("algorithm_used") String algorithmUsed,
         @JsonProperty("total_distance_km") double totalDistanceKm,
         @JsonProperty("total_duration_minutes") double totalDurationMinutes,
         @JsonProperty("ordered_stops") List<OrderedStop> orderedStops,
@@ -21,14 +20,13 @@ public record BatchOptimizationResponse(
 
     public BatchOptimizationResponse(
             String jobId,
-            String algorithmUsed,
             double totalDistanceKm,
             double totalDurationMinutes,
             List<OrderedStop> orderedStops,
             double executionTimeMs,
             String timestamp
     ) {
-        this(jobId, algorithmUsed, totalDistanceKm, totalDurationMinutes, orderedStops, List.of(), executionTimeMs, timestamp);
+        this(jobId,  totalDistanceKm, totalDurationMinutes, orderedStops, List.of(), executionTimeMs, timestamp);
     }
 
     public record VehicleRoute(

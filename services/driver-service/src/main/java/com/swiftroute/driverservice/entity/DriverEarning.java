@@ -49,10 +49,6 @@ public class DriverEarning {
     @Builder.Default
     private String earningType = "DELIVERY";
 
-    @Column(name = "delivery_fee", nullable = false, precision = 12, scale = 0)
-    @Builder.Default
-    private BigDecimal deliveryFee = BigDecimal.ZERO;
-
     @Column(name = "payable_distance_km", nullable = false, precision = 8, scale = 2)
     private BigDecimal payableDistanceKm;
 

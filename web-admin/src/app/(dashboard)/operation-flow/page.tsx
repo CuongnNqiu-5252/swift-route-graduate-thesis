@@ -708,7 +708,7 @@ function FlowEditor({ kind, draftKey, sharedDraft, unavailable, initialActivatio
             <Button size="sm" variant="outline" onClick={() => setRunOpen(false)}>{t('Đóng')}</Button>
           </div>
           {prepared && <OrderImportPanel prepared={prepared} resolveCoordinates={resolveCoordinates}
-            stopOnCsvErrors={stopOnCsvErrors} />}
+            stopOnCsvErrors={stopOnCsvErrors} onDiscard={() => { setPrepared(undefined); setRunOpen(false); }} />}
         </section>
       ) : (
         <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 p-4">

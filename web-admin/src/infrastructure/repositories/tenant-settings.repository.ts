@@ -3,7 +3,6 @@ import api from '@/lib/api';
 
 export interface UpdateSettingsPayload {
   business_name?: string;
-  address?: string;
   dispatch_config?: Partial<TenantSettings['dispatch_config']>;
   optimization_weights?: Partial<TenantSettings['optimization_weights']>;
 }
@@ -22,7 +21,6 @@ export const tenantSettingsRepository = {
       tenant_id: String(data.tenant_id || data.tenantId || ''),
       business_name: String(data.business_name || data.businessName || ''),
       status: String(data.status || 'APPROVED'),
-      address: data.address || '',
       dispatch_config: {
         auto_dispatch_enabled: data.dispatch_config?.auto_dispatch_enabled ?? true,
         batch_size_threshold: data.dispatch_config?.batch_size_threshold ?? 5,

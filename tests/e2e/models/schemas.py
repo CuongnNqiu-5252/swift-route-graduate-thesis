@@ -142,7 +142,6 @@ class OptimizationBatchRequest(BaseModel):
 
 class OptimizationResponse(BaseModel):
     route_id: str
-    algorithm_used: str
     total_distance: float
     stops: List[Dict[str, Any]] = Field(default_factory=list)
 

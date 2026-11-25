@@ -13,13 +13,19 @@ public record UpdateTenantSettingsRequest(
 
         BusinessType businessType,
 
-        @Size(max = 500)
-        String address,
-
         @Valid
         TenantDispatchConfig dispatchConfig,
 
         @Valid
         OptimizationWeights optimizationWeights
-) {}
+) {
+    public UpdateTenantSettingsRequest(
+            String businessName,
+            BusinessType businessType,
+            String ignoredAddress,
+            TenantDispatchConfig dispatchConfig,
+            OptimizationWeights optimizationWeights) {
+        this(businessName, businessType, dispatchConfig, optimizationWeights);
+    }
+}
 

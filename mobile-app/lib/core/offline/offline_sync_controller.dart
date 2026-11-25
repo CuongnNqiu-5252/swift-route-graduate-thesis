@@ -237,10 +237,7 @@ class OfflineSyncController extends StateNotifier<OfflineSyncState> {
       if (action.entityId != null && !isRouteAction)
         'order_id': action.entityId,
       'incident_type': 'OFFLINE_SYNC_CONFLICT',
-      'severity': 'HIGH',
       'notes': detail,
-      'can_continue_delivery': false,
-      'needs_immediate_assistance': true,
       'contact_attempts': 1,
     };
   }

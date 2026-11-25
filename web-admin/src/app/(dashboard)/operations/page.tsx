@@ -4,14 +4,24 @@ import type { Translator } from "@/i18n/translate";
 import { useLocale } from '@/i18n/provider';
 
 import { useAuth } from '@/application/contexts/auth-context';
+import {
+  buildOperationsPersonDirectory,
+  formatDiscrepancyType,
+  formatIncidentType,
+  resolveDriverDisplayName,
+  resolveReporterDisplayName,
+} from '@/application/operations-display';
+import type { TenantMember } from '@/domain/entities/member.entity';
 import { memberRepository } from '@/infrastructure/repositories/member.repository';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   RotateCcw,
   Banknote,
+  Check,
   CheckCircle2,
-  XCircle,
+  ClipboardCheck,
+  ExternalLink,
   Eye,
   RefreshCw,
   Clock,
@@ -25,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import { CustomSelect } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Modal } from '@/components/ui/modal';
+import { OperationsWeatherRisks } from '@/components/dispatch/route-weather-risk';
 import {
   operationsRepository,
   IncidentDto,
@@ -72,18 +83,6 @@ const formatDate = (isoStr: string | null | undefined, locale: string) => {
   }
 };
 
-const incidentLabels: Record<string, string> = {
-  CUSTOMER_NOT_AVAILABLE: 'Không thấy khách',
-  CUSTOMER_ABSENT: 'Không thấy khách',
-  CUSTOMER_REFUSED: 'Khách từ chối nhận hàng',
-  WRONG_ADDRESS: 'Sai địa chỉ',
-  VEHICLE_BREAKDOWN: 'Xe gặp sự cố',
-};
-
-function incidentLabel(code: string, t: Translator) {
-  return t(incidentLabels[code] ?? code);
-}
-
 const severityBadge = (severity: string, t: Translator) => {
   switch (severity?.toUpperCase()) {
     case 'CRITICAL':
@@ -95,7 +94,7 @@ const severityBadge = (severity: string, t: Translator) => {
     case 'LOW':
       return <Badge className="bg-blue-100 text-blue-800 border border-blue-300">{t("Thấp")}</Badge>;
     default:
-      return <Badge className="bg-slate-100 text-slate-700">{severity}</Badge>;
+      return <Badge className="bg-slate-100 text-slate-700">{t("Chưa xác định")}</Badge>;
   }
 };
 
@@ -109,8 +108,10 @@ const incidentStatusBadge = (status: string, t: Translator) => {
       return <Badge className="bg-purple-100 text-purple-800 border border-purple-300">{t("Đã leo thang")}</Badge>;
     case 'RESOLVED':
       return <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">{t("Đã giải quyết")}</Badge>;
+    case 'CANCELLED':
+      return <Badge className="bg-slate-100 text-slate-600">{t("Đã hủy")}</Badge>;
     default:
-      return <Badge className="bg-slate-100 text-slate-700">{status}</Badge>;
+      return <Badge className="bg-slate-100 text-slate-700">{t("Chưa xác định")}</Badge>;
   }
 };
 
@@ -132,8 +133,10 @@ const returnStatusBadge = (status: string, t: Translator) => {
       return <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">{t("Đã nhận hàng vào kho")}</Badge>;
     case 'REJECTED':
       return <Badge className="bg-slate-100 text-slate-600">{t("Bị từ chối")}</Badge>;
+    case 'CANCELLED':
+      return <Badge className="bg-slate-100 text-slate-600">{t("Đã hủy")}</Badge>;
     default:
-      return <Badge className="bg-slate-100 text-slate-700">{status}</Badge>;
+      return <Badge className="bg-slate-100 text-slate-700">{t("Chưa xác định")}</Badge>;
   }
 };
 
@@ -146,6 +149,10 @@ function OrderHandoverQueue() {
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const driverDirectory = useMemo(
+    () => buildOperationsPersonDirectory(drivers, []),
+    [drivers],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -195,9 +202,9 @@ function OrderHandoverQueue() {
             <p className="font-semibold">{request.order_code ?? request.order_id}</p>
             <p className="text-sm">{request.reason}</p>
             <p className="text-sm text-slate-600">
-              {t("Tài xế gửi:")}{" "}{drivers.find((driver) => driver.user_id === request.from_driver_id)?.name ?? request.from_driver_id}
+              {t("Tài xế gửi:")}{" "}{resolveDriverDisplayName(request.from_driver_id, driverDirectory, t)}
               {request.to_driver_id && (
-                <>{" "}{t("· Tài xế nhận:")}{" "}{drivers.find((driver) => driver.user_id === request.to_driver_id)?.name ?? request.to_driver_id}</>
+                <>{" "}{t("· Tài xế nhận:")}{" "}{resolveDriverDisplayName(request.to_driver_id, driverDirectory, t)}</>
               )}
             </p>
             <p className="text-sm text-slate-600">
@@ -263,14 +270,14 @@ export default function OperationsPage() {
   const { t, intlLocale } = useLocale();
   const formatCurrency = (amount: number) => formatVnd(amount, intlLocale);
   const { user } = useAuth();
-  const [memberDirectory, setMemberDirectory] = useState<{ tenantId: string; names: Map<string, string> }>();
+  const [memberDirectory, setMemberDirectory] = useState<{ tenantId: string; members: TenantMember[] }>();
   const tenantId = user?.tenantId;
   useEffect(() => {
     if (!tenantId) return;
     let active = true;
     memberRepository.getMembers(tenantId).then((members) => {
       if (active) {
-        setMemberDirectory({ tenantId, names: new Map(members.map((member) => [member.user_id, member.full_name.trim()])) });
+        setMemberDirectory({ tenantId, members });
       }
     }).catch(() => {});
     return () => { active = false; };
@@ -284,6 +291,16 @@ export default function OperationsPage() {
   const [returns, setReturns] = useState<ReturnRequestDto[]>([]);
   const [codList, setCodList] = useState<CodItem[]>([]);
   const [codDrivers, setCodDrivers] = useState<Driver[]>([]);
+
+  const personDirectory = useMemo(
+    () =>
+      buildOperationsPersonDirectory(
+        codDrivers,
+        memberDirectory && memberDirectory.tenantId === tenantId ? memberDirectory.members : [],
+        user,
+      ),
+    [codDrivers, memberDirectory, tenantId, user],
+  );
 
   // Filters
   const [incidentStatusFilter, setIncidentStatusFilter] = useState<string>('ALL');
@@ -304,12 +321,13 @@ export default function OperationsPage() {
   const [codSettlementNotes, setCodSettlementNotes] = useState('');
   const [codFormError, setCodFormError] = useState<string | null>(null);
 
-  // Discrepancy Form
+  // Discrepancy & Receipt Forms
   const [discrepancyModalOpen, setDiscrepancyModalOpen] = useState(false);
   const [discrepancyType, setDiscrepancyType] = useState('DAMAGED');
-  const [actualQuantity, setActualQuantity] = useState<number>(1);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
   const [discrepancyFile, setDiscrepancyFile] = useState<File | null>(null);
+  const [receiptNotes, setReceiptNotes] = useState('');
+  const [receiptFormError, setReceiptFormError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -420,13 +438,27 @@ export default function OperationsPage() {
     }
   };
 
-  // Handle Warehouse Confirm Receipt
-  const handleConfirmReceipt = async (returnId: string, notes?: string) => {
+  const openReturnDetail = (ret: ReturnRequestDto) => {
+    setSelectedReturn(ret);
+    setReceiptNotes('');
+    setReceiptFormError(null);
+  };
+
+  // Handle Warehouse Confirm Receipt (and Discrepancy Resolution)
+  const handleConfirmReceipt = async (returnId: string, notes?: string, requireNotes = false) => {
+    const trimmedNotes = notes?.trim() || '';
+    if (requireNotes && !trimmedNotes) {
+      setReceiptFormError(t("Vui lòng nhập kết luận xử lý chênh lệch trước khi chốt nhập kho."));
+      return;
+    }
+
     setActionLoading(true);
     setError(null);
+    setReceiptFormError(null);
     try {
-      await operationsRepository.confirmReturnReceipt(returnId, notes);
+      await operationsRepository.confirmReturnReceipt(returnId, trimmedNotes || undefined);
       setSelectedReturn(null);
+      setReceiptNotes('');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("Lỗi khi xác nhận nhận hàng"));
@@ -449,7 +481,6 @@ export default function OperationsPage() {
 
       const params: ReportDiscrepancyParams = {
         discrepancy_type: discrepancyType,
-        actual_quantity: actualQuantity,
         discrepancy_notes: discrepancyNotes.trim() || undefined,
         evidence_url: evidenceUrl,
       };
@@ -553,6 +584,7 @@ export default function OperationsPage() {
         </div>
       </div>
 
+      <OperationsWeatherRisks />
       {error && (
         <div role="alert" className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           <AlertOctagon size={18} className="shrink-0 text-rose-600" />
@@ -699,10 +731,10 @@ export default function OperationsPage() {
                   className="w-44"
                   options={[
                     { value: 'ALL', label: t("Tất cả trạng thái") },
-                    { value: 'OPEN', label: t("Chờ xử lý (OPEN)") },
-                    { value: 'IN_PROGRESS', label: t("Đang xử lý (IN_PROGRESS)") },
-                    { value: 'ESCALATED', label: 'Leo thang (ESCALATED)' },
-                    { value: 'RESOLVED', label: t("Đã giải quyết (RESOLVED)") },
+                    { value: 'OPEN', label: t("Đang chờ xử lý") },
+                    { value: 'IN_PROGRESS', label: t("Đang xử lý") },
+                    { value: 'ESCALATED', label: t("Đã leo thang") },
+                    { value: 'RESOLVED', label: t("Đã giải quyết") },
                   ]}
                 />
               </div>
@@ -740,7 +772,6 @@ export default function OperationsPage() {
                     <th className="px-5 py-3 font-semibold">{t("Mã đơn / Tuyến")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Loại sự cố")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Mức độ")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("Khả năng tiếp tục")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Thời gian")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Trạng thái")}</th>
                     <th className="px-5 py-3 text-right font-semibold">{t("Thao tác")}</th>
@@ -760,7 +791,7 @@ export default function OperationsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3.5">
-                        <div className="font-medium text-slate-800">{incidentLabel(inc.incident_type, t)}</div>
+                        <div className="font-medium text-slate-800">{formatIncidentType(inc.incident_type, t)}</div>
                         {inc.notes && (
                           <div className="max-w-xs truncate text-xs text-slate-500" title={inc.notes}>
                             {inc.notes}
@@ -768,17 +799,6 @@ export default function OperationsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3.5">{severityBadge(inc.severity, t)}</td>
-                      <td className="px-5 py-3.5">
-                        {inc.can_continue_delivery ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
-                            <CheckCircle2 size={13} />{" "}{t("Tiếp tục được")}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-rose-700">
-                            <XCircle size={13} />{" "}{t("Tạm dừng đơn")}
-                          </span>
-                        )}
-                      </td>
                       <td className="px-5 py-3.5 text-xs text-slate-500">
                         {formatDate(inc.created_at, intlLocale)}
                       </td>
@@ -803,7 +823,7 @@ export default function OperationsPage() {
 
                   {filteredIncidents.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">
                         {t("Không có sự cố nào phù hợp với bộ lọc.")}
                       </td>
                     </tr>
@@ -852,7 +872,7 @@ export default function OperationsPage() {
           </div>
 
           {/* Returns Table */}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-slate-600">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
@@ -860,28 +880,32 @@ export default function OperationsPage() {
                     <th className="px-5 py-3 font-semibold">{t("Mã đơn")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Lý do hoàn")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Điểm hoàn về")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("Người giữ hàng (Tài xế)")}</th>
-                    <th className="px-5 py-3 font-semibold">{t("Số kiện")}</th>
+                    <th className="px-5 py-3 font-semibold">{t("Lưu ký / Tiếp nhận")}</th>
                     <th className="px-5 py-3 font-semibold">{t("Trạng thái")}</th>
                     <th className="px-5 py-3 text-right font-semibold">{t("Thao tác")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredReturns.map((ret) => (
-                    <tr key={ret.id} className="hover:bg-slate-50/75 transition-colors">
+                    <tr key={ret.id} className="transition-colors duration-150 hover:bg-slate-50/75">
                       <td className="px-5 py-3.5">
-                        <div className="font-semibold text-slate-900">
+                        <div className="font-mono text-sm font-semibold text-slate-900">
                           {ret.order_code || `#${ret.order_id.slice(0, 8)}`}
                         </div>
-                        <div className="text-xs text-slate-500">
-                          {t("Loại:")}{" "}{ret.request_type === 'REDELIVERY' ? t("Giao lại") : t("Hoàn về kho")}
+                        <div className="mt-0.5 text-xs tabular-nums text-slate-500">
+                          {formatDate(ret.created_at, intlLocale)}
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
-                        <div className="max-w-xs text-sm font-medium text-slate-800 truncate" title={ret.reason}>
+                        <div className="max-w-xs truncate text-sm font-medium text-slate-800" title={ret.reason}>
                           {ret.reason}
                         </div>
-                        <div className="text-xs text-slate-400">{t("Yêu cầu lúc:")}{" "}{formatDate(ret.created_at, intlLocale)}</div>
+                        {ret.discrepancy_type && (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700">
+                            <AlertTriangle size={12} aria-hidden="true" className="shrink-0" />
+                            <span>{formatDiscrepancyType(ret.discrepancy_type, t)}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-5 py-3.5">
                         <div className="font-medium text-slate-800">{ret.return_location_name || t("Kho lấy ban đầu")}</div>
@@ -892,17 +916,28 @@ export default function OperationsPage() {
                         )}
                       </td>
                       <td className="px-5 py-3.5">
-                        {ret.current_holder_id ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700">
-                            <UserCheck size={13} className="text-blue-600" />
-                            TX: {ret.current_holder_id.slice(0, 8)}
+                        {ret.status === 'COMPLETED' ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                              <ClipboardCheck size={13} aria-hidden="true" className="shrink-0" />
+                              <span>
+                                {resolveReporterDisplayName(ret.received_by, personDirectory, t, "Đã nhập kho")}
+                              </span>
+                            </span>
+                            {ret.received_at && (
+                              <div className="text-[11px] tabular-nums text-slate-500">
+                                {formatDate(ret.received_at, intlLocale)}
+                              </div>
+                            )}
+                          </div>
+                        ) : ret.current_holder_id ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                            <UserCheck size={13} aria-hidden="true" className="shrink-0 text-[#17766c]" />
+                            <span>{resolveDriverDisplayName(ret.current_holder_id, personDirectory, t)}</span>
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400">{t("Đã bàn giao về kho")}</span>
+                          <span className="text-xs text-slate-400">{t("Chờ gán tài xế hoàn")}</span>
                         )}
-                      </td>
-                      <td className="px-5 py-3.5 font-semibold text-slate-800">
-                        {t("1 kiện")}
                       </td>
                       <td className="px-5 py-3.5">{returnStatusBadge(ret.status, t)}</td>
                       <td className="px-5 py-3.5 text-right">
@@ -912,46 +947,56 @@ export default function OperationsPage() {
                               size="sm"
                               onClick={() => void handleApproveReturn(ret.id)}
                               isLoading={actionLoading}
-                              className="text-xs bg-indigo-600 hover:bg-indigo-700"
+                              className="cursor-pointer bg-[#17766c] text-xs text-white hover:bg-[#136058]"
                             >
-                              <CheckCircle2 size={13} className="mr-1" />
+                              <CheckCircle2 size={13} aria-hidden="true" className="mr-1" />
                               {t("Duyệt hoàn")}
                             </Button>
                           )}
 
-                          {(ret.status === 'IN_EXECUTION' || ret.status === 'AWAITING_RECEIPT' || ret.status === 'ARRIVED') && (
+                          {(ret.status === 'IN_EXECUTION' || ret.status === 'AWAITING_RECEIPT' || ret.status === 'ARRIVED' || ret.status === 'EXECUTION_FAILED') && (
                             <>
                               <Button
                                 size="sm"
-                                onClick={() => void handleConfirmReceipt(ret.id)}
-                                isLoading={actionLoading}
-                                className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                onClick={() => openReturnDetail(ret)}
+                                className="cursor-pointer bg-emerald-600 text-xs text-white hover:bg-emerald-700"
                               >
-                                <CheckCircle2 size={13} className="mr-1" />
-                                {t("Nhận hàng")}
+                                <ClipboardCheck size={13} aria-hidden="true" className="mr-1" />
+                                {t("Kiểm nhận")}
                               </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => {
-                                  setSelectedReturn(ret);
+                                  openReturnDetail(ret);
                                   setDiscrepancyModalOpen(true);
                                 }}
-                                className="text-xs border-rose-300 text-rose-700 hover:bg-rose-50"
+                                className="cursor-pointer border-rose-300 text-xs text-rose-700 hover:bg-rose-50"
                               >
-                                <ShieldAlert size={13} className="mr-1" />
+                                <ShieldAlert size={13} aria-hidden="true" className="mr-1" />
                                 {t("Báo hỏng/lệch")}
                               </Button>
                             </>
                           )}
 
+                          {ret.status === 'DISCREPANCY' && (
+                            <Button
+                              size="sm"
+                              onClick={() => openReturnDetail(ret)}
+                              className="cursor-pointer bg-amber-600 text-xs text-white hover:bg-amber-700"
+                            >
+                              <ClipboardCheck size={13} aria-hidden="true" className="mr-1" />
+                              {t("Chốt xử lý")}
+                            </Button>
+                          )}
+
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setSelectedReturn(ret)}
-                            className="text-xs"
+                            onClick={() => openReturnDetail(ret)}
+                            className="cursor-pointer text-xs"
                           >
-                            <Eye size={14} className="mr-1" />
+                            <Eye size={14} aria-hidden="true" className="mr-1" />
                             {t("Chi tiết")}
                           </Button>
                         </div>
@@ -961,7 +1006,7 @@ export default function OperationsPage() {
 
                   {filteredReturns.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">
                         {t("Không có yêu cầu hoàn hàng nào.")}
                       </td>
                     </tr>
@@ -1001,7 +1046,7 @@ export default function OperationsPage() {
                       {' · '}{t("Tài xế khai nộp:")}{" "}<span className="font-semibold tabular-nums">{formatCurrency(item.declared_amount)}</span>
                     </div>
                     <div className="mt-1 text-xs text-slate-500">
-                      {t("Tài xế:")}{" "}{codDrivers.find((driver) => driver.user_id === item.driver_id)?.name?.trim() || t("Chưa có tên")}{" "}{t("· Gửi lúc:")}{" "}{formatDate(item.declared_at, intlLocale)}
+                      {t("Tài xế:")}{" "}{resolveDriverDisplayName(item.driver_id, personDirectory, t, "Chưa có tên")}{" "}{t("· Gửi lúc:")}{" "}{formatDate(item.declared_at, intlLocale)}
                     </div>
                     {item.order_codes.length > 0 && (
                       <div className="mt-1 max-w-3xl truncate text-xs text-slate-500">
@@ -1159,7 +1204,7 @@ export default function OperationsPage() {
             setResolvingAction(null);
           }
         }}
-        title={`Chi tiết sự cố: ${selectedIncident?.order_code || (selectedIncident?.order_id ? `#${selectedIncident.order_id.slice(0, 8)}` : t("Tuyến đường"))}`}
+        title={`${t("Chi tiết sự cố:")} ${selectedIncident?.order_code || (selectedIncident?.order_id ? `#${selectedIncident.order_id.slice(0, 8)}` : t("Tuyến đường"))}`}
         description={t("Thông tin sự cố do tài xế hoặc hệ thống báo cáo và các hành động xử lý chuẩn SaaS.")}
         className="max-w-2xl"
       >
@@ -1168,7 +1213,7 @@ export default function OperationsPage() {
             {/* Incident Summary Card */}
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2.5 text-sm">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-900">{incidentLabel(selectedIncident.incident_type, t)}</span>
+                <span className="font-semibold text-slate-900">{formatIncidentType(selectedIncident.incident_type, t)}</span>
                 <div className="flex gap-2">
                   {severityBadge(selectedIncident.severity, t)}
                   {incidentStatusBadge(selectedIncident.status, t)}
@@ -1183,18 +1228,15 @@ export default function OperationsPage() {
 
               <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 pt-1">
                 <div>
-                  <span className="text-slate-400">{t("Người báo cáo:")}</span> {selectedIncident.reported_by.slice(0, 8)}
+                  <span className="text-slate-400">{t("Người báo cáo:")}</span>{' '}
+                  {resolveReporterDisplayName(selectedIncident.reported_by, personDirectory, t)}
                 </div>
                 <div>
                   <span className="text-slate-400">{t("Thời gian:")}</span> {formatDate(selectedIncident.created_at, intlLocale)}
                 </div>
                 <div>
                   <span className="text-slate-400">{t("Tài xế phụ trách:")}</span>{' '}
-                  {selectedIncident.driver_id ? selectedIncident.driver_id.slice(0, 8) : t("Chưa gán")}
-                </div>
-                <div>
-                  <span className="text-slate-400">{t("Có thể tiếp tục giao:")}</span>{' '}
-                  {selectedIncident.can_continue_delivery ? t("Có") : t("Không (Tạm dừng đơn)")}
+                  {resolveDriverDisplayName(selectedIncident.driver_id, personDirectory, t, "Chưa gán")}
                 </div>
               </div>
 
@@ -1277,7 +1319,7 @@ export default function OperationsPage() {
                   >
                     <ShieldAlert size={14} className="mr-1.5 text-purple-600 shrink-0" />
                     <div>
-                      <div className="font-semibold text-left">Leo thang</div>
+                      <div className="font-semibold text-left">{t("Leo thang")}</div>
                       <div className="text-[10px] text-slate-500 font-normal">{t("Mất hàng / hỏng nặng")}</div>
                     </div>
                   </Button>
@@ -1335,117 +1377,343 @@ export default function OperationsPage() {
       <Modal
         open={selectedReturn !== null && !discrepancyModalOpen}
         onOpenChange={(open) => {
-          if (!open) setSelectedReturn(null);
+          if (!open) {
+            setSelectedReturn(null);
+            setReceiptNotes('');
+            setReceiptFormError(null);
+          }
         }}
         title={`${t("Yêu cầu hoàn hàng:")} ${selectedReturn?.order_code || (selectedReturn?.order_id ? `#${selectedReturn.order_id.slice(0, 8)}` : '')}`}
         description={t("Theo dõi lộ trình hoàn về kho, xác nhận lưu ký và kiểm nhận hàng hóa.")}
-        className="max-w-2xl"
+        className="max-h-[calc(100dvh-2rem)] max-w-2xl overflow-y-auto"
       >
-        {selectedReturn && (
-          <div className="space-y-4 text-sm">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-900">{t("Lý do:")}{" "}{selectedReturn.reason}</span>
-                {returnStatusBadge(selectedReturn.status, t)}
+        {selectedReturn && (() => {
+          const canReceiveNormally =
+            selectedReturn.status === 'IN_EXECUTION' ||
+            selectedReturn.status === 'ARRIVED' ||
+            selectedReturn.status === 'AWAITING_RECEIPT' ||
+            selectedReturn.status === 'EXECUTION_FAILED';
+          const isDiscrepancy = selectedReturn.status === 'DISCREPANCY';
+          const isCompleted = selectedReturn.status === 'COMPLETED';
+          const progressStep = isCompleted
+            ? 3
+            : isDiscrepancy || selectedReturn.status === 'ARRIVED' || selectedReturn.status === 'AWAITING_RECEIPT'
+              ? 2
+              : selectedReturn.status === 'IN_EXECUTION' || selectedReturn.status === 'EXECUTION_FAILED'
+                ? 1
+                : 0;
+          const returnSteps = [
+            t("Tạo yêu cầu"),
+            t("Duyệt & vận chuyển"),
+            isDiscrepancy ? t("Đối soát chênh lệch") : t("Kiểm nhận tại kho"),
+            t("Đã nhập kho"),
+          ];
+
+          return (
+            <div className="space-y-4 text-sm">
+              {/* 4-step RTO progress rail */}
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <div className="grid grid-cols-4 gap-2">
+                  {returnSteps.map((stepLabel, idx) => {
+                    const isDone = idx < progressStep || (isCompleted && idx === 3);
+                    const isCurrent = idx === progressStep && !isCompleted;
+                    const isAlertStep = isDiscrepancy && idx === 2;
+                    return (
+                      <div key={stepLabel} className="flex flex-col items-center text-center">
+                        <div className="relative flex w-full items-center justify-center">
+                          {idx > 0 && (
+                            <span
+                              aria-hidden="true"
+                              className={`absolute left-0 right-1/2 top-1/2 h-0.5 -translate-y-1/2 ${
+                                idx <= progressStep
+                                  ? isDiscrepancy && idx === 2
+                                    ? 'bg-rose-400'
+                                    : 'bg-[#17766c]'
+                                  : 'bg-slate-200'
+                              }`}
+                            />
+                          )}
+                          {idx < returnSteps.length - 1 && (
+                            <span
+                              aria-hidden="true"
+                              className={`absolute left-1/2 right-0 top-1/2 h-0.5 -translate-y-1/2 ${
+                                idx < progressStep ? 'bg-[#17766c]' : 'bg-slate-200'
+                              }`}
+                            />
+                          )}
+                          <span
+                            className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums transition-colors ${
+                              isAlertStep
+                                ? 'border-rose-600 bg-rose-600 text-white ring-4 ring-rose-100'
+                                : isDone
+                                  ? 'border-[#17766c] bg-[#17766c] text-white'
+                                  : isCurrent
+                                    ? 'border-[#17766c] bg-white text-[#17766c] ring-4 ring-[#17766c]/15'
+                                    : 'border-slate-300 bg-white text-slate-400'
+                            }`}
+                          >
+                            {isDone ? (
+                              <Check size={12} aria-hidden="true" />
+                            ) : isAlertStep ? (
+                              <AlertTriangle size={12} aria-hidden="true" />
+                            ) : (
+                              idx + 1
+                            )}
+                          </span>
+                        </div>
+                        <span
+                          className={`mt-1.5 text-[11px] font-medium leading-tight ${
+                            isAlertStep
+                              ? 'text-rose-700'
+                              : isDone || isCurrent
+                                ? 'text-slate-900'
+                                : 'text-slate-400'
+                          }`}
+                        >
+                          {stepLabel}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 pt-2 border-t border-slate-200">
-                <div>
-                  <span className="text-slate-400">{t("Kho hoàn về:")}</span>{' '}
-                  <span className="font-medium text-slate-800">{selectedReturn.return_location_name || t("Kho ban đầu")}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">{t("Địa chỉ:")}</span>{' '}
-                  <span className="font-medium text-slate-800">{selectedReturn.return_address || t("Địa chỉ kho gửi")}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">{t("Người đang cầm hàng:")}</span>{' '}
-                  <span className="font-medium text-slate-800">
-                    {selectedReturn.current_holder_id ? `${t("Tài xế")} (${selectedReturn.current_holder_id.slice(0, 8)})` : t("Đã nhập kho")}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400">{t("Số lượng kiện:")}</span>{' '}
-                  <span className="font-semibold text-slate-800">{t("1 kiện")}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">{t("Người tạo yêu cầu:")}</span>{' '}
-                  <span title={selectedReturn.requested_by || undefined}>
-                    {(memberDirectory?.tenantId === tenantId && memberDirectory?.names.get(selectedReturn.requested_by))
-                      || (selectedReturn.requested_by === user?.id && user?.name)
-                      || (selectedReturn.requested_by ? `${t("Tài khoản")} #${selectedReturn.requested_by.slice(0, 8)}` : t("Chưa xác định"))}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400">{t("Thời gian tạo:")}</span> {formatDate(selectedReturn.created_at, intlLocale)}
-                </div>
-              </div>
-
-              {/* Discrepancy Alert Banner if reported */}
-              {selectedReturn.status === 'DISCREPANCY' && (
-                <div className="mt-2 rounded border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
-                  <div className="font-semibold">{t("⚠️ Hàng hoàn có chênh lệch / hư hỏng:")}</div>
-                  <div className="mt-1">
-                    {t("Loại:")}{" "}{selectedReturn.discrepancy_type}{selectedReturn.actual_quantity !== null && selectedReturn.actual_quantity !== undefined ? ` · Thực nhận: ${selectedReturn.actual_quantity} kiện` : ''}
+              {/* Overview Card */}
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      {t("Lý do yêu cầu hoàn")}
+                    </div>
+                    <p className="mt-0.5 font-semibold text-slate-900">{selectedReturn.reason}</p>
                   </div>
-                  {selectedReturn.discrepancy_notes && <div className="mt-0.5">{t("Ghi chú:")}{" "}{selectedReturn.discrepancy_notes}</div>}
+                  {returnStatusBadge(selectedReturn.status, t)}
+                </div>
+
+                <dl className="grid grid-cols-1 gap-x-4 gap-y-2.5 border-t border-slate-200/80 pt-3 text-xs sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">{t("Kho hoàn về")}</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {selectedReturn.return_location_name || t("Kho ban đầu")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">{t("Địa chỉ kho")}</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {selectedReturn.return_address || t("Địa chỉ kho gửi")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">{t("Người đang cầm hàng")}</dt>
+                    <dd className="mt-0.5 flex items-center gap-1.5 font-medium text-slate-900">
+                      <span
+                        aria-hidden="true"
+                        className={`h-2 w-2 rounded-full ${
+                          selectedReturn.current_holder_id ? 'bg-[#17766c]' : 'bg-slate-400'
+                        }`}
+                      />
+                      <span>
+                        {selectedReturn.current_holder_id
+                          ? resolveDriverDisplayName(selectedReturn.current_holder_id, personDirectory, t)
+                          : isCompleted
+                            ? t("Đã nhập kho")
+                            : t("Chưa gán tài xế")}
+                      </span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">{t("Người tạo yêu cầu")}</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {resolveReporterDisplayName(selectedReturn.requested_by, personDirectory, t, "Chưa xác định")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">{t("Người duyệt hoàn")}</dt>
+                    <dd className="mt-0.5 font-medium text-slate-900">
+                      {selectedReturn.approved_by
+                        ? resolveReporterDisplayName(selectedReturn.approved_by, personDirectory, t)
+                        : t("Chưa duyệt")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">{t("Thời gian tạo")}</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums text-slate-900">
+                      {formatDate(selectedReturn.created_at, intlLocale)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Discrepancy Record Card (kept visible even after COMPLETED for full audit trail) */}
+              {selectedReturn.discrepancy_type && (
+                <div className="space-y-2.5 rounded-xl border border-rose-200 bg-rose-50/70 p-4 text-xs text-rose-900">
+                  <div className="flex items-center gap-2 font-semibold text-rose-800">
+                    <AlertTriangle size={15} aria-hidden="true" className="shrink-0 text-rose-600" />
+                    <span>{t("Biên bản chênh lệch / hư hỏng khi hoàn")}</span>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <div>
+                      <span className="text-rose-700/80">{t("Loại chênh lệch:")}</span>{' '}
+                      <span className="font-semibold text-rose-950">
+                        {formatDiscrepancyType(selectedReturn.discrepancy_type, t)}
+                      </span>
+                    </div>
+                    {selectedReturn.discrepancy_notes && (
+                      <div>
+                        <span className="text-rose-700/80">{t("Mô tả sai lệch:")}</span>{' '}
+                        <span className="text-rose-950">{selectedReturn.discrepancy_notes}</span>
+                      </div>
+                    )}
+                  </div>
                   {selectedReturn.discrepancy_evidence_url && (
-                    <div className="mt-2">
+                    <div className="pt-1">
                       <a
                         href={selectedReturn.discrepancy_evidence_url}
                         target="_blank"
-                        rel="noreferrer"
-                        className="text-rose-700 underline font-medium"
+                        rel="noopener noreferrer"
+                        className="group inline-flex flex-col overflow-hidden rounded-lg border border-rose-200 bg-white transition-colors duration-150 hover:border-rose-400"
                       >
-                        {t("Xem ảnh chụp hàng hỏng")}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={selectedReturn.discrepancy_evidence_url}
+                          alt={t("Ảnh chụp bằng chứng chênh lệch hàng hoàn")}
+                          className="h-28 w-44 object-cover"
+                        />
+                        <span className="inline-flex items-center justify-center gap-1 border-t border-rose-100 px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 group-hover:text-rose-900">
+                          <span>{t("Xem ảnh chụp hàng hỏng")}</span>
+                          <ExternalLink size={12} aria-hidden="true" />
+                        </span>
                       </a>
                     </div>
                   )}
                 </div>
               )}
-            </div>
 
-            {/* Actions for return */}
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
-              {selectedReturn.status === 'REQUESTED' && (
-                <Button
-                  onClick={() => void handleApproveReturn(selectedReturn.id)}
-                  isLoading={actionLoading}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                >
-                  <CheckCircle2 size={15} className="mr-1.5" />
-                  {t("Phê duyệt hoàn hàng")}
-                </Button>
+              {/* Warehouse Receipt Audit Card (visible once received / completed) */}
+              {(selectedReturn.received_at || selectedReturn.received_by || isCompleted) && (
+                <div className="space-y-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-xs text-emerald-950">
+                  <div className="flex items-center gap-2 font-semibold text-emerald-900">
+                    <ClipboardCheck size={15} aria-hidden="true" className="shrink-0 text-emerald-700" />
+                    <span>{t("Biên bản xác nhận nhận hàng hoàn")}</span>
+                  </div>
+                  <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-emerald-800/80">{t("Người xác nhận nhận kho")}</dt>
+                      <dd className="mt-0.5 font-semibold text-emerald-950">
+                        {resolveReporterDisplayName(selectedReturn.received_by, personDirectory, t, "Nhân viên kho")}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-emerald-800/80">{t("Thời điểm nhập kho")}</dt>
+                      <dd className="mt-0.5 font-semibold tabular-nums text-emerald-950">
+                        {selectedReturn.received_at ? formatDate(selectedReturn.received_at, intlLocale) : '—'}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-emerald-800/80">{t("Ghi chú kiểm nhận / Kết luận")}</dt>
+                      <dd className="mt-0.5 text-emerald-950">
+                        {selectedReturn.completion_notes || t("Hàng hoàn nguyên vẹn, đã nhập kho.")}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
               )}
 
-              {(selectedReturn.status === 'IN_EXECUTION' || selectedReturn.status === 'AWAITING_RECEIPT' || selectedReturn.status === 'ARRIVED') && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => setDiscrepancyModalOpen(true)}
-                    className="border-rose-300 text-rose-700 hover:bg-rose-50"
+              {/* Receiving / Discrepancy Settlement Input */}
+              {(canReceiveNormally || isDiscrepancy) && (
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+                  <label
+                    htmlFor="return-completion-notes"
+                    className="block text-xs font-semibold text-slate-800"
                   >
-                    <ShieldAlert size={15} className="mr-1.5" />
-                    {t("Có chênh lệch / Hàng hỏng")}
-                  </Button>
+                    {isDiscrepancy
+                      ? t("Kết luận xử lý chênh lệch & nhập kho (bắt buộc)")
+                      : t("Ghi chú kiểm nhận kho (tùy chọn)")}
+                  </label>
+                  <textarea
+                    id="return-completion-notes"
+                    rows={2}
+                    value={receiptNotes}
+                    onChange={(e) => {
+                      setReceiptNotes(e.target.value);
+                      if (receiptFormError) setReceiptFormError(null);
+                    }}
+                    placeholder={
+                      isDiscrepancy
+                        ? t("VD: Đã lập biên bản bồi thường với tài xế, đồng ý chốt nhập kho...")
+                        : t("VD: Đã đồng kiểm nguyên tem niêm phong, nhập kho hoàn...")
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 transition-colors focus:border-[#17766c] focus:outline-none focus:ring-2 focus:ring-[#17766c]/20"
+                  />
+                  {receiptFormError && (
+                    <p role="alert" className="text-xs font-medium text-rose-600">
+                      {receiptFormError}
+                    </p>
+                  )}
+                </div>
+              )}
 
+              {/* Actions for return */}
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
+                {selectedReturn.status === 'REQUESTED' && (
                   <Button
-                    onClick={() => void handleConfirmReceipt(selectedReturn.id)}
+                    onClick={() => void handleApproveReturn(selectedReturn.id)}
                     isLoading={actionLoading}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    className="cursor-pointer bg-[#17766c] text-white hover:bg-[#136058]"
                   >
-                    <CheckCircle2 size={15} className="mr-1.5" />
-                    {t("Xác nhận đã nhận hàng đủ")}
+                    <CheckCircle2 size={15} aria-hidden="true" className="mr-1.5" />
+                    {t("Phê duyệt hoàn hàng")}
                   </Button>
-                </>
-              )}
+                )}
 
-              <Button variant="outline" onClick={() => setSelectedReturn(null)}>
-                {t("Đóng")}
-              </Button>
+                {canReceiveNormally && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setDiscrepancyModalOpen(true)}
+                      className="cursor-pointer border-rose-300 text-rose-700 hover:bg-rose-50"
+                    >
+                      <ShieldAlert size={15} aria-hidden="true" className="mr-1.5" />
+                      {t("Có chênh lệch / Hàng hỏng")}
+                    </Button>
+
+                    <Button
+                      onClick={() => void handleConfirmReceipt(selectedReturn.id, receiptNotes, false)}
+                      isLoading={actionLoading}
+                      className="cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                      <ClipboardCheck size={15} aria-hidden="true" className="mr-1.5" />
+                      {t("Xác nhận đã nhận hàng đủ")}
+                    </Button>
+                  </>
+                )}
+
+                {isDiscrepancy && (
+                  <Button
+                    onClick={() => void handleConfirmReceipt(selectedReturn.id, receiptNotes, true)}
+                    isLoading={actionLoading}
+                    className="cursor-pointer bg-amber-600 text-white hover:bg-amber-700"
+                  >
+                    <ClipboardCheck size={15} aria-hidden="true" className="mr-1.5" />
+                    {t("Chốt xử lý & nhập kho")}
+                  </Button>
+                )}
+
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedReturn(null);
+                    setReceiptNotes('');
+                    setReceiptFormError(null);
+                  }}
+                  className="cursor-pointer"
+                >
+                  {t("Đóng")}
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* ========================================================================= */}
@@ -1457,12 +1725,12 @@ export default function OperationsPage() {
           if (!open) setDiscrepancyModalOpen(false);
         }}
         title={t("Báo cáo chênh lệch / Hàng hoàn bị hỏng")}
-        description={t("Ghi nhận sai lệch số lượng hoặc hàng hóa hư hỏng khi nhận bàn giao từ tài xế.")}
+        description={t("Ghi nhận tình trạng hư hỏng, mất hàng hoặc sai sản phẩm khi kiểm nhận bàn giao từ tài xế.")}
         className="max-w-lg"
       >
         <div className="space-y-4 text-sm">
           <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">{t("Loại chênh lệch:")}</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-700">{t("Loại chênh lệch:")}</label>
             <CustomSelect
               aria-label={t("Loại chênh lệch:")}
               value={discrepancyType}
@@ -1478,36 +1746,22 @@ export default function OperationsPage() {
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">
-              {t("Số lượng kiện thực nhận:")}
-            </label>
-            <input
-              type="number"
-              min={0}
-              max={1}
-              value={actualQuantity}
-              onChange={(e) => setActualQuantity(parseInt(e.target.value) || 0)}
-              className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">{t("Ghi chú chi tiết:")}</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-700">{t("Ghi chú chi tiết:")}</label>
             <textarea
-              rows={2}
+              rows={3}
               value={discrepancyNotes}
               onChange={(e) => setDiscrepancyNotes(e.target.value)}
               placeholder={t("Mô tả cụ thể lý do chênh lệch hoặc tình trạng hàng (VD: Hộp rách vỡ, thiếu 1 sản phẩm bên trong...)")}
-              className="w-full rounded-md border border-slate-300 p-2 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-rose-500"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 transition-colors focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20"
             />
           </div>
 
           {/* Cloudinary Upload Field */}
           <div>
-            <label className="text-xs font-semibold text-slate-700 block mb-1">
+            <label className="mb-1 block text-xs font-semibold text-slate-700">
               {t("Ảnh chụp bằng chứng (Tải lên Cloudinary):")}
             </label>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <input
                 type="file"
                 accept="image/*"
@@ -1516,23 +1770,26 @@ export default function OperationsPage() {
                     setDiscrepancyFile(e.target.files[0]);
                   }
                 }}
-                className="text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                className="cursor-pointer text-xs text-slate-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
               />
               {discrepancyFile && (
-                <span className="text-xs text-emerald-600 font-medium">{t("✓ Đã chọn file")}</span>
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                  <Check size={14} aria-hidden="true" />
+                  <span>{discrepancyFile.name}</span>
+                </span>
               )}
             </div>
           </div>
 
           <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
-            <Button variant="outline" size="sm" onClick={() => setDiscrepancyModalOpen(false)}>
+            <Button variant="outline" size="sm" onClick={() => setDiscrepancyModalOpen(false)} className="cursor-pointer">
               {t("Hủy")}
             </Button>
             <Button
               size="sm"
               onClick={() => void handleSubmitDiscrepancy()}
               isLoading={actionLoading}
-              className="bg-rose-600 hover:bg-rose-700 text-white"
+              className="cursor-pointer bg-rose-600 text-white hover:bg-rose-700"
             >
               {t("Gửi báo cáo chênh lệch")}
             </Button>

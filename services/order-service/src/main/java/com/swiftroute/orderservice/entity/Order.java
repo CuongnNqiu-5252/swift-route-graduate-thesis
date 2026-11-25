@@ -21,6 +21,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -30,7 +31,15 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "orders")
+// Name the tracking_token unique constraint explicitly so Hibernate matches Flyway's
+// ux_orders_tracking_token instead of generating unnamed uk* duplicate constraints.
+@Table(
+    name = "orders",
+    uniqueConstraints = @UniqueConstraint(
+        name = "ux_orders_tracking_token",
+        columnNames = "tracking_token"
+    )
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -56,7 +65,7 @@ public class Order {
     private String externalOrderCode;
 
     /** Mã token ngẫu nhiên URL-safe phục vụ tra cứu công khai không cần tài khoản */
-    @Column(name = "tracking_token", nullable = false, unique = true, length = 64)
+    @Column(name = "tracking_token", nullable = false, length = 64)
     private String trackingToken;
 
     /** Thông tin người gửi tại điểm lấy hàng */
@@ -144,22 +153,7 @@ public class Order {
     @Builder.Default
     private BigDecimal codAmount = BigDecimal.ZERO;
 
-    /** Giá trị hàng khai báo phục vụ bảo hiểm/đền bù */
-    @Column(name = "declared_value", nullable = false, precision = 12, scale = 0)
-    @Builder.Default
-    private BigDecimal declaredValue = BigDecimal.ZERO;
-
-    /** Cước phí vận chuyển */
-    @Column(name = "delivery_fee", nullable = false, precision = 12, scale = 0)
-    @Builder.Default
-    private BigDecimal deliveryFee = BigDecimal.ZERO;
-
-    /** Bên thanh toán cước: SENDER hoặc RECIPIENT */
-    @Column(name = "payer", nullable = false, length = 20)
-    @Builder.Default
-    private String payer = "SENDER";
-
-    /** Tổng số tiền cần thu từ người nhận (COD + cước phí nếu người nhận trả cước) */
+    /** Tổng số tiền cần thu từ người nhận (COD) */
     @Column(name = "total_amount", nullable = false, precision = 12, scale = 0)
     @Builder.Default
     private BigDecimal totalAmount = BigDecimal.ZERO;
@@ -167,6 +161,10 @@ public class Order {
     // Khoá ngoại logic tới driver-service
     @Column(name = "assigned_driver_id")
     private UUID assignedDriverId;
+
+    /** Driver currently holding physical custody of the package (null when at depot or released) */
+    @Column(name = "custodian_driver_id")
+    private UUID custodianDriverId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "plan_id")

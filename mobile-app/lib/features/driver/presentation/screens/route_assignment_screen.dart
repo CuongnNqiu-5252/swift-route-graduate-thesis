@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-/// Screen presenting a dispatched route assignment for driver acknowledgement
-/// or decline (P1.8).
-class RouteAssignmentScreen extends ConsumerStatefulWidget {
+/// Read-only summary of a route assigned by dispatch.
+class RouteAssignmentScreen extends StatelessWidget {
   const RouteAssignmentScreen({
     super.key,
     required this.plan,
@@ -19,114 +16,12 @@ class RouteAssignmentScreen extends ConsumerStatefulWidget {
   final List<OrderModel> orders;
 
   @override
-  ConsumerState<RouteAssignmentScreen> createState() =>
-      _RouteAssignmentScreenState();
-}
-
-class _RouteAssignmentScreenState extends ConsumerState<RouteAssignmentScreen> {
-  var _isSubmitting = false;
-
-  Future<void> _handleAcknowledge() async {
-    setState(() => _isSubmitting = true);
-    try {
-      await ref
-          .read(driverDispatchPlansProvider.notifier)
-          .acknowledge(widget.plan.planId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Đã nhận lộ trình. Hãy di chuyển tới điểm lấy hàng.'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-        Navigator.of(context).pop(true);
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể xác nhận nhận tuyến. Hãy thử lại.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
-
-  Future<void> _handleDecline() async {
-    final reasonController = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Từ chối lộ trình được giao'),
-        content: TextField(
-          controller: reasonController,
-          decoration: const InputDecoration(
-            labelText: 'Lý do từ chối',
-            hintText: 'Xe gặp sự cố, vượt tải trọng, hết ca trực…',
-          ),
-          maxLines: 2,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Quay lại'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Xác nhận từ chối'),
-          ),
-        ],
-      ),
-    );
-    final reason = reasonController.text.trim();
-    reasonController.dispose();
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _isSubmitting = true);
-    try {
-      await ref
-          .read(driverDispatchPlansProvider.notifier)
-          .decline(
-            widget.plan.planId,
-            reason.isEmpty ? 'Tài xế từ chối nhận tuyến trên ứng dụng' : reason,
-          );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Đã từ chối lộ trình. Hệ thống sẽ điều phối lại cho tài xế khác.',
-            ),
-          ),
-        );
-        Navigator.of(context).pop(false);
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể từ chối lộ trình. Hãy thử lại.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final plan = widget.plan;
     final planOrders = plan.orderedStopIds
-        .map((id) => widget.orders.where((o) => o.id == id).firstOrNull)
+        .map((id) => orders.where((o) => o.id == id).firstOrNull)
         .whereType<OrderModel>()
         .toList();
-    final displayOrders = planOrders.isNotEmpty ? planOrders : widget.orders;
-
+    final displayOrders = planOrders.isNotEmpty ? planOrders : orders;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -163,26 +58,12 @@ class _RouteAssignmentScreenState extends ConsumerState<RouteAssignmentScreen> {
                         color: AppColors.textPrimary,
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: plan.isAcknowledged
-                            ? AppColors.success.withValues(alpha: 0.12)
-                            : AppColors.warningSoft,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        plan.isAcknowledged ? 'Đã nhận tuyến' : 'Chờ xác nhận',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: plan.isAcknowledged
-                              ? AppColors.success
-                              : AppColors.warning,
-                        ),
+                    const Text(
+                      'Đã phân công',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.success,
                       ),
                     ),
                   ],
@@ -210,29 +91,6 @@ class _RouteAssignmentScreenState extends ConsumerState<RouteAssignmentScreen> {
                     ),
                   ],
                 ),
-                if (plan.ackDeadlineAt != null && !plan.isAcknowledged) ...[
-                  const Divider(height: 24, color: AppColors.divider),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.schedule_rounded,
-                        size: 16,
-                        color: AppColors.warning,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Hạn xác nhận nhận tuyến: ${_formatTime(plan.ackDeadlineAt!)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.warning,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ],
             ),
           ),
@@ -255,7 +113,7 @@ class _RouteAssignmentScreenState extends ConsumerState<RouteAssignmentScreen> {
                 border: Border.all(color: AppColors.divider),
               ),
               child: Text(
-                'Lộ trình gồm ${plan.orderCount} đơn hàng. Danh sách chi tiết sẽ đồng bộ ngay sau khi bạn nhận tuyến.',
+                'Lộ trình gồm ${plan.orderCount} đơn hàng. Danh sách điểm giao chưa đồng bộ.',
                 style: const TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
@@ -324,75 +182,7 @@ class _RouteAssignmentScreenState extends ConsumerState<RouteAssignmentScreen> {
             }),
         ],
       ),
-      bottomNavigationBar: plan.isAcknowledged
-          ? null
-          : SafeArea(
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  border: Border(top: BorderSide(color: AppColors.divider)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: 4,
-                      child: OutlinedButton(
-                        onPressed: _isSubmitting ? null : _handleDecline,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.error,
-                          side: const BorderSide(color: AppColors.error),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: const Text(
-                          'Từ chối',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 6,
-                      child: FilledButton.icon(
-                        onPressed: _isSubmitting ? null : _handleAcknowledge,
-                        icon: _isSubmitting
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.check_circle_outline_rounded),
-                        label: const Text(
-                          'Nhận lộ trình',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
     );
-  }
-
-  String _formatTime(DateTime dt) {
-    final local = dt.toLocal();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
   }
 }
 

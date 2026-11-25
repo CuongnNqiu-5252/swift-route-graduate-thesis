@@ -45,10 +45,6 @@ public class TenantSettingsService {
             tenant.setBusinessType(request.businessType());
         }
 
-        if (request.address() != null) {
-            tenant.setAddress(request.address().trim());
-        }
-
         if (request.optimizationWeights() != null) {
             validateOptimizationWeights(request.optimizationWeights());
             tenant.setOptimizationWeights(request.optimizationWeights());

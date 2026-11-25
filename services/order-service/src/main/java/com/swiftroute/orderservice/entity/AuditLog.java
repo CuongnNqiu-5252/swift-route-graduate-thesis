@@ -19,6 +19,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
+@jakarta.persistence.EntityListeners(com.swiftroute.orderservice.service.platform.AuditNotification.class)
 @Table(name = "audit_logs")
 @Getter
 @Builder

@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { useNotifications } from '@/application/contexts/notification-context';
+import { formatNotification } from '@/lib/notification-formatter';
 import { cn } from '@/lib/utils';
 import { InboxNotificationDto } from '@/infrastructure/repositories/notification.repository';
 
@@ -43,12 +44,41 @@ function formatRelativeTime(dateStr: string, locale: string, justNow: string): s
 }
 
 function getItemPresentation(item: InboxNotificationDto) {
+  const formatted = formatNotification(item);
+  if (formatted.badgeLabel) {
+    let icon = CheckCircle2;
+    if (formatted.category === 'WORKSPACE') {
+      icon = Building2;
+    } else if (formatted.category === 'INCIDENT') {
+      icon = formatted.severity === 'CRITICAL' ? AlertCircle : AlertTriangle;
+    } else if (formatted.category === 'DISPATCH') {
+      icon = Route;
+    } else if (formatted.category === 'COD') {
+      icon = Banknote;
+    } else if (item.template_code === 'order.delivery_completed.v1') {
+      icon = PackageCheck;
+    }
+
+    return {
+      label: formatted.badgeLabel,
+      className: formatted.badgeClass || 'bg-slate-100 text-slate-800 border-slate-200',
+      icon,
+      ctaLabel: formatted.ctaLabel || 'Xem chi tiết',
+      title: formatted.title,
+      body: formatted.body,
+      actionUrl: formatted.actionUrl || item.action_url || '/orders',
+    };
+  }
+
   if (item.template_code === 'order.delivery_completed.v1') {
     return {
       label: 'Đã giao hàng',
       className: 'bg-emerald-50 text-emerald-800 border-emerald-200',
       icon: PackageCheck,
       ctaLabel: 'Xem đơn hàng',
+      title: formatted.title,
+      body: formatted.body,
+      actionUrl: formatted.actionUrl || item.action_url || '/orders',
     };
   }
   if (item.category === 'COD') {
@@ -60,6 +90,9 @@ function getItemPresentation(item: InboxNotificationDto) {
           : 'bg-teal-50 text-teal-800 border-teal-200',
       icon: Banknote,
       ctaLabel: 'Đối soát COD',
+      title: formatted.title,
+      body: formatted.body,
+      actionUrl: formatted.actionUrl || item.action_url || '/operations',
     };
   }
   if (item.category === 'DISPATCH') {
@@ -71,6 +104,9 @@ function getItemPresentation(item: InboxNotificationDto) {
           : 'bg-blue-50 text-blue-800 border-blue-200',
       icon: Route,
       ctaLabel: 'Mở trang điều phối',
+      title: formatted.title,
+      body: formatted.body,
+      actionUrl: formatted.actionUrl || item.action_url || '/dispatch',
     };
   }
   if (item.category === 'WORKSPACE') {
@@ -79,6 +115,9 @@ function getItemPresentation(item: InboxNotificationDto) {
       className: 'bg-slate-100 text-slate-800 border-slate-200',
       icon: Building2,
       ctaLabel: 'Xem chi tiết',
+      title: formatted.title,
+      body: formatted.body,
+      actionUrl: formatted.actionUrl || item.action_url || '/onboarding',
     };
   }
   switch (item.severity) {
@@ -88,6 +127,9 @@ function getItemPresentation(item: InboxNotificationDto) {
         className: 'bg-red-100 text-red-800 border-red-200',
         icon: AlertCircle,
         ctaLabel: 'Xử lý sự cố ngay',
+        title: formatted.title,
+        body: formatted.body,
+        actionUrl: formatted.actionUrl || item.action_url || '/operations',
       };
     case 'HIGH':
       return {
@@ -95,6 +137,9 @@ function getItemPresentation(item: InboxNotificationDto) {
         className: 'bg-orange-100 text-orange-800 border-orange-200',
         icon: AlertTriangle,
         ctaLabel: 'Xử lý sự cố ngay',
+        title: formatted.title,
+        body: formatted.body,
+        actionUrl: formatted.actionUrl || item.action_url || '/operations',
       };
     case 'MEDIUM':
       return {
@@ -102,6 +147,9 @@ function getItemPresentation(item: InboxNotificationDto) {
         className: 'bg-amber-100 text-amber-800 border-amber-200',
         icon: AlertTriangle,
         ctaLabel: 'Kiểm tra sự cố',
+        title: formatted.title,
+        body: formatted.body,
+        actionUrl: formatted.actionUrl || item.action_url || '/operations',
       };
     default:
       return {
@@ -109,6 +157,9 @@ function getItemPresentation(item: InboxNotificationDto) {
         className: 'bg-blue-50 text-blue-800 border-blue-200',
         icon: CheckCircle2,
         ctaLabel: 'Xem chi tiết',
+        title: formatted.title,
+        body: formatted.body,
+        actionUrl: formatted.actionUrl || item.action_url || '/orders',
       };
   }
 }
@@ -288,7 +339,7 @@ export function NotificationBell() {
               filteredItems.map((item) => {
                 const badge = getItemPresentation(item);
                 const BadgeIcon = badge.icon;
-                const actionHref = item.action_url || '/orders';
+                const actionHref = badge.actionUrl || item.action_url || '/orders';
 
                 return (
                   <div
@@ -305,14 +356,14 @@ export function NotificationBell() {
                         <BadgeIcon size={11} />
                         {t(badge.label)}
                       </span>
-                      <span className="shrink-0 text-[11px] text-gray-400">
+                      <span className="shrink-0 text-[11px] tabular-nums text-gray-400">
                         {formatRelativeTime(item.created_at, intlLocale, t("Vừa xong"))}
                       </span>
                     </div>
 
-                    <p className="text-xs font-semibold leading-snug text-gray-900">{item.title}</p>
+                    <p className="text-xs font-semibold leading-snug text-gray-900">{badge.title || item.title}</p>
 
-                    <p className="line-clamp-2 text-xs leading-relaxed text-gray-600">{item.body}</p>
+                    <p className="line-clamp-2 text-xs leading-relaxed text-gray-600">{badge.body || item.body}</p>
 
                     <div className="mt-0.5 flex items-center justify-between pt-0.5">
                       <Link

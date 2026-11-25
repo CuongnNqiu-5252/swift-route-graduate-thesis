@@ -21,12 +21,10 @@ public record OperationsReviewResponse(
             String severity,
             String status,
             String notes,
-            boolean canContinueDelivery,
-            boolean needsImmediateAssistance,
             Instant reportedAt) {
 
         public IncidentItem(UUID id, UUID orderId, String orderCode, String incidentType, String notes, Instant reportedAt) {
-            this(id, orderId, orderCode, null, null, incidentType, "MEDIUM", "OPEN", notes, true, false, reportedAt);
+            this(id, orderId, orderCode, null, null, incidentType, "MEDIUM", "OPEN", notes, reportedAt);
         }
     }
 
@@ -34,7 +32,6 @@ public record OperationsReviewResponse(
             UUID id,
             UUID orderId,
             String orderCode,
-            String requestType,
             String reason,
             String status,
             UUID driverId,

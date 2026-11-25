@@ -1,6 +1,7 @@
 'use client';
 
 import { clockMinutes, dispatchDay, formatClockMinute, getPlanStartTime, readPlanStopTimings } from '@/application/dispatch-plan-clock';
+import { useRouteWeather } from '@/application/use-route-weather';
 import { DispatchRouteSequence } from '@/components/dispatch/dispatch-route-sequence';
 import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
 import { Button } from '@/components/ui/button';
@@ -16,8 +17,9 @@ import type { Order } from '@/domain/entities/order.entity';
 import type { DispatchPlanRecord, MapPlanHighlight } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
 import { formatVNDate } from '@/lib/utils';
-import { Check, Clock, Package, Play, Plus, RefreshCw, Truck, UserPlus, X } from 'lucide-react';
+import { Check, Clock, Package, Play, RefreshCw, Truck, UserPlus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { RouteRainDetails, WeatherCoverage } from './route-weather-risk';
 
 interface PlanApprovalPanelProps {
   plans: DispatchPlanRecord[];
@@ -29,6 +31,7 @@ interface PlanApprovalPanelProps {
   isLoading: boolean;
   isTriggering: boolean;
   selectedPlanId: string | null;
+  highlightedPlan?: MapPlanHighlight | null;
   editingPlanId: string | null;
   maxOrdersPerDriver?: number;
   initialFilter?: PlanFilter;
@@ -45,35 +48,37 @@ interface PlanApprovalPanelProps {
   onMoveStop: (plan: DispatchPlanRecord, orderId: string, targetPlanId: string, targetIndex: number) => Promise<void>;
 }
 
-type PlanFilter = 'CURRENT' | 'ACTION' | 'ACTIVE' | 'COMPLETED' | 'ALL';
+type PlanFilter = 'CURRENT' | 'DRAFT' | 'APPROVED' | 'DISPATCHED';
 
 const FILTERS: Array<{ key: PlanFilter; label: string }> = [
   { key: 'CURRENT', label: 'Đang vận hành' },
-  { key: 'ACTION', label: 'Cần xử lý' },
-  { key: 'ACTIVE', label: 'Tuyến đang thực hiện' },
-  { key: 'COMPLETED', label: 'Hoàn thành' },
-  { key: 'ALL', label: 'Tất cả' },
+  { key: 'DRAFT', label: 'Chờ gán tài xế' },
+  { key: 'APPROVED', label: 'Chờ giao tuyến' },
+  { key: 'DISPATCHED', label: 'Đang giao' },
 ];
 
-const GRID = 'grid grid-cols-[15rem_minmax(42rem,1fr)] md:grid-cols-[19rem_minmax(42rem,1fr)]';
+const GRID = 'grid grid-cols-[19rem_minmax(38rem,1fr)] md:grid-cols-[22rem_minmax(40rem,1fr)]';
 
 function matchesFilter(plan: DispatchPlanRecord, filter: PlanFilter): boolean {
   switch (filter) {
-    case 'CURRENT': return plan.plan_status === 'DRAFT' || plan.plan_status === 'APPROVED' || plan.plan_status === 'DISPATCHED';
-    case 'ACTION': return plan.plan_status === 'DRAFT' || plan.plan_status === 'APPROVED';
-    case 'ACTIVE': return plan.plan_status === 'DISPATCHED';
-    case 'COMPLETED': return plan.plan_status === 'COMPLETED';
-    default: return true;
+    case 'DRAFT': return plan.plan_status === 'DRAFT';
+    case 'APPROVED': return plan.plan_status === 'APPROVED';
+    case 'DISPATCHED': return plan.plan_status === 'DISPATCHED';
+    default: return plan.plan_status === 'DRAFT' || plan.plan_status === 'APPROVED' || plan.plan_status === 'DISPATCHED';
   }
 }
 
 export function PlanApprovalPanel({
   plans, drivers, orders, routeColors, eligibleOrders, canExecute, isLoading, isTriggering,
-  selectedPlanId, editingPlanId, maxOrdersPerDriver, initialFilter, onSelectPlan, onHighlightPlan, onClose, onRefresh, onTriggerPlanning,
+  selectedPlanId, highlightedPlan, editingPlanId, maxOrdersPerDriver, initialFilter, onSelectPlan, onHighlightPlan, onClose, onRefresh, onTriggerPlanning,
   onApprovePlan, onDispatchPlan, onCancelPlan, onInsertOrderIntoPlan, onReorderStops, onMoveStop,
 }: PlanApprovalPanelProps) {
   const { t } = useLocale();
-  const [filter, setFilter] = useState<PlanFilter | null>(initialFilter ?? null);
+  const weather = useRouteWeather([
+    ...plans.map((plan) => `${plan.plan_id}:${plan.version}:${plan.plan_status}`),
+    ...orders.map((order) => `${order.id}:${order.status}`),
+  ].join(','));
+  const [filter, setFilter] = useState<PlanFilter>(initialFilter ?? 'CURRENT');
   const [busyPlanId, setBusyPlanId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -84,17 +89,16 @@ export function PlanApprovalPanel({
   const ordersById = useMemo(() => new Map(orders.map((order) => [order.id, order])), [orders]);
   const counts = useMemo(() => ({
     CURRENT: plans.filter((p) => matchesFilter(p, 'CURRENT')).length,
-    ACTION: plans.filter((p) => matchesFilter(p, 'ACTION')).length,
-    ACTIVE: plans.filter((p) => matchesFilter(p, 'ACTIVE')).length,
-    COMPLETED: plans.filter((p) => matchesFilter(p, 'COMPLETED')).length,
-    ALL: plans.length,
+    DRAFT: plans.filter((p) => matchesFilter(p, 'DRAFT')).length,
+    APPROVED: plans.filter((p) => matchesFilter(p, 'APPROVED')).length,
+    DISPATCHED: plans.filter((p) => matchesFilter(p, 'DISPATCHED')).length,
   }), [plans]);
-  const activeFilter = filter ?? (counts.CURRENT > 0 ? 'CURRENT' : 'ALL');
+  const activeFilter = filter;
   const rows = useMemo(() => plans.filter((plan) => matchesFilter(plan, activeFilter))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .map((plan) => {
       const timings = readPlanStopTimings(plan.route_waypoints);
-      const startsAt = getPlanStartTime(plan);
+      const startsAt = getPlanStartTime(plan, now);
       const stops = (plan.ordered_stop_ids ?? []).map((id) => {
         const order = ordersById.get(id);
         const timing = timings.get(id);
@@ -124,7 +128,7 @@ export function PlanApprovalPanel({
         color: routeColors.get(plan.plan_id) ?? '#475569',
         delivered: completeData || plan.plan_status === 'DRAFT' ? stops.filter((stop) => stop.delivered).length : null,
       };
-    }), [plans, activeFilter, ordersById, routeColors]);
+    }), [plans, activeFilter, ordersById, routeColors, now]);
 
   const nowMinute = clockMinutes(now);
   const today = dispatchDay(now);
@@ -153,43 +157,66 @@ export function PlanApprovalPanel({
   }
 
   return (
-    <div className="min-w-0 bg-white">
-      <div className="flex flex-wrap items-center gap-x-2 px-3 py-1.5 sm:px-4">
-        <h2 id="dispatch-tool-heading-plans" className="mr-auto text-base font-semibold text-slate-950">{t('Kế hoạch điều phối')}</h2>
-        <Button variant="ghost" size="sm" className="size-10 px-0" onClick={onRefresh} isLoading={isLoading}
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-md">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-white/90 px-3.5 py-2 sm:px-4">
+        <div className="mr-auto flex items-center gap-2">
+          <h2 id="dispatch-tool-heading-plans" className="text-sm font-semibold text-slate-950 sm:text-base">{t('Kế hoạch điều phối')}</h2>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-700">
+            {counts.CURRENT}
+          </span>
+        </div>
+        <Button variant="ghost" size="sm" className="size-9 cursor-pointer px-0" onClick={onRefresh} isLoading={isLoading}
           aria-label={t('Làm mới kế hoạch')} title={t('Làm mới kế hoạch')}><RefreshCw size={15} aria-hidden="true" /></Button>
         {canExecute && (
-          <Button size="sm" onClick={triggerPlanning} isLoading={isTriggering}>
+          <Button size="sm" className="cursor-pointer bg-[#17766c] text-white hover:bg-[#136058]" onClick={triggerPlanning} isLoading={isTriggering}>
             <Play size={14} aria-hidden="true" />{t('Chạy lập kế hoạch ngay')}
           </Button>
         )}
-        <Button type="button" variant="ghost" size="sm" className="size-10 px-0" onClick={onClose}
-          aria-label={t('Đóng kế hoạch')} title={t('Đóng kế hoạch')}><X size={17} aria-hidden="true" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="size-9 cursor-pointer px-0 text-slate-500 hover:text-slate-900" onClick={onClose}
+          aria-label={t('Thu gọn')} title={t('Thu gọn')}><X size={17} aria-hidden="true" /></Button>
       </div>
 
       {plans.length > 0 && (
-        <div role="group" aria-label={t('Lọc kế hoạch theo trạng thái')} className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 pb-2 sm:px-4">
-          {FILTERS.map(({ key, label }) => (
-            <button key={key} type="button" aria-pressed={activeFilter === key}
-              className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium ${activeFilter === key ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
-              onClick={() => { onHighlightPlan(null); setFilter(key); }}>{t(label)} <span className="tabular-nums">({counts[key]})</span></button>
-          ))}
+        <div role="group" aria-label={t('Lọc kế hoạch theo trạng thái')} className="flex gap-1.5 overflow-x-auto border-b border-slate-200/80 bg-slate-50/70 px-3.5 py-2 sm:px-4">
+          {FILTERS.map(({ key, label }) => {
+            const active = activeFilter === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={active}
+                className={`shrink-0 cursor-pointer whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-medium transition-colors duration-150 ${active
+                    ? 'bg-slate-900 text-white shadow-2xs'
+                    : 'text-slate-700 hover:bg-white hover:text-slate-950'
+                  }`}
+                onClick={() => { onHighlightPlan(null); setFilter(key); }}
+              >
+                {t(label)} <span className={`tabular-nums ${active ? 'text-slate-300' : 'text-slate-500'}`}>({counts[key]})</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
+      {weather.allowed && (
+        <div className="border-b border-slate-100 px-4 py-1.5">
+          {weather.data ? <WeatherCoverage report={weather.data} />
+            : <p role="status" className="text-xs text-slate-600">{t(weather.loading ? 'Đang kiểm tra dự báo theo tuyến…' : 'Chưa kiểm tra được thời tiết. Không thể kết luận tuyến an toàn.')}</p>}
+        </div>
+      )}
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-sm text-slate-600" role="status">
+        <p className="px-4 py-8 text-center text-sm text-slate-600" role="status">
           {t(isLoading ? 'Đang tải kế hoạch…' : plans.length ? 'Không có kế hoạch nào trong nhóm này.' : 'Chưa có kế hoạch điều phối nào.')}
         </p>
       ) : (
-        <div className="max-h-[min(35dvh,20rem)] overflow-auto overscroll-contain" data-ui>
-          <div className="min-w-[54.5rem] md:min-w-[60rem]">
-            <div className={`${GRID} sticky top-0 z-20 items-stretch bg-slate-50 text-xs text-slate-600`}>
-              <div className="sticky left-0 z-10 bg-slate-50 px-3 py-1 font-medium">
+        <div className="max-h-[min(36dvh,22rem)] overflow-auto overscroll-contain" data-ui>
+          <div className="min-w-[57rem] md:min-w-[62rem]">
+            <div className={`${GRID} sticky top-0 z-20 items-stretch border-b border-slate-200/80 bg-slate-50/95 text-xs text-slate-600 backdrop-blur-xs`}>
+              <div className="sticky left-0 z-10 border-r border-slate-200/70 bg-slate-50/95 px-3.5 py-1.5 font-medium">
                 {t('Tuyến')} <span className="ml-1 tabular-nums">({rows.length})</span>
-                <p className="mt-0.5 text-xs font-normal">{t('Số đơn')} · ETA · {t('Đã giao')}</p>
+                <p className="mt-0.5 text-[11px] font-normal text-slate-500">{t('Số đơn')} · ETA · {t('Đã giao')}</p>
               </div>
-              <div className="min-w-0 px-4 py-1">
+              <div className="min-w-0 px-4 py-1.5">
                 <p className="text-center font-medium">{t('Giờ Việt Nam')}{nowPosition !== undefined ? ` · ${t('Bây giờ')} ${formatClockMinute(nowMinute)}` : ''}</p>
                 <div className="relative h-5 tabular-nums">
                   {ticks.map(({ minute, position }) => (
@@ -203,6 +230,7 @@ export function PlanApprovalPanel({
             {rows.map(({ plan, stops, color, delivered, lateStops, departureMinute, arrivalMinute, day }) => {
               const id = plan.plan_id;
               const selected = selectedPlanId === id;
+              const isHovered = highlightedPlan?.planId === id;
               const busy = busyPlanId !== null || editingPlanId === id;
               const draft = plan.plan_status === 'DRAFT';
               const driver = plan.driver_id ? drivers.find((item) => item.id === plan.driver_id || item.user_id === plan.driver_id) : undefined;
@@ -219,13 +247,61 @@ export function PlanApprovalPanel({
                   onPointerLeave={(event) => { if (event.pointerType !== 'touch') onHighlightPlan(null); }}
                   onFocus={() => onHighlightPlan({ planId: id })}
                   onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onHighlightPlan(null); }}
-                  className={`${GRID} border-b border-slate-100 transition-colors hover:bg-slate-50/90 ${selected ? 'bg-slate-50' : 'bg-white'}`}>
-                  <div className={`sticky left-0 z-10 border-r border-slate-100 px-3.5 py-2 ${selected ? 'bg-slate-50' : 'bg-white'}`}>
-                    <span aria-hidden="true" className="absolute inset-y-2 left-0 w-1 rounded-r" style={{ backgroundColor: color }} />
+                  className={`${GRID} border-b border-slate-100 transition-colors duration-150 ${isHovered
+                      ? 'bg-blue-50/40'
+                      : selected
+                        ? 'bg-slate-50'
+                        : 'bg-white hover:bg-slate-50/80'
+                    }`}>
+                  <div className={`sticky left-0 z-10 border-r border-slate-100 px-3.5 py-2.5 transition-colors duration-150 ${isHovered ? 'bg-blue-50/90' : selected ? 'bg-slate-50' : 'bg-white'
+                    }`}>
+                    <span
+                      aria-hidden="true"
+                      className={`absolute inset-y-2 left-0 rounded-r transition-all duration-150 ${isHovered || selected ? 'w-1.5' : 'w-1'}`}
+                      style={{ backgroundColor: color }}
+                    />
+
+                    {/* Row 1: Plan ID + Status Badge */}
                     <div className="flex min-w-0 items-center justify-between gap-2">
-                      <button type="button" aria-pressed={selected} className="shrink-0 font-mono text-sm font-semibold text-slate-950 underline-offset-4 hover:underline"
-                        onClick={() => onSelectPlan(selected ? null : id)}>#{id.slice(0, 8)}</button>
-                      {draft && canExecute ? (
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        className="shrink-0 cursor-pointer font-mono text-sm font-semibold text-slate-950 underline-offset-4 hover:underline"
+                        onClick={() => onSelectPlan(selected ? null : id)}
+                      >
+                        #{id.slice(0, 8)}
+                      </button>
+                      <PlanStatusBadge status={plan.plan_status} />
+                    </div>
+
+                    {/* Row 2: Metrics */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-slate-600">
+                      <span className="inline-flex items-center gap-1" title={t('Số đơn')} aria-label={`${t('Số đơn')}: ${plan.order_count}`}><Package size={12} aria-hidden="true" />{plan.order_count}</span>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap" title="ETA" aria-label={`ETA: ${etaLabel}`}><Clock size={12} aria-hidden="true" />{etaLabel}</span>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap" title={t('Đơn đã giao')} aria-label={`${t('Đơn đã giao')}: ${delivered ?? '—'}`}><Check size={13} aria-hidden="true" />{delivered ?? '—'}</span>
+                      {plan.total_distance_km != null && (
+                        <span className="whitespace-nowrap text-slate-500">{Number(plan.total_distance_km).toFixed(1)} km</span>
+                      )}
+                    </div>
+
+                    {lateStops > 0 && <p className="mt-1 text-xs font-semibold text-amber-800">{t('Điểm dự kiến trễ')} · {lateStops}</p>}
+                    {weather.data?.routes.filter((risk) => risk.plan_id === id).map((risk) => (
+                      <RouteRainDetails key={id} risk={risk} onSelect={() => onSelectPlan(id)} />
+                    ))}
+
+                    {/* Row 3: Organized Driver Assignment / Approve / Dispatch / Cancel Action Bar */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {plan.driver_id && (
+                        <span
+                          className="inline-flex max-w-[10rem] items-center gap-1 truncate rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700"
+                          title={driver?.name ?? plan.driver_id}
+                        >
+                          <Truck size={12} className="shrink-0 text-slate-500" aria-hidden="true" />
+                          <span className="truncate">{driver?.name ?? `#${plan.driver_id.slice(0, 8)}`}</span>
+                        </span>
+                      )}
+
+                      {draft && canExecute && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button
@@ -233,9 +309,10 @@ export function PlanApprovalPanel({
                               disabled={busy || driverChoices.length === 0}
                               aria-label={`${t('Gán tài xế')} #${id.slice(0, 8)}`}
                               title={driverChoices.length === 0 ? t('Chưa có tài xế hoạt động') : t('Chọn tài xế để gán ngay')}
-                              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 shadow-2xs transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              <Plus size={13} aria-hidden="true" />
+                              <UserPlus size={12} aria-hidden="true" />
+                              <span>{t('Gán tài xế & duyệt')}</span>
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
@@ -262,25 +339,61 @@ export function PlanApprovalPanel({
                             })}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      ) : plan.driver_id ? (
-                        <span
-                          className="inline-flex max-w-[9.5rem] items-center gap-1 truncate rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
-                          title={driver?.name ?? plan.driver_id}
+                      )}
+
+                      {canExecute && plan.plan_status === 'APPROVED' && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void runAction(id, () => onDispatchPlan(id))}
+                          className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[#17766c] px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-[#136058] disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <Truck size={11} className="shrink-0 text-slate-500" aria-hidden="true" />
-                          <span className="truncate">{driver?.name ?? `#${plan.driver_id.slice(0, 8)}`}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-slate-600">
-                      <span className="inline-flex items-center gap-1" title={t('Số đơn')} aria-label={`${t('Số đơn')}: ${plan.order_count}`}><Package size={12} aria-hidden="true" />{plan.order_count}</span>
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap" title="ETA" aria-label={`ETA: ${etaLabel}`}><Clock size={12} aria-hidden="true" />{etaLabel}</span>
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap" title={t('Đơn đã giao')} aria-label={`${t('Đơn đã giao')}: ${delivered ?? '—'}`}><Check size={13} aria-hidden="true" />{delivered ?? '—'}</span>
-                      {plan.total_distance_km != null && (
-                        <span className="whitespace-nowrap text-slate-500">{Number(plan.total_distance_km).toFixed(1)} km</span>
+                          <Play size={11} aria-hidden="true" />
+                          <span>{t('Giao tuyến')}</span>
+                        </button>
+                      )}
+
+                      {canExecute && plan.plan_status === 'DISPATCHED' && eligibleOrders.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={busy || (typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver)}
+                              title={typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver ? t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.') : undefined}
+                              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <UserPlus size={12} aria-hidden="true" />
+                              <span>{t('Chèn đơn')} ({eligibleOrders.length})</span>
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuLabel>{t('Chọn đơn chèn vào tuyến')}</DropdownMenuLabel>
+                            {eligibleOrders.map((order) => (
+                              <DropdownMenuItem
+                                key={order.id}
+                                onSelect={() => void runAction(id, () => onInsertOrderIntoPlan(id, order.id))}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-mono text-xs font-semibold text-slate-900">{order.order_code}</p>
+                                  <p className="truncate text-xs text-slate-500">{order.delivery_address}</p>
+                                </div>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+
+                      {canExecute && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void runAction(id, () => onCancelPlan(id, 'Điều phối viên hủy kế hoạch để lập lại lộ trình'))}
+                          className="ml-auto inline-flex h-7 shrink-0 cursor-pointer items-center rounded-lg px-2 text-xs font-medium text-rose-700 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {t('Hủy')}
+                        </button>
                       )}
                     </div>
-                    {lateStops > 0 && <p className="mt-1 text-xs font-semibold text-amber-800">{t('Điểm dự kiến trễ')} · {lateStops}</p>}
                   </div>
 
                   <div className="relative min-w-0">
@@ -288,71 +401,25 @@ export function PlanApprovalPanel({
                       {ticks.map(({ minute, position }) => <span key={minute} className="absolute inset-y-0 border-l border-slate-200/65" style={{ left: `${position}%` }} />)}
                       {nowPosition !== undefined && day === today && <span className="absolute inset-y-0 border-l border-sky-600" style={{ left: `${nowPosition}%` }} />}
                     </div>
-                    <DispatchRouteSequence plan={plan} stops={stops} color={color} departureMinute={departureMinute}
-                      axisStart={axisStart} axisMinutes={axisMinutes} onSelectRoute={() => onSelectPlan(id)}
+                    <DispatchRouteSequence
+                      plan={plan}
+                      stops={stops}
+                      color={color}
+                      departureMinute={departureMinute}
+                      axisStart={axisStart}
+                      axisMinutes={axisMinutes}
+                      highlightedStopId={highlightedPlan?.planId === id ? highlightedPlan.stopId : undefined}
+                      isRouteHighlighted={isHovered || selected}
+                      onSelectRoute={() => onSelectPlan(id)}
                       onHighlightStop={(stopId) => onHighlightPlan({ planId: id, stopId })}
                       onReorder={canEdit ? (ids) => onReorderStops(plan, ids) : undefined}
                       acceptsDrops={canMove}
                       onMoveStop={canMove
                         ? (orderId, targetPlanId, targetIndex) => onMoveStop(plan, orderId, targetPlanId, targetIndex)
-                        : undefined} />
+                        : undefined}
+                    />
                   </div>
 
-                  {selected && (
-                    <div className="col-span-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 bg-slate-50/80 px-3.5 py-2 text-xs text-slate-600">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <PlanStatusBadge status={plan.plan_status} acknowledgedAt={plan.acknowledged_at} />
-                        {plan.total_distance_km != null && <span className="font-medium tabular-nums text-slate-800">{Number(plan.total_distance_km).toFixed(1)} km</span>}
-                        {plan.declined_at && <span className="text-rose-700">{t('Tài xế từ chối tuyến')}{plan.decline_reason && ` · ${plan.decline_reason}`}</span>}
-                        {Boolean(plan.reassignment_count) && <span>{t('Số lần gán lại')} · {plan.reassignment_count}</span>}
-                        {canExecute && stops.length > 0 && (
-                          <span className="text-slate-500">{t(isDraftEditable
-                            ? 'Giữ và kéo điểm giao để đổi thứ tự hoặc chuyển sang tuyến khác.'
-                            : draft && !plan.driver_id
-                              ? 'Hãy tải lại tuyến trước khi chỉnh sửa.'
-                              : 'Chỉ sửa thứ tự trên tuyến nháp chưa gán tài xế.')}</span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {canExecute && plan.plan_status === 'APPROVED' && (
-                          <Button size="sm" disabled={busy} onClick={() => void runAction(id, () => onDispatchPlan(id))}>{t('Giao tuyến')}</Button>
-                        )}
-                        {canExecute && plan.plan_status === 'DISPATCHED' && eligibleOrders.length > 0 && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={busy || (typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver)}
-                                title={typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver ? t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.') : undefined}
-                              >
-                                <UserPlus size={13} aria-hidden="true" />
-                                {t('Chèn đơn')} ({eligibleOrders.length})
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuLabel>{t('Chọn đơn chèn vào tuyến')}</DropdownMenuLabel>
-                              {eligibleOrders.map((order) => (
-                                <DropdownMenuItem
-                                  key={order.id}
-                                  onSelect={() => void runAction(id, () => onInsertOrderIntoPlan(id, order.id))}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-mono text-xs font-semibold text-slate-900">{order.order_code}</p>
-                                    <p className="truncate text-xs text-slate-500">{order.delivery_address}</p>
-                                  </div>
-                                </DropdownMenuItem>
-                              ))}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                        {canExecute && plan.plan_status !== 'COMPLETED' && (
-                          <Button size="sm" variant="ghost" className="text-rose-700 hover:bg-rose-50 hover:text-rose-800" disabled={busy}
-                            onClick={() => void runAction(id, () => onCancelPlan(id, 'Điều phối viên hủy kế hoạch để lập lại lộ trình'))}>{t('Hủy tuyến')}</Button>
-                        )}
-                      </div>
-                    </div>
-                  )}
                 </section>
               );
             })}

@@ -66,4 +66,27 @@ class RecoveryRuleEngineTest {
         verifyNoInteractions(attempts, returns);
         verify(outbox).save(any(OutboxEvent.class));
     }
+
+    @Test
+    void delayAdvisoryContinuesDeliveryWithoutAttemptOrReturnMutation() {
+        var attempts = mock(DeliveryAttemptRepository.class);
+        var returns = mock(ReturnRequestRepository.class);
+        var outbox = mock(OutboxEventRepository.class);
+        var engine = new RecoveryRuleEngine(attempts, returns, outbox);
+        var order = Order.builder().id(UUID.randomUUID()).status(OrderStatus.IN_TRANSIT).build();
+        var incident = DeliveryIncident.builder()
+                .id(UUID.randomUUID())
+                .tenantId(UUID.randomUUID())
+                .reportedBy(UUID.randomUUID())
+                .order(order)
+                .incidentType("TRAFFIC_CONGESTION")
+                .severity("LOW")
+                .build();
+
+        String result = engine.evaluateAndApply(incident);
+
+        assertThat(result).isEqualTo("CONTINUE_DELIVERY");
+        verifyNoInteractions(attempts, returns);
+        verify(outbox).save(any(OutboxEvent.class));
+    }
 }

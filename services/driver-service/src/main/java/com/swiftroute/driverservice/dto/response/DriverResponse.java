@@ -27,7 +27,10 @@ public record DriverResponse(
         Double currentLng,
         Boolean isAvailable,
         DriverStatus status,
-        String reviewNote) {
+        String reviewNote,
+        String bankCode,
+        String bankAccountNumber,
+        String bankAccountName) {
     public static DriverResponse fromEntity(Driver driver) {
         return DriverResponse.builder()
                 .id(driver.getId())
@@ -46,6 +49,9 @@ public record DriverResponse(
                 .isAvailable(driver.getIsAvailable())
                 .status(driver.getStatus())
                 .reviewNote(driver.getReviewNote())
+                .bankCode(driver.getBankCode())
+                .bankAccountNumber(driver.getBankAccountNumber())
+                .bankAccountName(driver.getBankAccountName())
                 .build();
     }
 }

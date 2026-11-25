@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+import { PlatformOverview } from '@/components/admin/platform-overview';
 
 export default function AdminPage() {
-  redirect('/admin/tenant-verifications');
+  return <PlatformOverview />;
 }

@@ -18,6 +18,14 @@ public interface DeliveryTaskRepository extends JpaRepository<DeliveryTask, UUID
 
     List<DeliveryTask> findByDispatchPlanId(UUID dispatchPlanId);
 
+    @Query("""
+            select distinct task.dispatchPlanId from DeliveryTask task
+            where task.tenantId = :tenantId and task.dispatchPlanId in :planIds
+              and task.taskType = 'DELIVERY' and task.status = :status
+            """)
+    List<UUID> findPlanIdsWithDeliveryStatus(@Param("tenantId") UUID tenantId,
+            @Param("planIds") Collection<UUID> planIds, @Param("status") DeliveryTaskStatus status);
+
     List<DeliveryTask> findByDriverIdAndStatusIn(UUID driverId, Collection<DeliveryTaskStatus> statuses);
 
     @Query("select distinct task.order.id from DeliveryTask task "

@@ -116,7 +116,7 @@ export function DriveCsvPicker({
       try {
         const view = new picker.DocsView(picker.ViewId.DOCS)
           .setIncludeFolders(true)
-          .setMimeTypes('text/csv,application/csv,application/vnd.ms-excel,application/octet-stream,text/plain,' + GOOGLE_SHEET_MIME);
+          .setMimeTypes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv,application/octet-stream,text/plain,' + GOOGLE_SHEET_MIME);
         visible.current = new picker.PickerBuilder()
           .addView(view).setAppId(pickerConfig.appId).setOrigin(window.location.origin)
           .setOAuthToken(token).setDeveloperKey(pickerConfig.apiKey)
@@ -129,7 +129,7 @@ export function DriveCsvPicker({
             }
             if (action !== picker.Action.PICKED) return;
             const selection = docs?.[0];
-            if (!selection?.id || !selection.name) return finish('Hãy chọn file CSV hoặc Google Sheets trên Drive.');
+            if (!selection?.id || !selection.name) return finish('Hãy chọn file Excel (.xlsx), CSV hoặc Google Sheets trên Drive.');
             try {
               if (selection.mimeType === GOOGLE_SHEET_MIME) {
                 const tabs = await listSheetTabs(selection, token, AbortSignal.any([run.signal, AbortSignal.timeout(20000)]));

@@ -2,6 +2,7 @@ package com.swiftroute.orderservice.dto.routing;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.LocationPoint;
 import com.swiftroute.orderservice.dto.routing.BatchOptimizationRequest.StopItem;
@@ -22,6 +23,7 @@ public final class DynamicRoutingDtos {
             @JsonProperty("time_window_start") String timeWindowStart,
             @JsonProperty("time_window_end") String timeWindowEnd,
             @JsonProperty("is_completed") boolean isCompleted,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
             @JsonProperty("service_time") Double serviceTime
     ) {
         public RouteStopState(String id, String name, LocationPoint location, double demandKg,
@@ -41,7 +43,6 @@ public final class DynamicRoutingDtos {
 
     public record RouteInsertResponse(
             @JsonProperty("job_id") String jobId,
-            @JsonProperty("algorithm_used") String algorithmUsed,
             @JsonProperty("feasible") boolean feasible,
             @JsonProperty("inserted_stop_index") int insertedStopIndex,
             @JsonProperty("added_distance_km") double addedDistanceKm,
@@ -64,7 +65,6 @@ public final class DynamicRoutingDtos {
 
     public record RouteReoptimizeResponse(
             @JsonProperty("job_id") String jobId,
-            @JsonProperty("algorithm_used") String algorithmUsed,
             @JsonProperty("stops_changed") boolean stopsChanged,
             @JsonProperty("distance_saved_km") double distanceSavedKm,
             @JsonProperty("total_distance_km") double totalDistanceKm,

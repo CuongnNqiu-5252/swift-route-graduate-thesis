@@ -12,6 +12,8 @@ import com.swiftroute.orderservice.entity.PackageHandover;
 public interface PackageHandoverRepository extends JpaRepository<PackageHandover, UUID> {
     boolean existsByOrder_IdAndStatusIn(UUID orderId, List<String> statuses);
 
+    List<PackageHandover> findAllByOrder_IdOrderByCreatedAtDesc(UUID orderId);
+
     @Query("""
             select h from PackageHandover h
             join fetch h.order

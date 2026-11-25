@@ -23,7 +23,6 @@ import com.swiftroute.orderservice.dto.request.ApprovePlanRequest;
 import com.swiftroute.orderservice.dto.request.CancelPlanRequest;
 import com.swiftroute.orderservice.dto.request.MovePlanStopRequest;
 import com.swiftroute.orderservice.dto.request.ReorderPlanStopsRequest;
-import com.swiftroute.orderservice.dto.request.StartSimulationRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.DispatchPlanResponse;
 import com.swiftroute.orderservice.dto.response.PageRequests;
@@ -41,7 +40,6 @@ import com.swiftroute.orderservice.service.planning.PlanningTriggerScheduler;
 
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -111,8 +109,15 @@ public class DispatchController {
     @PostMapping("/trigger")
     @Operation(summary = "Create unassigned draft routes for eligible orders and return the planning result")
     public ResponseEntity<ApiResponse<ManualPlanningResult>> triggerManual(
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
-        var cycle = planningTriggerScheduler.triggerManual(requireTenantId(tenantId));
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestAttribute("effectiveRole") String role,
+            @RequestParam(name = "depot_id", required = false) UUID depotId) {
+        if (!Set.of("OWNER", "TENANT_ADMIN", "OPERATOR").contains(role.toUpperCase(Locale.ROOT))
+                || !TenantRequestInterceptor.isAuthorizedForPermission(
+                        role, "dispatch:execute", Set.of("TENANT_ADMIN", "OPERATOR"))) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        var cycle = planningTriggerScheduler.triggerManual(requireTenantId(tenantId), depotId);
         return ResponseEntity.ok(ApiResponse.success(new ManualPlanningResult(
                 cycle.outcome(), cycle.plans().stream().map(DispatchPlan::getId).toList())));
     }
@@ -190,7 +195,7 @@ public class DispatchController {
     }
 
     @PostMapping("/plans/{planId}/acknowledge")
-    @Operation(summary = "Driver acknowledges acceptance of the dispatched plan")
+    @Operation(summary = "Legacy acknowledgment for older driver apps", deprecated = true)
     public ResponseEntity<ApiResponse<DispatchPlanResponse>> acknowledgePlan(
             @PathVariable UUID planId,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
@@ -203,7 +208,7 @@ public class DispatchController {
     }
 
     @PostMapping("/plans/{planId}/decline")
-    @Operation(summary = "Driver declines the dispatched plan")
+    @Operation(summary = "Reject legacy driver decline requests without changing the plan", deprecated = true)
     public ResponseEntity<ApiResponse<DispatchPlanResponse>> declinePlan(
             @PathVariable UUID planId,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
@@ -212,8 +217,7 @@ public class DispatchController {
             @Valid @RequestBody CancelPlanRequest request) {
         DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
         authorizeDriverPlanAction(plan, userId, role);
-        plan = orchestrationService.declineByDriver(planId, request.reason());
-        return ResponseEntity.ok(ApiResponse.success(toResponse(plan)));
+        throw new AppException(ErrorCode.DRIVER_CANNOT_DECLINE_PLAN);
     }
 
     @GetMapping(value = "/drivers/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -230,43 +234,6 @@ public class DispatchController {
             @PathVariable UUID planId) {
         findPlanInTenant(planId, requireTenantId(tenantId));
         return trackingSimulationService.subscribe(planId);
-    }
-
-    @PostMapping("/plans/{planId}/tracking/simulate")
-    @Operation(summary = "Start on-demand GPS route simulation for a dispatch plan and its orders")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> startPlanSimulation(
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
-            @PathVariable UUID planId,
-            @Valid @RequestBody StartSimulationRequest request) {
-        DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
-        List<UUID> orderIds = plan.getOrdersInStopOrder().stream()
-                .map(Order::getId)
-                .toList();
-        trackingSimulationService.startRouteSimulation(
-                planId,
-                plan.getDriverId(),
-                orderIds,
-                request.waypoints(),
-                request.intervalMs());
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "plan_id", planId,
-                "waypoint_count", request.waypoints().size(),
-                "status", "SIMULATING")));
-    }
-
-    @PostMapping("/plans/{planId}/tracking/simulate/stop")
-    @Operation(summary = "Stop on-demand GPS route simulation for a dispatch plan")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> stopPlanSimulation(
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
-            @PathVariable UUID planId) {
-        DispatchPlan plan = findPlanInTenant(planId, requireTenantId(tenantId));
-        List<UUID> orderIds = plan.getOrdersInStopOrder().stream()
-                .map(Order::getId)
-                .toList();
-        trackingSimulationService.stopRouteSimulation(planId, orderIds);
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "plan_id", planId,
-                "status", "STOPPED")));
     }
 
     @PostMapping("/plans/{planId}/insert/{orderId}")
@@ -321,23 +288,15 @@ public class DispatchController {
                 plan.getTenant().getId(),
                 plan.getPlanStatus().name(),
                 plan.getDriverId(),
-                plan.getAlgorithmUsed(),
                 plan.getTotalDistanceKm(),
                 plan.getEstimatedDurationMinutes(),
                 plan.getTriggerType() != null ? plan.getTriggerType().name() : null,
-                plan.getRequiresApproval(),
                 stopIds.size(),
                 stopIds,
-                plan.getPlannedAt(),
-                plan.getApprovedAt(),
                 plan.getDispatchedAt(),
-                plan.getAckDeadlineAt(),
-                plan.getAcknowledgedAt(),
-                plan.getDeclinedAt(),
-                plan.getDeclineReason(),
-                plan.getReassignmentCount(),
                 plan.getRouteWaypoints(),
                 plan.getCreatedAt(),
+                plan.getUpdatedAt(),
                 plan.getVersion());
     }
 }

@@ -1,6 +1,7 @@
 package com.swiftroute.orderservice.service.planning;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -74,8 +75,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class DispatchOrchestrationService {
 
-    private static final int DEFAULT_ACK_TIMEOUT_MINUTES = 5;
-    private static final int MAX_REASSIGNMENT_ATTEMPTS = 3;
     private static final int MAX_VEHICLES_PER_BATCH = 50;
 
     private final TenantRepository tenantRepository;
@@ -88,6 +87,10 @@ public class DispatchOrchestrationService {
     private final OperationalReadinessService operationalReadinessService;
     private final DeliveryExecutionService deliveryExecutionService;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.orderservice.service.OrderStatusHistoryRecorder statusHistory;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.orderservice.service.TrackingSimulationService trackingSimulationService;
 
     /**
      * Creates authoritative plans for explicit manual assignments in one
@@ -137,7 +140,7 @@ public class DispatchOrchestrationService {
             } catch (Exception ex) {
                 log.warn("Fallback to local route metrics for manual assignment: {}", ex.getMessage());
             }
-            if (routeOpt.isEmpty() && driverOrders.stream().anyMatch(order -> order.getTimeWindowStart() != null)) {
+            if (routeOpt.isEmpty() && driverOrders.stream().anyMatch(this::hasAppointmentWindow)) {
                 throw new AppException(ErrorCode.ROUTE_MEASUREMENT_UNAVAILABLE);
             }
 
@@ -146,26 +149,25 @@ public class DispatchOrchestrationService {
             double distanceKm = routeOpt.map(BatchOptimizationResponse::totalDistanceKm)
                     .orElseGet(() -> estimateRouteDistanceKm(tenant, driverOrders));
             int durationMin = routeOpt.map(r -> (int) Math.ceil(r.totalDurationMinutes()))
-                    .orElseGet(() -> Math.max(5, (int) Math.ceil((distanceKm / 28.0) * 60.0)));
-            String algoUsed = routeOpt.map(BatchOptimizationResponse::algorithmUsed)
-                    .orElse("ortools");
+                    .orElseGet(() -> Math.max(5, (int) Math.ceil((distanceKm / 28.0) * 60.0 + driverOrders.size() * 5.0)));
             String waypointsJson = routeOpt.map(r -> serializeStopWaypoints(r.orderedStops()))
-                    .orElseGet(() -> serializeOrdersAsWaypoints(driverOrders));
+                    .orElseGet(() -> serializeOrdersAsWaypoints(tenant, driverOrders, 0.0));
 
             DispatchPlan plan = dispatchPlanRepository.save(DispatchPlan.builder()
                     .tenant(tenant)
                     .driverId(group.getKey())
                     .triggerType(PlanTriggerType.MANUAL)
-                    .algorithmUsed(algoUsed)
                     .totalDistanceKm(BigDecimal.valueOf(distanceKm))
                     .estimatedDurationMinutes(durationMin)
                     .routeWaypoints(waypointsJson)
-                    .plannedAt(now)
                     .build());
-            int index = 0;
+            int index = 1;
             for (Order order : ordered) {
+                OrderStatus previous = order.getStatus();
                 plan.addOrder(order, index++);
                 order.setStatus(OrderStatus.PLANNED);
+                recordStatusChange(order, previous, OrderStatus.PLANNED, operatorId, "OPERATOR",
+                        "Phân công thủ công vào tuyến điều phối");
             }
             plan.approve(operatorId);
             dispatchPlan(plan);
@@ -308,11 +310,9 @@ public class DispatchOrchestrationService {
                 .tenant(tenant)
                 .planStatus(PlanStatus.DRAFT)
                 .driverId(null)
-                .algorithmUsed(routingResponse.algorithmUsed())
                 .totalDistanceKm(BigDecimal.valueOf(vRoute.totalDistanceKm()))
                 .estimatedDurationMinutes((int) Math.ceil(vRoute.totalDurationMinutes()))
                 .triggerType(triggerType)
-                .plannedAt(now)
                 .routeWaypoints(serializeStopWaypoints(vRoute.orderedStops()))
                 .build());
 
@@ -320,9 +320,12 @@ public class DispatchOrchestrationService {
         int stopIndex = 1;
         for (BatchOptimizationResponse.OrderedStop stop : vRoute.orderedStops()) {
             Order order = eligibleById.get(stop.stopId());
+            OrderStatus previous = order.getStatus();
             plan.addOrder(order, stopIndex++);
             order.setStatus(OrderStatus.PLANNED);
             order.setUpdatedAt(now);
+            recordStatusChange(order, previous, OrderStatus.PLANNED, null, "SYSTEM",
+                    "Xếp vào kế hoạch điều phối (" + triggerType + ")");
             routeOrders.add(order);
         }
         orderRepository.saveAll(routeOrders);
@@ -349,13 +352,12 @@ public class DispatchOrchestrationService {
         }
         Instant now = Instant.now();
         if (plan.getPlanStatus() == PlanStatus.APPROVED
-                && plan.getOrders().stream().anyMatch(order -> order.getTimeWindowStart() != null)) {
+                && plan.getOrders().stream().anyMatch(this::hasAppointmentWindow)) {
             List<Order> orders = plan.getOrdersInStopOrder();
             applyMeasuredRoute(plan, orders, measureDraftRoute(plan, orders, now));
         }
-        Instant ackDeadline = now.plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L);
         try {
-            plan.dispatch(ackDeadline);
+            plan.dispatch();
         } catch (IllegalStateException ex) {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
@@ -376,7 +378,7 @@ public class DispatchOrchestrationService {
         DispatchPlan saved = dispatchPlanRepository.save(plan);
         publishOutboxEvent(saved, "plan.dispatched");
 
-        log.info("Plan {} dispatched. Driver={} AckDeadline={}", saved.getId(), saved.getDriverId(), ackDeadline);
+        log.info("Plan {} dispatched. Driver={}", saved.getId(), saved.getDriverId());
         return saved;
     }
 
@@ -476,7 +478,19 @@ public class DispatchOrchestrationService {
     }
 
     private BatchOptimizationResponse measureDraftRoute(DispatchPlan plan, List<Order> ordered) {
-        return measureDraftRoute(plan, ordered, plan.getPlannedAt());
+        return measureDraftRoute(plan, ordered, effectiveDraftDeparture(plan, Instant.now()));
+    }
+
+    private Instant effectiveDraftDeparture(DispatchPlan plan, Instant now) {
+        Instant created = plan.getCreatedAt();
+        if (created == null) {
+            return now;
+        }
+        return created.isBefore(now) ? now : created;
+    }
+
+    private boolean hasAppointmentWindow(Order order) {
+        return order != null && (order.getTimeWindowStart() != null || order.getTimeWindowEnd() != null);
     }
 
     private BatchOptimizationResponse measureDraftRoute(DispatchPlan plan, List<Order> ordered, Instant departure) {
@@ -574,99 +588,6 @@ public class DispatchOrchestrationService {
         return saved;
     }
 
-    /**
-     * Records driver decline for a DISPATCHED plan.
-     * Returns affected orders to the dispatch queue and cancels the plan.
-     */
-    @Transactional
-    public DispatchPlan declineByDriver(UUID planId, String reason) {
-        DispatchPlan plan = loadPlan(planId);
-        requireNoHeldOrders(plan);
-        try {
-            plan.decline(reason);
-        } catch (IllegalStateException ex) {
-            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
-        }
-
-        plan.decline(reason);
-        discardPlan(plan, true);
-        return plan;
-    }
-
-    /**
-     * Handles acknowledgement timeout for a DISPATCHED plan (P2.1 & P2.2).
-     * Retries reassignment up to {@link #MAX_REASSIGNMENT_ATTEMPTS} times before
-     * cancelling and escalating to manual operator review.
-     */
-    @Transactional
-    public DispatchPlan handleAcknowledgementTimeout(UUID planId) {
-        return handleAcknowledgementTimeout(planId, java.util.Set.of());
-    }
-
-    @Transactional
-    public DispatchPlan handleAcknowledgementTimeout(UUID planId, java.util.Set<UUID> ineligibleDriverIds) {
-        DispatchPlan plan = loadPlan(planId);
-        if (plan.getPlanStatus() != PlanStatus.DISPATCHED || plan.getAcknowledgedAt() != null) {
-            return plan;
-        }
-
-        // Starting execution is an implicit acceptance of the dispatched route.
-        // Never reassign or return its orders to planning after the driver has
-        // accepted a task, picked up custody, or begun/finished delivery.
-        if (hasClaimedDeliveryExecution(plan) || plan.getOrders().stream()
-                .anyMatch(deliveryExecutionService::holdsOrder)) {
-            plan.acknowledge();
-            DispatchPlan saved = dispatchPlanRepository.save(plan);
-            publishOutboxEvent(saved, "plan.acknowledged_implicitly");
-            log.warn("Plan {} passed its acknowledgement deadline after delivery execution started; "
-                    + "recorded implicit acknowledgement and preserved the active route.", planId);
-            return saved;
-        }
-
-        short nextCount = (short) ((plan.getReassignmentCount() != null ? plan.getReassignmentCount() : 0) + 1);
-        plan.setReassignmentCount(nextCount);
-        // Do not spam timeout alert to notification inbox
-
-        UUID tenantId = plan.getTenant().getId();
-        java.util.Set<UUID> reservedDriverIds = new java.util.HashSet<>(ineligibleDriverIds);
-        dispatchPlanRepository.findAllByTenantIdAndPlanStatusIn(
-                tenantId, List.of(PlanStatus.APPROVED, PlanStatus.DISPATCHED))
-                .stream()
-                .map(DispatchPlan::getDriverId)
-                .filter(java.util.Objects::nonNull)
-                .forEach(reservedDriverIds::add);
-        UUID alternativeDriver = selectAlternativeDriver(
-                tenantId, plan.getDriverId(), reservedDriverIds);
-
-        if (nextCount <= MAX_REASSIGNMENT_ATTEMPTS && alternativeDriver != null) {
-            plan.setDriverId(alternativeDriver);
-            plan.setAckDeadlineAt(Instant.now().plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L));
-            plan.setUpdatedAt(Instant.now());
-
-            for (Order order : plan.getOrders()) {
-                order.setAssignedDriverId(alternativeDriver);
-                order.setUpdatedAt(Instant.now());
-                orderRepository.save(order);
-
-                DeliveryTask task = deliveryExecutionService.assign(order, alternativeDriver);
-                task.setDispatchPlanId(plan.getId());
-                deliveryTaskRepository.save(task);
-            }
-
-            DispatchPlan saved = dispatchPlanRepository.save(plan);
-            publishOutboxEvent(saved, "plan.dispatched");
-            log.info("Plan {} reassigned on ack timeout (attempt {}/{}) to driver {}.",
-                    planId, nextCount, MAX_REASSIGNMENT_ATTEMPTS, alternativeDriver);
-            return saved;
-        }
-
-        // Max retries reached or no alternative driver available -> discard plan &
-        // escalate
-        discardPlan(plan, false);
-        log.warn("Plan {} discarded after {} reassignment attempts.", planId, nextCount);
-        return plan;
-    }
-
     private void discardPlan(DispatchPlan plan, boolean publishOutbox) {
         if (plan.getPlanStatus() == PlanStatus.COMPLETED) {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
@@ -688,9 +609,12 @@ public class DispatchOrchestrationService {
                         || order.getStatus() == OrderStatus.IN_TRANSIT)
                 .toList();
         for (Order order : released) {
+            OrderStatus previous = order.getStatus();
             plan.removeOrder(order);
             order.setStatus(OrderStatus.READY_FOR_DISPATCH);
             order.setAssignedDriverId(null);
+            recordStatusChange(order, previous, OrderStatus.READY_FOR_DISPATCH, null, "SYSTEM",
+                    "Trả đơn về hàng chờ điều phối");
             orderRepository.save(order);
         }
         retainCurrentWaypoints(plan);
@@ -834,20 +758,16 @@ public class DispatchOrchestrationService {
             return existing.get();
         }
 
-        Instant now = Instant.now();
         DispatchPlan plan = DispatchPlan.builder()
                 .tenant(order.getTenant())
                 .driverId(toDriverId)
                 .triggerType(PlanTriggerType.MANUAL)
-                .algorithmUsed("package-handover")
                 .routeWaypoints("[]")
                 .totalDistanceKm(BigDecimal.ZERO)
                 .estimatedDurationMinutes(0)
-                .plannedAt(now)
-                .requiresApproval(false)
                 .build();
         plan.approve(null);
-        plan.dispatch(now.plusSeconds(DEFAULT_ACK_TIMEOUT_MINUTES * 60L));
+        plan.dispatch();
         plan.acknowledge();
         return dispatchPlanRepository.saveAndFlush(plan);
     }
@@ -857,10 +777,10 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
 
-        boolean newlyCreatedTransferPlan = plan.getOrders().isEmpty()
-                && "package-handover".equals(plan.getAlgorithmUsed());
+        boolean newlyCreatedTransferPlan = plan.getOrders().isEmpty();
+        Instant now = Instant.now();
         if (plan.getOrders().isEmpty()) {
-            plan.addOrder(order, 0);
+            plan.addOrder(order, 1);
             refreshLocalRouteSnapshot(plan);
         } else {
             LocationPoint driverLoc = resolvePlanOrigin(plan, null, null);
@@ -880,11 +800,15 @@ public class DispatchOrchestrationService {
             }
             RouteInsertResponse inserted = result.get();
             applyUpdatedStopSequence(plan, inserted.orderedStops(), order);
-            plan.setTotalDistanceKm(BigDecimal.valueOf(inserted.totalDistanceKm()));
-            plan.setEstimatedDurationMinutes((int) Math.ceil(inserted.totalDurationMinutes()));
-            plan.setRouteWaypoints(serializeStopWaypoints(inserted.orderedStops()));
+            synchronizeActivePlanStops(
+                    plan,
+                    inserted.orderedStops(),
+                    order,
+                    inserted.totalDistanceKm(),
+                    inserted.totalDurationMinutes(),
+                    now);
         }
-        plan.setUpdatedAt(Instant.now());
+        plan.setUpdatedAt(now);
         dispatchPlanRepository.save(plan);
         publishOutboxEvent(plan, newlyCreatedTransferPlan ? "plan.dispatched" : "route.updated");
     }
@@ -909,20 +833,30 @@ public class DispatchOrchestrationService {
         }
         RouteReoptimizeResponse refreshed = result.get();
         applyUpdatedStopSequence(plan, refreshed.orderedStops(), null);
-        plan.setTotalDistanceKm(BigDecimal.valueOf(refreshed.totalDistanceKm()));
-        plan.setEstimatedDurationMinutes((int) Math.ceil(refreshed.totalDurationMinutes()));
-        plan.setRouteWaypoints(serializeStopWaypoints(refreshed.orderedStops()));
+        synchronizeActivePlanStops(
+                plan,
+                refreshed.orderedStops(),
+                null,
+                refreshed.totalDistanceKm(),
+                refreshed.totalDurationMinutes(),
+                Instant.now());
     }
 
     private void refreshLocalRouteSnapshot(DispatchPlan plan) {
         List<Order> remaining = plan.getOrdersInStopOrder();
         for (int index = 0; index < remaining.size(); index++) {
-            remaining.get(index).setPlanStopIndex(index);
+            remaining.get(index).setPlanStopIndex(index + 1);
         }
+        Instant now = Instant.now();
+        double anchorOffsetMinutes = plan.getPlanStatus() == PlanStatus.DISPATCHED
+                ? computeAnchorOffsetMinutes(plan, now)
+                : 0.0;
         double distanceKm = estimateRouteDistanceKm(plan.getTenant(), remaining);
-        plan.setRouteWaypoints(serializeOrdersAsWaypoints(remaining));
+        plan.setRouteWaypoints(serializeOrdersAsWaypoints(plan.getTenant(), remaining, anchorOffsetMinutes));
         plan.setTotalDistanceKm(BigDecimal.valueOf(distanceKm));
-        plan.setEstimatedDurationMinutes(Math.max(5, (int) Math.ceil((distanceKm / 28.0) * 60.0)));
+        plan.setEstimatedDurationMinutes(Math.max(
+                5,
+                (int) Math.ceil(anchorOffsetMinutes + (distanceKm / 28.0) * 60.0 + remaining.size() * 5.0)));
     }
 
     private double[] optimizationWeights(Tenant tenant) {
@@ -993,17 +927,22 @@ public class DispatchOrchestrationService {
             return plan;
         }
 
+        Instant now = Instant.now();
         RouteInsertResponse insertRes = insertResOpt.get();
         applyUpdatedStopSequence(plan, insertRes.orderedStops(), newOrder);
-        plan.setTotalDistanceKm(BigDecimal.valueOf(insertRes.totalDistanceKm()));
-        plan.setEstimatedDurationMinutes((int) Math.ceil(insertRes.totalDurationMinutes()));
-        try {
-            plan.setRouteWaypoints(objectMapper.writeValueAsString(insertRes.orderedStops()));
-        } catch (JsonProcessingException ignored) {
-        }
-        plan.setUpdatedAt(Instant.now());
+        synchronizeActivePlanStops(
+                plan,
+                insertRes.orderedStops(),
+                newOrder,
+                insertRes.totalDistanceKm(),
+                insertRes.totalDurationMinutes(),
+                now);
+        plan.setUpdatedAt(now);
 
+        OrderStatus previous = newOrder.getStatus();
         newOrder.setStatus(OrderStatus.PLANNED);
+        recordStatusChange(newOrder, previous, OrderStatus.PLANNED, null, "SYSTEM",
+                "Chèn bổ sung vào tuyến điều phối");
         if (plan.getDriverId() != null) {
             newOrder.setAssignedDriverId(plan.getDriverId());
             DeliveryTask task = deliveryExecutionService.assign(newOrder, plan.getDriverId());
@@ -1050,36 +989,41 @@ public class DispatchOrchestrationService {
         Optional<RouteReoptimizeResponse> reoptOpt = routingEngineClient.optimizeReoptimize(
                 new RouteReoptimizeRequest(driverLoc, currentStops, reason, 0.2, timeW, costW));
 
-        if (reoptOpt.isEmpty() || !reoptOpt.get().stopsChanged()) {
-            log.info("Reoptimization for plan {} produced no significant improvement; keeping existing sequence.",
-                    planId);
+        if (reoptOpt.isEmpty()) {
+            log.info("Reoptimization for plan {} returned empty; keeping existing sequence.", planId);
             return plan;
         }
 
+        Instant now = Instant.now();
         RouteReoptimizeResponse reopt = reoptOpt.get();
-        applyUpdatedStopSequence(plan, reopt.orderedStops(), null);
-        plan.setTotalDistanceKm(BigDecimal.valueOf(reopt.totalDistanceKm()));
-        plan.setEstimatedDurationMinutes((int) Math.ceil(reopt.totalDurationMinutes()));
-        try {
-            plan.setRouteWaypoints(objectMapper.writeValueAsString(reopt.orderedStops()));
-        } catch (JsonProcessingException ignored) {
+        if (reopt.stopsChanged()) {
+            applyUpdatedStopSequence(plan, reopt.orderedStops(), null);
         }
-        plan.setUpdatedAt(Instant.now());
+        synchronizeActivePlanStops(
+                plan,
+                reopt.orderedStops(),
+                null,
+                reopt.totalDistanceKm(),
+                reopt.totalDurationMinutes(),
+                now);
+        plan.setUpdatedAt(now);
 
         DispatchPlan saved = dispatchPlanRepository.save(plan);
         publishOutboxEvent(saved, "route.updated");
-        log.info("Active plan {} reoptimized (reason={}). Saved {} km.",
-                planId, reason, reopt.distanceSavedKm());
+        if (reopt.stopsChanged()) {
+            log.info("Active plan {} reoptimized (reason={}). Saved {} km.",
+                    planId, reason, reopt.distanceSavedKm());
+        } else {
+            log.info("Active plan {} kept sequence and refreshed remaining ETAs (reason={}).",
+                    planId, reason);
+        }
         return saved;
     }
 
     private List<RouteStopState> buildCurrentStopStates(DispatchPlan plan) {
         return plan.getOrdersInStopOrder().stream()
                 .map(o -> {
-                    boolean completed = o.getStatus() == OrderStatus.DELIVERED
-                            || deliveryTaskRepository.findByOrder_IdAndTaskType(o.getId(), "DELIVERY")
-                                    .map(t -> t.getStatus() == DeliveryTaskStatus.COMPLETED)
-                                    .orElse(false);
+                    boolean completed = isOrderCompleted(o);
                     return new RouteStopState(
                             o.getId().toString(),
                             o.getRecipientName(),
@@ -1090,6 +1034,143 @@ public class DispatchOrchestrationService {
                             completed);
                 })
                 .toList();
+    }
+
+    private boolean isOrderCompleted(Order order) {
+        return order.getStatus() == OrderStatus.DELIVERED
+                || deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
+                        .map(t -> t.getStatus() == DeliveryTaskStatus.COMPLETED)
+                        .orElse(false);
+    }
+
+    private record ExistingWaypointTiming(double cumulativeDistanceKm, double estimatedArrivalMinutes, int lateByMinutes) {
+    }
+
+    /**
+     * Aligns dynamic remaining-stop timings (computed relative to {@code now} from the driver's
+     * current origin) back onto the plan's authoritative start clock ({@code dispatchedAt}),
+     * preserving completed stop metrics and recomputing time-window lateness.
+     */
+    private void synchronizeActivePlanStops(
+            DispatchPlan plan,
+            List<BatchOptimizationResponse.OrderedStop> rawStops,
+            Order newlyInsertedOrder,
+            double remainingDistanceKm,
+            double remainingDurationMinutes,
+            Instant now) {
+        if (rawStops == null) {
+            return;
+        }
+        Instant planStart = plan.getDispatchedAt() != null
+                ? plan.getDispatchedAt()
+                : (plan.getCreatedAt() != null ? plan.getCreatedAt() : now);
+        double anchorOffsetMinutes = computeAnchorOffsetMinutes(plan, now);
+
+        Map<String, ExistingWaypointTiming> existingTimings = readExistingWaypointTimings(plan.getRouteWaypoints());
+        Map<String, Order> ordersById = new LinkedHashMap<>();
+        plan.getOrders().forEach(o -> ordersById.put(o.getId().toString(), o));
+        if (newlyInsertedOrder != null) {
+            ordersById.put(newlyInsertedOrder.getId().toString(), newlyInsertedOrder);
+        }
+
+        List<BatchOptimizationResponse.OrderedStop> synced = new ArrayList<>(rawStops.size());
+        double completedDistanceOffsetKm = 0.0;
+        double prevDist = 0.0;
+        double prevEta = 0.0;
+        int stopIndex = 1;
+
+        for (BatchOptimizationResponse.OrderedStop stop : rawStops) {
+            Order order = ordersById.get(stop.stopId());
+            boolean completed = order != null && order != newlyInsertedOrder && isOrderCompleted(order);
+            ExistingWaypointTiming prevSnapshot = existingTimings.get(stop.stopId());
+
+            double distKm;
+            double etaMinutes;
+            int lateByMinutes;
+
+            if (completed) {
+                distKm = prevSnapshot != null ? Math.max(prevDist, prevSnapshot.cumulativeDistanceKm()) : prevDist;
+                double savedEta = prevSnapshot != null ? prevSnapshot.estimatedArrivalMinutes() : prevEta;
+                etaMinutes = Math.clamp(savedEta, prevEta, Math.max(prevEta, anchorOffsetMinutes));
+                lateByMinutes = prevSnapshot != null ? Math.max(0, prevSnapshot.lateByMinutes()) : 0;
+                completedDistanceOffsetKm = distKm;
+            } else {
+                distKm = Math.max(prevDist, roundThreeDecimals(completedDistanceOffsetKm + Math.max(0.0, stop.cumulativeDistanceKm())));
+                etaMinutes = Math.max(prevEta, roundOneDecimal(anchorOffsetMinutes + Math.max(0.0, stop.estimatedArrivalMinutes())));
+                Instant arrivalAt = planStart.plusMillis(Math.round(etaMinutes * 60_000.0));
+                if (order != null && order.getTimeWindowEnd() != null) {
+                    long lateMillis = Duration.between(order.getTimeWindowEnd().toInstant(), arrivalAt).toMillis();
+                    lateByMinutes = lateMillis > 0 ? (int) Math.ceil(lateMillis / 60_000.0) : 0;
+                } else {
+                    lateByMinutes = Math.max(0, stop.lateByMinutes());
+                }
+            }
+
+            synced.add(new BatchOptimizationResponse.OrderedStop(
+                    stopIndex++,
+                    stop.stopId(),
+                    stop.location(),
+                    distKm,
+                    etaMinutes,
+                    lateByMinutes));
+            prevDist = distKm;
+            prevEta = etaMinutes;
+        }
+
+        double totalDistKm = Math.max(prevDist, roundThreeDecimals(completedDistanceOffsetKm + Math.max(0.0, remainingDistanceKm)));
+        int totalDurationMin = Math.max(
+                (int) Math.ceil(prevEta),
+                (int) Math.ceil(anchorOffsetMinutes + Math.max(0.0, remainingDurationMinutes)));
+
+        plan.setTotalDistanceKm(BigDecimal.valueOf(totalDistKm));
+        plan.setEstimatedDurationMinutes(totalDurationMin);
+        plan.setRouteWaypoints(serializeStopWaypoints(synced));
+    }
+
+    private double computeAnchorOffsetMinutes(DispatchPlan plan, Instant now) {
+        Instant start = plan.getDispatchedAt() != null ? plan.getDispatchedAt() : plan.getCreatedAt();
+        if (start == null || now == null || !now.isAfter(start)) {
+            return 0.0;
+        }
+        return Duration.between(start, now).toMillis() / 60_000.0;
+    }
+
+    private Map<String, ExistingWaypointTiming> readExistingWaypointTimings(String rawWaypoints) {
+        Map<String, ExistingWaypointTiming> timings = new LinkedHashMap<>();
+        if (rawWaypoints == null || rawWaypoints.isBlank()) {
+            return timings;
+        }
+        try {
+            JsonNode nodes = objectMapper.readTree(rawWaypoints);
+            if (nodes != null && nodes.isArray()) {
+                for (JsonNode node : nodes) {
+                    String stopId = node.path("stop_id").asText(null);
+                    if (stopId == null || stopId.isBlank()) {
+                        continue;
+                    }
+                    double dist = node.path("cumulative_distance_km").isNumber()
+                            ? node.path("cumulative_distance_km").asDouble()
+                            : 0.0;
+                    double eta = node.path("estimated_arrival_minutes").isNumber()
+                            ? node.path("estimated_arrival_minutes").asDouble()
+                            : 0.0;
+                    int late = node.path("late_by_minutes").isNumber()
+                            ? node.path("late_by_minutes").asInt()
+                            : 0;
+                    timings.put(stopId, new ExistingWaypointTiming(dist, eta, late));
+                }
+            }
+        } catch (JsonProcessingException ignored) {
+        }
+        return timings;
+    }
+
+    private static double roundOneDecimal(double value) {
+        return Math.round(value * 10.0) / 10.0;
+    }
+
+    private static double roundThreeDecimals(double value) {
+        return Math.round(value * 1000.0) / 1000.0;
     }
 
     private void applyUpdatedStopSequence(
@@ -1244,25 +1325,47 @@ public class DispatchOrchestrationService {
                         loc.getLng(),
                         loc.getAddress() != null && !loc.getAddress().isBlank()
                                 ? loc.getAddress()
-                                : tenant.getAddress());
+                                : "");
             }
         }
-        Double lat = (ref != null && ref.getPickupLat() != null) ? ref.getPickupLat()
-                : (tenant.getPickupLat() != null ? tenant.getPickupLat() : 10.7769);
-        Double lng = (ref != null && ref.getPickupLng() != null) ? ref.getPickupLng()
-                : (tenant.getPickupLng() != null ? tenant.getPickupLng() : 106.7009);
+        Double lat = (ref != null && ref.getPickupLat() != null) ? ref.getPickupLat() : 10.7769;
+        Double lng = (ref != null && ref.getPickupLng() != null) ? ref.getPickupLng() : 106.7009;
         String address = (ref != null && ref.getPickupAddress() != null && !ref.getPickupAddress().isBlank())
                 ? ref.getPickupAddress()
-                : tenant.getAddress();
+                : "";
         return new LocationPoint(lat, lng, address);
     }
 
     private LocationPoint resolvePlanOrigin(DispatchPlan plan, Double driverLat, Double driverLng) {
-        LocationPoint depot = resolveDepot(plan.getTenant(), plan.getOrdersInStopOrder());
-        return new LocationPoint(
-                driverLat != null ? driverLat : depot.lat(),
-                driverLng != null ? driverLng : depot.lng(),
-                depot.address());
+        List<Order> ordered = plan.getOrdersInStopOrder();
+        LocationPoint depot = resolveDepot(plan.getTenant(), ordered);
+        if (driverLat != null && driverLng != null && Double.isFinite(driverLat) && Double.isFinite(driverLng)) {
+            return new LocationPoint(driverLat, driverLng, depot.address());
+        }
+        if (trackingSimulationService != null && plan.getDriverId() != null) {
+            var livePos = trackingSimulationService.getLatestDriverPosition(plan.getDriverId());
+            if (livePos.isPresent()
+                    && Double.isFinite(livePos.get().lat())
+                    && Double.isFinite(livePos.get().lng())) {
+                return new LocationPoint(livePos.get().lat(), livePos.get().lng(), depot.address());
+            }
+        }
+        for (int i = ordered.size() - 1; i >= 0; i--) {
+            Order candidate = ordered.get(i);
+            if (isOrderCompleted(candidate)
+                    && candidate.getDeliveryLat() != null
+                    && candidate.getDeliveryLng() != null
+                    && Double.isFinite(candidate.getDeliveryLat())
+                    && Double.isFinite(candidate.getDeliveryLng())) {
+                return new LocationPoint(
+                        candidate.getDeliveryLat(),
+                        candidate.getDeliveryLng(),
+                        candidate.getDeliveryAddress() != null && !candidate.getDeliveryAddress().isBlank()
+                                ? candidate.getDeliveryAddress()
+                                : depot.address());
+            }
+        }
+        return depot;
     }
 
     private BatchOptimizationRequest buildRoutingRequest(
@@ -1308,18 +1411,35 @@ public class DispatchOrchestrationService {
         }
     }
 
-    private String serializeOrdersAsWaypoints(List<Order> orders) {
+    private String serializeOrdersAsWaypoints(Tenant tenant, List<Order> orders, double startOffsetMinutes) {
         try {
             List<Map<String, Object>> stops = new ArrayList<>();
-            int idx = 0;
+            LocationPoint depot = resolveDepot(tenant, orders);
+            double prevLat = depot.lat();
+            double prevLng = depot.lng();
+            double cumulativeDistKm = 0.0;
+            double cumulativeMinutes = Math.max(0.0, startOffsetMinutes);
+            int idx = 1;
             for (Order o : orders) {
-                stops.add(Map.of(
-                        "stop_index", idx++,
-                        "stop_id", o.getId().toString(),
-                        "location", Map.of(
-                                "lat", o.getDeliveryLat() != null ? o.getDeliveryLat() : 10.7769,
-                                "lng", o.getDeliveryLng() != null ? o.getDeliveryLng() : 106.7009,
-                                "address", o.getDeliveryAddress() != null ? o.getDeliveryAddress() : "")));
+                double curLat = o.getDeliveryLat() != null ? o.getDeliveryLat() : prevLat;
+                double curLng = o.getDeliveryLng() != null ? o.getDeliveryLng() : prevLng;
+                double legKm = haversineKm(prevLat, prevLng, curLat, curLng) * 1.3;
+                cumulativeDistKm += legKm;
+                cumulativeMinutes += (legKm / 28.0) * 60.0;
+                Map<String, Object> stopNode = new LinkedHashMap<>();
+                stopNode.put("stop_index", idx++);
+                stopNode.put("stop_id", o.getId().toString());
+                stopNode.put("location", Map.of(
+                        "lat", curLat,
+                        "lng", curLng,
+                        "address", o.getDeliveryAddress() != null ? o.getDeliveryAddress() : ""));
+                stopNode.put("cumulative_distance_km", roundThreeDecimals(cumulativeDistKm));
+                stopNode.put("estimated_arrival_minutes", roundOneDecimal(cumulativeMinutes));
+                stopNode.put("late_by_minutes", 0);
+                stops.add(stopNode);
+                cumulativeMinutes += 5.0;
+                prevLat = curLat;
+                prevLng = curLng;
             }
             return objectMapper.writeValueAsString(stops);
         } catch (JsonProcessingException e) {
@@ -1376,5 +1496,17 @@ public class DispatchOrchestrationService {
         payload.put("estimated_duration_minutes", plan.getEstimatedDurationMinutes());
         payload.put("order_count", plan.getOrders().size());
         return payload;
+    }
+
+    private void recordStatusChange(
+            Order order,
+            OrderStatus from,
+            OrderStatus to,
+            UUID actorId,
+            String role,
+            String reason) {
+        if (statusHistory != null) {
+            statusHistory.record(order, from, to, actorId, role, reason);
+        }
     }
 }

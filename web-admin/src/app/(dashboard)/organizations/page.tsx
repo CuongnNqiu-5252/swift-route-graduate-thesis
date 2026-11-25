@@ -204,7 +204,6 @@ export default function OrganizationsPage() {
           <form onSubmit={create} className="space-y-4">
             <Input label={t("Tên doanh nghiệp")} name="business_name" required minLength={2} maxLength={255}/>
             <Input label={t("Số điện thoại")} name="contact_phone" required minLength={9} maxLength={20}/>
-            <Input label={t("Địa chỉ")} name="address" required minLength={5} maxLength={500}/>
             <Input label={t("Mã quốc gia")} name="country_code" defaultValue="VN" required pattern="[A-Z]{2}"/>
             <Button type="submit" disabled={!user?.emailVerified || Boolean(waitingForWorkspace)} isLoading={busy}>{t("Tạo và bắt đầu thiết lập")}</Button>
           </form>

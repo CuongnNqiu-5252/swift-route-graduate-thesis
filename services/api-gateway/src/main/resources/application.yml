@@ -24,6 +24,12 @@ spring:
               predicates:
                 - Path=/api/auth/**
 
+            # --- Public Order Tracking (owned by Order Service) ---
+            - id: public-tracking-service
+              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/public/tracking/**
+
             # --- Order Service ---
             # Tất cả request /api/orders/** → order-service:8082
             - id: order-service

@@ -35,7 +35,8 @@ public class DeliveryIncident {
 
     /**
      * Related order, if the incident is order-specific.
-     * Null for route-level incidents (e.g., vehicle breakdown, traffic delays, driver emergencies).
+     * Null for route-level incidents (e.g., vehicle breakdown, traffic delays,
+     * driver emergencies).
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
@@ -72,14 +73,6 @@ public class DeliveryIncident {
     /** JSON or comma-separated URLs of evidence photos. */
     @Column(name = "evidence_urls", columnDefinition = "TEXT")
     private String evidenceUrls;
-
-    @Column(name = "can_continue_delivery", nullable = false)
-    @Builder.Default
-    private Boolean canContinueDelivery = true;
-
-    @Column(name = "needs_immediate_assistance", nullable = false)
-    @Builder.Default
-    private Boolean needsImmediateAssistance = false;
 
     @Column(name = "status", nullable = false, length = 20)
     @Builder.Default

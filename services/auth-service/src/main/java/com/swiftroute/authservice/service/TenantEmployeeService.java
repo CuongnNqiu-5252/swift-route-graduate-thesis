@@ -163,7 +163,7 @@ public class TenantEmployeeService {
 
         TenantInvitation saved = tenantInvitationRepository.save(invitation);
         String invitationLink = invitationWebUrl + "/invitations?token=" + rawToken;
-        if (request.role() == TenantMembershipRole.DRIVER && jdbc != null) {
+        if (jdbc != null) {
             jdbc.update(
                     "INSERT INTO auth_notification_outbox(event_id,user_id,email,encrypted_body,event_type) VALUES (?,?,?,?,?)",
                     UUID.randomUUID(), inviterUserId, email,
@@ -509,6 +509,7 @@ public class TenantEmployeeService {
                     user.setFullName(request.fullName().trim());
                 }
                 user.setEmailVerified(true);
+                user.setStatus("ACTIVE");
                 user = userRepository.save(user);
                 log.info("Activated existing user id={} from accepted invitation", user.getId());
             }

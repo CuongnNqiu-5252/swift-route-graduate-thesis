@@ -25,9 +25,12 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Automated recovery rule engine for delivery incidents (P2.6).
  *
- * <p>Determines whether a failed delivery or reported incident should be
- * recommended for redelivery (`REDELIVERY`), return to origin (`RETURN_TO_ORIGIN`),
- * or operator review (`MANUAL_REVIEW`) based on incident category and attempt count.
+ * <p>
+ * Determines whether a failed delivery or reported incident should be
+ * recommended for redelivery (`REDELIVERY`), return to origin
+ * (`RETURN_TO_ORIGIN`),
+ * or operator review (`MANUAL_REVIEW`) based on incident category and attempt
+ * count.
  */
 @Component
 @RequiredArgsConstructor
@@ -53,6 +56,10 @@ public class RecoveryRuleEngine {
             "WRONG_ADDRESS",
             "WEATHER_DELAY");
 
+    private static final Set<String> DELAY_ADVISORY_TYPES = Set.of(
+            "TRAFFIC_CONGESTION",
+            "WEATHER_DELAY");
+
     private static final List<String> UNFINISHED_RETURN_STATUSES = List.of(
             "REQUESTED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED");
 
@@ -64,7 +71,8 @@ public class RecoveryRuleEngine {
      * Evaluates automated recovery rules for a newly reported delivery incident.
      *
      * @param incident the persisted delivery incident
-     * @return the recommended recovery action (`RETURN_TO_ORIGIN`, `REDELIVERY`, `CONTINUE_DELIVERY`, or `MANUAL_REVIEW`)
+     * @return the recommended recovery action (`RETURN_TO_ORIGIN`, `REDELIVERY`,
+     *         `CONTINUE_DELIVERY`, or `MANUAL_REVIEW`)
      */
     @Transactional
     public String evaluateAndApply(DeliveryIncident incident) {
@@ -86,8 +94,9 @@ public class RecoveryRuleEngine {
             return "MANUAL_REVIEW";
         }
 
-        // Non-failing operational incident where order delivery itself was not marked FAILED
-        if (order.getStatus() != OrderStatus.FAILED && Boolean.TRUE.equals(incident.getCanContinueDelivery())) {
+        // Non-failing operational incident where order delivery itself was not marked
+        // FAILED
+        if (order.getStatus() != OrderStatus.FAILED && DELAY_ADVISORY_TYPES.contains(normalizedType)) {
             publishIncidentAlert(incident, "CONTINUE_DELIVERY", 0);
             return "CONTINUE_DELIVERY";
         }
@@ -96,7 +105,8 @@ public class RecoveryRuleEngine {
         int attempts = deliveryAttemptRepository.maxAttemptNumber(orderId);
         String recoveryAction = determineRecoveryAction(normalizedType, attempts);
 
-        // Only auto-create a ReturnRequest when maximum delivery attempts have been exhausted
+        // Only auto-create a ReturnRequest when maximum delivery attempts have been
+        // exhausted
         boolean hasOpenReturn = returnRequestRepository
                 .existsByOrder_IdAndStatusIn(orderId, UNFINISHED_RETURN_STATUSES);
 
@@ -108,14 +118,13 @@ public class RecoveryRuleEngine {
                     .returnLocation(order.getPickupLocation())
                     .currentHolderId(order.getAssignedDriverId())
                     .requestedBy(incident.getReportedBy())
-                    .requestType("RETURN_TO_ORIGIN")
                     .reason("Tự động yêu cầu hoàn hàng sau khi vượt quá số lần giao tối đa (" + attempts + " lần)")
                     .status("REQUESTED")
                     .build();
             returnRequestRepository.save(autoRequest);
             incident.setStatus("IN_PROGRESS");
             incident.setResolutionType("REQUEST_RETURN");
-            log.info("Order {} max attempts ({}) reached; auto-created ReturnRequest RETURN_TO_ORIGIN.",
+            log.info("Order {} max attempts ({}) reached; auto-created ReturnRequest.",
                     orderId, attempts);
         }
 
@@ -140,13 +149,13 @@ public class RecoveryRuleEngine {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("incident_id", incident.getId() != null ? incident.getId().toString() : null);
         payload.put("order_id", incident.getOrder() != null ? incident.getOrder().getId().toString() : null);
-        payload.put("dispatch_plan_id", incident.getDispatchPlan() != null ? incident.getDispatchPlan().getId().toString() : null);
+        payload.put("dispatch_plan_id",
+                incident.getDispatchPlan() != null ? incident.getDispatchPlan().getId().toString() : null);
         payload.put("tenant_id", incident.getTenantId().toString());
         payload.put("driver_id", incident.getDriverId() != null ? incident.getDriverId().toString() : null);
         payload.put("reported_by", incident.getReportedBy().toString());
         payload.put("action_url", "/operations?incident=" + incident.getId());
         payload.put("incident_type", incident.getIncidentType());
-        payload.put("severity", incident.getSeverity());
         payload.put("notes", incident.getNotes());
         payload.put("attempt_count", attempts);
         payload.put("recovery_action", recoveryAction);

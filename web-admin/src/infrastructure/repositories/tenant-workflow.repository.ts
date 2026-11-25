@@ -11,13 +11,12 @@ export interface VerificationDetail {
     business_name: string;
     status: string;
     approval_reason?: string | null;
-    address?: string | null;
   };
   history: Verification[];
   timeline: Array<{ action: string; actor_id: string; created_at: string; details: string }>;
 }
-export interface TenantProfile { business_name: string; contact_phone: string; address: string; country_code: string; delivery_mode: string }
-export interface Progress { tenant_id: string; status: string; completed_steps: string[]; incomplete_steps: string[]; next_action: string; profile: TenantProfile; tenant: { status: string; business_name: string }; verification_requests: Verification[]; readiness: { ready_for_operations: boolean; missing_requirements: string[]; shared_network_available: boolean } }
+export interface TenantProfile { business_name: string; contact_phone: string; country_code: string }
+export interface Progress { tenant_id: string; status: string; completed_steps: string[]; incomplete_steps: string[]; next_action: string; profile: TenantProfile; tenant: { status: string; business_name: string }; verification_requests: Verification[]; readiness: { ready_for_operations: boolean; missing_requirements: string[]; own_fleet_available?: boolean } }
 export async function switchTenant(id: string) {
   const response = await api.post<{ access_token: string }>(`/auth/tenants/${id}/switch`);
   localStorage.setItem('access_token', response.data.access_token);

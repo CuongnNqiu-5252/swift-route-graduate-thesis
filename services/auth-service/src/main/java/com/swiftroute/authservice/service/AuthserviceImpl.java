@@ -49,6 +49,7 @@ public class AuthserviceImpl implements AuthService {
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName())
                 .phone(request.getPhoneNumber())
+                .status("PENDING_VERIFICATION")
                 .build();
 
         User saved = userRepository.save(user);
@@ -63,7 +64,7 @@ public class AuthserviceImpl implements AuthService {
         User user = userRepository.findByEmail(request.getUsername().trim().toLowerCase(java.util.Locale.ROOT))
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
         // 2. Check trạng thái
-        if (!"ACTIVE".equals(user.getStatus())) {
+        if (!"ACTIVE".equals(user.getStatus()) || !user.isEmailVerified()) {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
         }
 
@@ -88,7 +89,7 @@ public class AuthserviceImpl implements AuthService {
         User user = userRepository.findById(validatedOldToken.getUser().getId())
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
 
-        if (!"ACTIVE".equals(user.getStatus())) {
+        if (!"ACTIVE".equals(user.getStatus()) || !user.isEmailVerified()) {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
         }
 

@@ -70,6 +70,13 @@ class NotificationAuthorizationTest {
     }
 
     @Test
+    void onlySystemRoleCanSubscribeToPlatformEventsWithoutTenantContext() {
+        assertThat(authorization.requireSystemAdmin(signToken("SYSTEM_ADMIN", null, null))).isPositive().isLessThanOrEqualTo(3_600_000);
+        assertThatThrownBy(() -> authorization.requireSystemAdmin(signToken("USER", tenantId.toString(), "OWNER")))
+                .isInstanceOfSatisfying(ResponseStatusException.class, ex -> assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test
     void tenantScopedDriverJwtCannotReadOperatorNotifications() {
         String bearer = signToken("USER", tenantId.toString(), "DRIVER");
 

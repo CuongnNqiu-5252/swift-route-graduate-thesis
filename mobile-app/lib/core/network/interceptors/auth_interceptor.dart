@@ -22,7 +22,7 @@ class AuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    const publicPaths = ['/auth/login', '/auth/register', '/auth/refresh'];
+    const publicPaths = ['/auth/login', '/auth/refresh'];
     if (publicPaths.any((p) => options.path.contains(p))) {
       return handler.next(options);
     }

@@ -15,7 +15,7 @@ const ageBins = [
   { label: 'Từ 45 phút', color: 'bg-amber-700' },
   { label: 'Thiếu giờ tạo', color: 'bg-slate-400' },
 ];
-const stageLabels = ['Chưa gán tài xế', 'Chờ giao tuyến', 'Chờ tài xế xác nhận', 'Tài xế đã nhận tuyến'];
+const stageLabels = ['Chưa gán tài xế', 'Chờ giao tuyến', 'Đã điều phối cho tài xế'];
 const planHref = (planId: string) => `/dispatch?plan=${encodeURIComponent(planId)}`;
 
 export function OverviewDispatchMetrics({ queue, queueState, plans, planState, now }: {
@@ -131,7 +131,7 @@ export function OverviewDispatchMetrics({ queue, queueState, plans, planState, n
         {planState !== 'ready' ? (
           <p className={`mt-4 ${muted}`} role={planState === 'error' ? 'alert' : 'status'}>{t(planMessage)}</p>
         ) : (
-          <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-4 xl:grid-cols-2">
+          <dl className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-3">
             {stages.map(({ count, oldest, planId }, index) => (
               <div key={stageLabels[index]} className="min-w-0 bg-white p-3">
                 <dt className="text-xs font-medium text-slate-600">{t(stageLabels[index])}</dt>

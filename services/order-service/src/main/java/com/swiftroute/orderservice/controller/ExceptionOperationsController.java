@@ -1,8 +1,6 @@
 package com.swiftroute.orderservice.controller;
 
-import com.swiftroute.orderservice.dto.response.PageResponse;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -20,12 +18,12 @@ import org.springframework.web.bind.annotation.RestController;
 import com.swiftroute.orderservice.dto.request.ApproveReturnRequest;
 import com.swiftroute.orderservice.dto.request.ConfirmReturnReceiptRequest;
 import com.swiftroute.orderservice.dto.request.CreateIncidentRequest;
-import com.swiftroute.orderservice.dto.request.CreateReturnRequest;
 import com.swiftroute.orderservice.dto.request.ReportReturnDiscrepancyRequest;
 import com.swiftroute.orderservice.dto.request.ResolveIncidentRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.DeliveryIncidentResponse;
 import com.swiftroute.orderservice.dto.response.OperationsReviewResponse;
+import com.swiftroute.orderservice.dto.response.PageResponse;
 import com.swiftroute.orderservice.dto.response.ReturnRequestResponse;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
@@ -74,8 +72,6 @@ public class ExceptionOperationsController {
                 body.severity(),
                 body.notes(),
                 body.evidenceUrls(),
-                body.canContinueDelivery(),
-                body.needsImmediateAssistance(),
                 body.contactAttempts());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(service.reportIncident(enriched, requireTenantId(tenant), user, role)));
@@ -102,7 +98,8 @@ public class ExceptionOperationsController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) UUID orderId,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId) {
-        return ApiResponse.success(service.getIncidentPage(requireTenantId(tenantId), status, driverId, severity, orderId, page, size));
+        return ApiResponse.success(
+                service.getIncidentPage(requireTenantId(tenantId), status, driverId, severity, orderId, page, size));
     }
 
     @Operation(summary = "Get delivery incident details")
@@ -129,24 +126,14 @@ public class ExceptionOperationsController {
     // 2. RETURN-TO-SENDER (RTS)
     // =========================================================================
 
-    @Operation(summary = "Create a Return Request for an order")
-    @PostMapping("/returns")
-    public ResponseEntity<ApiResponse<ReturnRequestResponse>> createReturn(
-            @Valid @RequestBody CreateReturnRequest body,
-            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant,
-            @RequestAttribute("authorizedUserId") UUID user,
-            @RequestAttribute("effectiveRole") String role) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(service.createReturnRequest(requireTenantId(tenant), user, role, body)));
-    }
-
     @Operation(summary = "List return requests with optional filters")
     @GetMapping("/returns")
     public ResponseEntity<ApiResponse<List<ReturnRequestResponse>>> listReturns(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) UUID driverId,
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenant) {
-        return ResponseEntity.ok(ApiResponse.success(service.getReturnRequests(requireTenantId(tenant), status, driverId)));
+        return ResponseEntity
+                .ok(ApiResponse.success(service.getReturnRequests(requireTenantId(tenant), status, driverId)));
     }
 
     @GetMapping("/returns/page")
@@ -210,7 +197,8 @@ public class ExceptionOperationsController {
             @RequestAttribute("authorizedUserId") UUID user,
             @RequestAttribute("effectiveRole") String role) {
         return ResponseEntity.ok(ApiResponse.success(
-                service.confirmReturnReceipt(id, requireTenantId(tenant), user, role, req == null ? null : req.notes())));
+                service.confirmReturnReceipt(id, requireTenantId(tenant), user, role,
+                        req == null ? null : req.notes())));
     }
 
     @Operation(summary = "Warehouse employee reports discrepancy (damaged or missing goods)")

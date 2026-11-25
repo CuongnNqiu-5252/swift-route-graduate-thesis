@@ -51,6 +51,16 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       unawaited(ref.read(authProvider.notifier).getCurrentUser());
+      unawaited(ref.read(driverOrdersProvider.notifier).refreshOrders());
+      unawaited(ref.read(driverDispatchPlansProvider.notifier).refresh());
+    }
+  }
+
+  void _selectTab(int index) {
+    if (index == _currentIndex) return;
+    setState(() => _currentIndex = index);
+    if (index == 1) {
+      unawaited(ref.read(driverOrdersProvider.notifier).refreshOrders());
     }
   }
 
@@ -101,6 +111,7 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
         ref.read(driverOrdersProvider).valueOrNull ?? const <OrderModel>[];
     final hasActiveTask = tasks.any(
       (order) => switch (order.deliveryTaskStatus) {
+        DeliveryTaskStatus.assigned ||
         DeliveryTaskStatus.accepted ||
         DeliveryTaskStatus.arrived ||
         DeliveryTaskStatus.pickedUp ||
@@ -190,10 +201,10 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
               index: _currentIndex,
               children: [
                 DriverHomeTab(
-                  onNavigateToRoute: () => setState(() => _currentIndex = 1),
-                  onNavigateToEarnings: () => setState(() => _currentIndex = 2),
-                  onNavigateToHandover: () => setState(() => _currentIndex = 3),
-                  onNavigateToProfile: () => setState(() => _currentIndex = 4),
+                  onNavigateToRoute: () => _selectTab(1),
+                  onNavigateToEarnings: () => _selectTab(2),
+                  onNavigateToHandover: () => _selectTab(3),
+                  onNavigateToProfile: () => _selectTab(4),
                 ),
                 const DriverRouteTab(),
                 const DriverEarningsTab(),
@@ -210,7 +221,7 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
         ),
         child: NavigationBar(
           selectedIndex: _currentIndex,
-          onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+          onDestinationSelected: _selectTab,
           destinations: [
             const NavigationDestination(
               icon: Icon(Icons.today_outlined),

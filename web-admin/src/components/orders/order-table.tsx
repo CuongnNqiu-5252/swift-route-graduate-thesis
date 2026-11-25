@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -16,6 +16,7 @@ import { Driver } from '@/domain/entities/driver.entity';
 import { OrderSortDirection, OrderSortField } from '@/infrastructure/repositories/order.repository';
 import { formatVNDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { OrderStatusBadge } from './order-status-badge';
 import { OrderPaginationBar } from './order-pagination-bar';
 import { OrderDetailModal } from './order-detail-modal';
@@ -33,7 +34,7 @@ interface OrderTablePaginationProps {
 interface OrderTableProps {
   orders: Order[];
   isLoading: boolean;
-  onCancelOrder?: (orderId: string, reason?: string) => void;
+  onCancelOrder?: (orderId: string, reason?: string) => void | boolean | Promise<void | boolean>;
   selectable?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (order: Order) => void;
@@ -74,6 +75,7 @@ export function OrderTable({
   pagination,
 }: OrderTableProps) {
   const { t, intlLocale } = useLocale();
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
 
   const driverByKey = useMemo(() => {
     const map = new Map<string, Driver>();
@@ -295,15 +297,7 @@ export function OrderTable({
                         size="sm"
                         variant="ghost"
                         className="h-8 px-2 text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                        onClick={() => {
-                          const reason = window.prompt(
-                            `Nhập lý do huỷ đơn hàng ${shortCode}:`,
-                            t('Khách hàng yêu cầu huỷ đơn')
-                          );
-                          if (reason !== null && reason.trim().length > 0) {
-                            onCancelOrder(order.id, reason.trim());
-                          }
-                        }}
+                        onClick={() => setCancelTarget(order)}
                       >
                         {t('Huỷ')}
                       </Button>
@@ -369,6 +363,18 @@ export function OrderTable({
 
   return (
     <div>
+      {cancelTarget && (
+        <ConfirmationDialog
+          title={t('Huỷ đơn hàng')}
+          description={`${t('Xác nhận huỷ đơn hàng:')} ${formatShortOrderCode(cancelTarget.order_code, cancelTarget.id)}`}
+          confirmLabel={t('Xác nhận huỷ đơn')}
+          destructive
+          inputLabel={t('Lý do huỷ đơn')}
+          defaultValue={t('Khách hàng yêu cầu huỷ đơn')}
+          onCancel={() => setCancelTarget(null)}
+          onConfirm={(reason) => onCancelOrder?.(cancelTarget.id, reason)}
+        />
+      )}
       {isLoading ? (
         <div className="flex h-48 items-center justify-center">
           <div className="h-7 w-7 animate-spin rounded-full border-3 border-slate-900 border-t-transparent" />

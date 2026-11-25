@@ -70,8 +70,8 @@ public class PickupLocationService {
                 .address(request.address().trim())
                 .lat(request.lat())
                 .lng(request.lng())
-                .contactName(request.contactName() != null ? request.contactName().trim() : null)
-                .contactPhone(request.contactPhone() != null ? request.contactPhone().trim() : null)
+                .contactName(resolveContactFallback(request.contactName(), tenant.getBusinessName()))
+                .contactPhone(resolveContactFallback(request.contactPhone(), tenant.getContactPhone()))
                 .isDefault(shouldBeDefault)
                 .status(PickupLocationStatus.ACTIVE)
                 .build();
@@ -100,12 +100,17 @@ public class PickupLocationService {
             willBeDefault = false;
         }
 
+        Tenant locationTenant = location.getTenant();
         location.setName(request.name().trim());
         location.setAddress(request.address().trim());
         location.setLat(request.lat());
         location.setLng(request.lng());
-        location.setContactName(request.contactName() != null ? request.contactName().trim() : null);
-        location.setContactPhone(request.contactPhone() != null ? request.contactPhone().trim() : null);
+        location.setContactName(resolveContactFallback(
+                request.contactName(),
+                locationTenant != null ? locationTenant.getBusinessName() : null));
+        location.setContactPhone(resolveContactFallback(
+                request.contactPhone(),
+                locationTenant != null ? locationTenant.getContactPhone() : null));
         location.setIsDefault(willBeDefault);
         if (request.status() != null) {
             location.setStatus(request.status());
@@ -149,6 +154,13 @@ public class PickupLocationService {
         location.setIsDefault(false);
         pickupLocationRepository.save(location);
         log.info("Soft-deleted pickup location id={} for tenantId={}", id, tenantId);
+    }
+
+    private static String resolveContactFallback(String value, String fallback) {
+        if (value != null && !value.isBlank()) {
+            return value.trim();
+        }
+        return (fallback != null && !fallback.isBlank()) ? fallback.trim() : null;
     }
 }
 

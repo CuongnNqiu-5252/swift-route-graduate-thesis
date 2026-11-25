@@ -41,5 +41,7 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, UU
 
     Optional<ReturnRequest> findByOrder_Id(UUID orderId);
 
+    List<ReturnRequest> findAllByOrder_IdOrderByCreatedAtDesc(UUID orderId);
+
     boolean existsByOrder_IdAndStatusIn(UUID orderId, Collection<String> statuses);
 }

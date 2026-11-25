@@ -17,7 +17,7 @@ enum _RouteFilter { all, delivering, pickup, returns, done }
 
 /// Today's route timeline (D05).
 ///
-/// Layout, top to bottom: shift progress → 1-tap "start trip" banner →
+/// Layout, top to bottom: shift progress →
 /// grouped depot pickup cards (1 swipe per warehouse) → filter chips → stops.
 class DriverRouteTab extends ConsumerStatefulWidget {
   const DriverRouteTab({super.key});
@@ -28,36 +28,8 @@ class DriverRouteTab extends ConsumerStatefulWidget {
 
 class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
   _RouteFilter _filter = _RouteFilter.all;
-  bool _isAccepting = false;
-
   Future<void> _refresh() =>
       ref.read(driverOrdersProvider.notifier).refreshOrders();
-
-  Future<void> _acceptAll() async {
-    setState(() => _isAccepting = true);
-    try {
-      await ref.read(driverOrdersProvider.notifier).acceptAllAssigned();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.success,
-          content: Text('Đã nhận chuyến. Di chuyển tới kho để lấy hàng.'),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(
-            'Không nhận được chuyến: ${AppFormatters.errorMessage(e)}',
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _isAccepting = false);
-    }
-  }
 
   Future<void> _confirmDepotPickup(List<OrderModel> group) async {
     try {
@@ -164,9 +136,6 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
     final pendingPickups = allStops
         .where((o) => o.needsPickup && !isClosed(o))
         .toList();
-    final assignedCount = allStops
-        .where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.assigned)
-        .length;
     final doneCount = allStops
         .where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.completed)
         .length;
@@ -204,14 +173,6 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
         children: [
           _ProgressCard(done: doneCount, total: allStops.length),
-          if (assignedCount > 0) ...[
-            const SizedBox(height: 12),
-            _StartTripBanner(
-              count: assignedCount,
-              isLoading: _isAccepting,
-              onStart: _acceptAll,
-            ),
-          ],
           for (final group in depotGroups.values) ...[
             const SizedBox(height: 12),
             _DepotPickupCard(
@@ -321,72 +282,6 @@ class _ProgressCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _StartTripBanner extends StatelessWidget {
-  const _StartTripBanner({
-    required this.count,
-    required this.isLoading,
-    required this.onStart,
-  });
-
-  final int count;
-  final bool isLoading;
-  final VoidCallback onStart;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.primaryBorder),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$count đơn mới được giao',
-                  style: AppTheme.numStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primaryDark,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Nhận một lần cho cả chuyến.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          FilledButton.icon(
-            onPressed: isLoading ? null : onStart,
-            icon: isLoading
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.play_arrow_rounded, size: 20),
-            label: const Text('Bắt đầu chuyến'),
-          ),
-        ],
       ),
     );
   }
@@ -558,10 +453,7 @@ class _RouteIncidentSheetState extends ConsumerState<_RouteIncidentSheet> {
           .read(orderRemoteDataSourceProvider)
           .reportOperationalIncident(
             incidentType: _type,
-            severity: 'HIGH',
             notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
-            canContinueDelivery: false,
-            needsImmediateAssistance: true,
           );
       if (!mounted) return;
       Navigator.of(context).pop();

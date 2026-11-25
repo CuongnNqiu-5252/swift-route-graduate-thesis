@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import com.swiftroute.orderservice.entity.Tenant;
-import com.swiftroute.orderservice.entity.enums.DeliveryMode;
 import com.swiftroute.orderservice.entity.enums.PickupLocationStatus;
 import com.swiftroute.orderservice.entity.enums.TenantStatus;
 import com.swiftroute.orderservice.exception.AppException;
@@ -52,10 +51,7 @@ public class OperationalReadinessService {
     }
 
     public boolean hasPickup(Tenant tenant) {
-        // Existing tenants may use their established depot coordinates.
-        return pickups.countByTenantIdAndStatus(tenant.getId(), PickupLocationStatus.ACTIVE) > 0
-                || (tenant.getPickupLat() != null && tenant.getPickupLng() != null && tenant.getAddress() != null
-                        && !tenant.getAddress().isBlank());
+        return pickups.countByTenantIdAndStatus(tenant.getId(), PickupLocationStatus.ACTIVE) > 0;
     }
 
     public Map<String, Object> check(Tenant tenant) {
@@ -65,22 +61,18 @@ public class OperationalReadinessService {
             missing.add("TENANT_" + tenant.getStatus().name());
         if (!hasPickup(tenant))
             missing.add("NO_PICKUP_POINT");
-        if (tenant.getDeliveryMode() == DeliveryMode.SHARED_POOL)
-            missing.add("SHARED_NETWORK_UNAVAILABLE");
-        else if (!state.available())
+        if (!state.available())
             missing.add("DRIVER_SERVICE_UNAVAILABLE");
         else if (state.drivers().isEmpty())
             missing.add("NO_ACTIVE_DRIVER");
         return Map.of("tenant_id", tenant.getId(), "tenant_approved", tenant.getStatus() == TenantStatus.APPROVED,
-                "ready_for_operations", missing.isEmpty(), "missing_requirements", missing, "shared_network_available",
-                false,
-                "own_fleet_available", state.available() && !state.drivers().isEmpty(), "delivery_mode",
-                tenant.getDeliveryMode().name());
+                "ready_for_operations", missing.isEmpty(), "missing_requirements", missing,
+                "own_fleet_available", state.available() && !state.drivers().isEmpty());
     }
 
     public void requireCreation(Tenant tenant) {
         requireApproved(tenant);
-        if (!hasPickup(tenant) || tenant.getDeliveryMode() == DeliveryMode.SHARED_POOL)
+        if (!hasPickup(tenant))
             throw new AppException(ErrorCode.OPERATIONS_NOT_READY);
     }
 

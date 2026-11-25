@@ -17,7 +17,6 @@ export interface TenantSettings {
   tenant_id: string;
   business_name: string;
   status: string;
-  address?: string;
   dispatch_config: TenantDispatchConfig;
   optimization_weights: OptimizationWeights;
 }

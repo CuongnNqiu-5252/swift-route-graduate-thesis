@@ -1,7 +1,6 @@
 package com.swiftroute.orderservice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -15,8 +14,6 @@ import com.swiftroute.orderservice.entity.OptimizationWeights;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.enums.BusinessType;
 import com.swiftroute.orderservice.entity.enums.DeliveryMode;
-import com.swiftroute.orderservice.exception.AppException;
-import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.AuditLogRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.TenantRepository;
@@ -84,15 +81,15 @@ class TenantWorkflowServiceTest {
     }
 
     @Test
-    void poolOnlyProfileMustSwitchModeBeforeSubmitting() {
+    void legacyPoolModeIsTreatedAsTheCompanyFleet() {
         tenant.setDeliveryMode(DeliveryMode.SHARED_POOL);
         when(jdbc.queryForObject(contains("SELECT count(*) FROM tenant_verification_requests"), eq(Integer.class),
                 eq(tenantId))).thenReturn(0);
+        when(jdbc.queryForList(contains("WHERE request_id=?"), any(UUID.class)))
+                .thenReturn(List.of(Map.of("status", "SUBMITTED")));
 
-        assertThat(service.onboarding(tenantId)).containsEntry("next_action", "DELIVERY_MODE");
-        assertThatThrownBy(() -> service.submit(tenantId, owner, "submission"))
-                .isInstanceOf(AppException.class)
-                .extracting("errorCode").isEqualTo(ErrorCode.VERIFICATION_INCOMPLETE);
+        assertThat(service.onboarding(tenantId)).containsEntry("next_action", "VERIFICATION_SUBMISSION");
+        assertThat(service.submit(tenantId, owner, "submission")).containsEntry("status", "SUBMITTED");
     }
 
     @Test

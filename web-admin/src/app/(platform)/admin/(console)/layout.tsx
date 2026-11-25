@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/application/contexts/auth-context';
 import { AdminShell } from '@/components/admin/admin-shell';
+import { PlatformLiveProvider } from '@/components/admin/platform-live-provider';
 import { Button } from '@/components/ui/button';
 import { isSystemAdmin } from '@/lib/portal-access';
 
@@ -72,6 +73,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
+    <PlatformLiveProvider key={user.id}>
     <AdminShell
       userName={user.name}
       userEmail={user.email}
@@ -80,5 +82,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     >
       {children}
     </AdminShell>
+    </PlatformLiveProvider>
   );
 }

@@ -59,6 +59,7 @@ public enum ErrorCode {
 
     // ===== Lỗi nghiệp vụ Dispatch Plan =====
     PLAN_NOT_FOUND(404, "Không tìm thấy kế hoạch điều phối", HttpStatus.NOT_FOUND),
+    DRIVER_CANNOT_DECLINE_PLAN(409, "Lộ trình đã được phân công. Hãy báo sự cố nếu bạn không thể thực hiện chuyến.", HttpStatus.CONFLICT),
     INVALID_PLAN_STATUS(400, "Trạng thái kế hoạch không hợp lệ hoặc không thể chuyển đổi", HttpStatus.BAD_REQUEST),
     PLAN_MAX_ORDERS_EXCEEDED(422, "Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến", HttpStatus.UNPROCESSABLE_ENTITY),
 

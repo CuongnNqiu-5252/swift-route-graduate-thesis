@@ -1,4 +1,4 @@
-import { CreateDriverPayload, Driver, DriverStatus } from '@/domain/entities/driver.entity';
+import { CreateDriverPayload, Driver, DriverStatus, UpdateDriverBankAccountPayload } from '@/domain/entities/driver.entity';
 import api from '@/lib/api';
 
 function mapDriverStatus(status?: string, isAvailable?: boolean): DriverStatus {
@@ -35,6 +35,9 @@ function mapDriver(raw: any): Driver {
     review_note: raw.review_note || raw.reviewNote || undefined,
     current_lat: raw.current_lat ?? raw.currentLat ?? 0,
     current_lng: raw.current_lng ?? raw.currentLng ?? 0,
+    bank_code: raw.bank_code || raw.bankCode || undefined,
+    bank_account_number: raw.bank_account_number || raw.bankAccountNumber || undefined,
+    bank_account_name: raw.bank_account_name || raw.bankAccountName || undefined,
     created_at: raw.created_at || raw.createdAt || '',
   };
 }
@@ -80,6 +83,11 @@ export const driverRepository = {
 
   async reviewDriver(driverId: string, approved: boolean, note?: string): Promise<Driver> {
     const response = await api.post<unknown>(`/drivers/${driverId}/review`, { approved, note });
+    return mapDriver(response.data);
+  },
+
+  async updateBankAccount(driverId: string, payload: UpdateDriverBankAccountPayload): Promise<Driver> {
+    const response = await api.patch<unknown>(`/drivers/${driverId}/bank-account`, payload);
     return mapDriver(response.data);
   },
 };

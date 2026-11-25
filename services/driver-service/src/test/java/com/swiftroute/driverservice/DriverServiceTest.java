@@ -21,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
+import com.swiftroute.driverservice.dto.request.UpdateDriverBankAccountRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
 import com.swiftroute.driverservice.dto.response.DriverResponse;
 import com.swiftroute.driverservice.entity.Driver;
@@ -180,5 +181,48 @@ class DriverServiceTest {
         assertNotNull(responses);
         assertEquals(1, responses.size());
         assertEquals(sampleDriverId, responses.get(0).id());
+    }
+
+    @Test
+    @DisplayName("updateBankAccount - normalizes bank code & Vietnamese holder name without disrupting availability")
+    void updateBankAccount_Success() {
+        when(driverRepository.findById(sampleDriverId)).thenReturn(Optional.of(sampleDriver));
+        when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DriverResponse response = driverService.updateBankAccount(
+                sampleDriverId,
+                new UpdateDriverBankAccountRequest(" vcb ", " 0123456789 ", "Đỗ Nguyễn Văn Tài"),
+                "OWNER");
+
+        assertEquals("VCB", response.bankCode());
+        assertEquals("0123456789", response.bankAccountNumber());
+        assertEquals("DO NGUYEN VAN TAI", response.bankAccountName());
+        assertEquals(DriverStatus.ACTIVE, response.status());
+        assertEquals(true, response.isAvailable());
+    }
+
+    @Test
+    @DisplayName("updateBankAccount - rejects viewer/driver roles")
+    void updateBankAccount_ForbiddenRole() {
+        AppException ex = assertThrows(AppException.class, () -> driverService.updateBankAccount(
+                sampleDriverId,
+                new UpdateDriverBankAccountRequest("MB", "99998888", "Test"),
+                "VIEWER"));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("updateMyBankAccount - updates bank info for authenticated driver")
+    void updateMyBankAccount_Success() {
+        when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
+        when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DriverResponse response = driverService.updateMyBankAccount(
+                sampleUserId,
+                new UpdateDriverBankAccountRequest("tcb", "19034567890", "Trần Thị Bích"));
+
+        assertEquals("TCB", response.bankCode());
+        assertEquals("19034567890", response.bankAccountNumber());
+        assertEquals("TRAN THI BICH", response.bankAccountName());
     }
 }

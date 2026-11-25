@@ -28,10 +28,14 @@ interface RouteMapInnerProps {
   overviewRoutes?: MapOverviewRoute[];
   selectedOverviewRouteId?: string | null;
   highlightedPlan?: MapPlanHighlight | null;
-  previewOverviewRoute?: MapOverviewRoute;
+  filterKey?: string;
+  showDeliveryStops?: boolean;
   showPlanDetails?: boolean;
+  isPlansOpen?: boolean;
   onSelectOverviewRoute?: (planId: string) => void;
+  onHoverOverviewPlan?: (highlight: MapPlanHighlight | null) => void;
   fleetDrivers?: MapDriverMarker[];
+  fleetOrigin?: MapDriverMarker;
   driver?: [number, number];
   driverName?: string;
   driverVehicle?: string;
@@ -148,8 +152,10 @@ interface OverviewRoadLineProps {
   route: MapOverviewRoute;
   isSelected: boolean;
   hasSelection: boolean;
+  showDeliveryStops: boolean;
   highlightedStopId?: string;
   onSelect?: (planId: string) => void;
+  onHover?: (highlight: MapPlanHighlight | null) => void;
 }
 
 function OverviewRoadLine({
@@ -157,8 +163,10 @@ function OverviewRoadLine({
   route,
   isSelected,
   hasSelection,
+  showDeliveryStops,
   highlightedStopId,
   onSelect,
+  onHover,
 }: OverviewRoadLineProps) {
   const points = useMemo(
     () =>
@@ -171,18 +179,22 @@ function OverviewRoadLine({
   const road = useRoadRoute(points);
 
   const sourceId = `overview-source-${route.id}`;
+  const glowLayerId = `overview-glow-${route.id}`;
   const layerId = `overview-layer-${route.id}`;
   const casingLayerId = `overview-casing-${route.id}`;
   const hitLayerId = `overview-hit-${route.id}`;
 
   const onSelectRef = useRef(onSelect);
+  const onHoverRef = useRef(onHover);
   const stopMarkers = useRef<Marker[]>([]);
   useEffect(() => {
     onSelectRef.current = onSelect;
-  }, [onSelect]);
+    onHoverRef.current = onHover;
+  }, [onHover, onSelect]);
 
   // Draw stop markers for this plan cluster
   useEffect(() => {
+    if (!showDeliveryStops) return;
     const markers = route.stops.map((stop, index) => {
       const element = markerElement(
         String(index + 1),
@@ -192,6 +204,12 @@ function OverviewRoadLine({
       );
       element.addEventListener('click', () => {
         onSelectRef.current?.(route.id);
+      });
+      element.addEventListener('mouseenter', () => {
+        onHoverRef.current?.({ planId: route.id, stopId: stop.id });
+      });
+      element.addEventListener('mouseleave', () => {
+        onHoverRef.current?.(null);
       });
       return new Marker({ element })
         .setLngLat([stop.location.lng, stop.location.lat])
@@ -216,22 +234,27 @@ function OverviewRoadLine({
       markers.forEach((marker) => marker.remove());
       stopMarkers.current = [];
     };
-  }, [map, route]);
+  }, [map, route, showDeliveryStops]);
 
   useEffect(() => {
     stopMarkers.current.forEach((marker, index) => {
       const element = marker.getElement();
       const pin = markerPin(element);
       const isStopHighlighted = route.stops[index].id === highlightedStopId;
-      element.style.zIndex = isStopHighlighted ? '28' : isSelected ? '16' : '8';
-      pin.style.opacity = hasSelection && !isSelected ? '0.45' : '1';
-      pin.style.transform = isStopHighlighted ? 'scale(1.4)' : isSelected ? 'scale(1.08)' : '';
+      element.style.zIndex = isStopHighlighted ? '35' : isSelected ? '20' : '10';
+      pin.style.opacity = hasSelection && !isSelected ? '0.35' : '1';
+      pin.style.transform = isStopHighlighted ? 'scale(1.38)' : isSelected ? 'scale(1.12)' : 'scale(1)';
       pin.style.outline = isStopHighlighted ? '2px solid #0f172a' : '';
       pin.style.outlineOffset = isStopHighlighted ? '2px' : '';
+      pin.style.boxShadow = isStopHighlighted
+        ? `0 0 0 7px ${route.color}4d, 0 0 0 2.5px #ffffff, 0 8px 22px rgb(15 23 42 / 38%)`
+        : isSelected
+          ? `0 0 0 3px ${route.color}33, 0 6px 18px rgb(15 23 42 / 32%)`
+          : '0 4px 14px rgb(15 23 42 / 24%)';
     });
-  }, [map, route, isSelected, hasSelection, highlightedStopId]);
+  }, [map, route, isSelected, hasSelection, highlightedStopId, showDeliveryStops]);
 
-  // 3. Initialize Source, visible line Layer, and wider transparent hit Layer
+  // 3. Initialize Source, luminous glow Layer, casing, line Layer, and wider transparent hit Layer
   useEffect(() => {
     if (!map.getStyle()) return;
     if (!map.getSource(sourceId)) {
@@ -240,6 +263,21 @@ function OverviewRoadLine({
         data: {
           type: 'FeatureCollection',
           features: [],
+        },
+      });
+    }
+
+    if (!map.getLayer(glowLayerId)) {
+      map.addLayer({
+        id: glowLayerId,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': route.color,
+          'line-width': 20,
+          'line-blur': 9,
+          'line-opacity': 0,
         },
       });
     }
@@ -282,7 +320,7 @@ function OverviewRoadLine({
         },
         paint: {
           'line-color': route.color,
-          'line-width': 18,
+          'line-width': 20,
           'line-opacity': 0,
         },
       });
@@ -293,9 +331,11 @@ function OverviewRoadLine({
     };
     const handleMouseEnter = () => {
       map.getCanvas().style.cursor = 'pointer';
+      onHoverRef.current?.({ planId: route.id });
     };
     const handleMouseLeave = () => {
       map.getCanvas().style.cursor = '';
+      onHoverRef.current?.(null);
     };
 
     map.on('click', hitLayerId, handleClick);
@@ -318,28 +358,37 @@ function OverviewRoadLine({
       if (map.getLayer(casingLayerId)) {
         map.removeLayer(casingLayerId);
       }
+      if (map.getLayer(glowLayerId)) {
+        map.removeLayer(glowLayerId);
+      }
       if (map.getSource(sourceId)) {
         map.removeSource(sourceId);
       }
     };
-  }, [map, sourceId, layerId, casingLayerId, hitLayerId, route.id, route.color]);
+  }, [map, sourceId, glowLayerId, layerId, casingLayerId, hitLayerId, route.id, route.color]);
 
-  // 4. Update color, width & opacity when route.color or selection changes
+  // 4. Update color, glow, width & opacity when route.color or selection/hover changes
   useEffect(() => {
     if (!map.getStyle() || !map.getLayer(layerId)) return;
     map.setPaintProperty(layerId, 'line-color', route.color);
     map.setPaintProperty(layerId, 'line-width', isSelected ? 7.5 : hasSelection ? 3.5 : 5);
-    map.setPaintProperty(layerId, 'line-opacity', isSelected ? 1 : hasSelection ? 0.42 : 0.88);
+    map.setPaintProperty(layerId, 'line-opacity', isSelected ? 1 : hasSelection ? 0.28 : 0.88);
+    if (map.getLayer(glowLayerId)) {
+      map.setPaintProperty(glowLayerId, 'line-color', route.color);
+      map.setPaintProperty(glowLayerId, 'line-width', isSelected ? 22 : 16);
+      map.setPaintProperty(glowLayerId, 'line-opacity', isSelected ? 0.45 : 0);
+    }
     if (map.getLayer(casingLayerId)) {
-      map.setPaintProperty(casingLayerId, 'line-width', isSelected ? 11.5 : hasSelection ? 6 : 8);
-      map.setPaintProperty(casingLayerId, 'line-opacity', isSelected ? 0.95 : hasSelection ? 0.35 : 0.9);
+      map.setPaintProperty(casingLayerId, 'line-width', isSelected ? 11.5 : hasSelection ? 5.5 : 8);
+      map.setPaintProperty(casingLayerId, 'line-opacity', isSelected ? 0.96 : hasSelection ? 0.28 : 0.9);
     }
     if (isSelected) {
+      if (map.getLayer(glowLayerId)) map.moveLayer(glowLayerId);
       if (map.getLayer(casingLayerId)) map.moveLayer(casingLayerId);
       map.moveLayer(layerId);
       if (map.getLayer(hitLayerId)) map.moveLayer(hitLayerId);
     }
-  }, [map, layerId, casingLayerId, hitLayerId, route.color, isSelected, hasSelection]);
+  }, [map, glowLayerId, layerId, casingLayerId, hitLayerId, route.color, isSelected, hasSelection]);
 
   // 5. Update GeoJSON using street coordinates or straight-line fallback
   useEffect(() => {
@@ -380,11 +429,15 @@ export default function RouteMapInner({
   depot,
   overviewRoutes = EMPTY_OVERVIEW_ROUTES,
   showPlanDetails = false,
+  isPlansOpen = false,
   selectedOverviewRouteId = null,
   highlightedPlan,
-  previewOverviewRoute,
+  filterKey = '',
+  showDeliveryStops = true,
   onSelectOverviewRoute,
+  onHoverOverviewPlan,
   fleetDrivers = EMPTY_FLEET_DRIVERS,
+  fleetOrigin,
   driver,
   driverName,
   driverVehicle,
@@ -399,10 +452,11 @@ export default function RouteMapInner({
   const driverAnimationFrameRef = useRef<number | null>(null);
   const displayedDriverRef = useRef<[number, number] | null>(null);
   const styleReadyRef = useRef(false);
+  const framedViewRef = useRef('');
   const [readyMap, setReadyMap] = useState<MapLibreMap | null>(null);
   const [mapError, setMapError] = useState('');
   const mapKey = process.env.NEXT_PUBLIC_GOONG_MAP_KEY;
-  const firstFleetDriver = fleetDrivers[0];
+  const firstFleetDriver = fleetOrigin ?? fleetDrivers[0];
   const firstOverviewDepot = overviewRoutes[0]?.depot;
   const hasMapOrigin = Boolean(depot) || Boolean(firstFleetDriver) || Boolean(firstOverviewDepot);
   const initialCenterRef = useRef<[number, number] | null>(null);
@@ -422,6 +476,7 @@ export default function RouteMapInner({
     const initialCenter = initialCenterRef.current;
     if (!containerRef.current || mapRef.current || !mapKey || !hasMapOrigin || !initialCenter) return;
     styleReadyRef.current = false;
+    framedViewRef.current = '';
     const map = new MapLibreMap({
       container: containerRef.current,
       style: `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(mapKey)}`,
@@ -493,21 +548,17 @@ export default function RouteMapInner({
       for (const item of overviewRoutes) {
         const isSelected = selectedRoute?.id === item.id;
         const depotKey = `${item.depot.lat.toFixed(5)}:${item.depot.lng.toFixed(5)}`;
-        if (!uniqueDepots.has(depotKey)) {
+        if ((!filterKey || item.warehouseId) && !uniqueDepots.has(depotKey)) {
           uniqueDepots.set(depotKey, item.depot);
         }
         if (!selectedRoute || isSelected) {
-          item.stops.forEach((stop) => {
-            bounds.extend([stop.location.lng, stop.location.lat]);
-          });
+          if (!filterKey || item.warehouseId) bounds.extend([item.depot.lng, item.depot.lat]);
+          for (const stop of item.stops) bounds.extend([stop.location.lng, stop.location.lat]);
         }
       }
 
       const depotMarkers: Marker[] = [];
       for (const uniqueDepot of uniqueDepots.values()) {
-        if (!selectedRoute) {
-          bounds.extend([uniqueDepot.lng, uniqueDepot.lat]);
-        }
         depotMarkers.push(
           new Marker({ element: markerElement('K', 'depot') })
             .setLngLat([uniqueDepot.lng, uniqueDepot.lat])
@@ -522,7 +573,10 @@ export default function RouteMapInner({
 
       markersRef.current = depotMarkers;
       if (!bounds.isEmpty()) {
+        const view = JSON.stringify([filterKey, selectedOverviewRouteId, showPlanDetails, bounds.toArray()]);
         const frame = () => {
+          if (framedViewRef.current === view) return;
+          framedViewRef.current = view;
           map.resize();
           const padding = selectedRoute && showPlanDetails && map.getContainer().clientWidth >= 640
             ? { top: 64, left: 56, bottom: 56, right: 440 }
@@ -538,6 +592,12 @@ export default function RouteMapInner({
       return;
     }
 
+    if (filterKey) {
+      framedViewRef.current = '';
+      map.stop();
+      return;
+    }
+
     // No plan to show yet: only mark the default depot.
     if (!depot) return;
     markersRef.current = [
@@ -547,10 +607,15 @@ export default function RouteMapInner({
         )
         .addTo(map),
     ];
-    const frame = () => map.easeTo({ center: [depot.lng, depot.lat], zoom: 15, duration: 450 });
+    const view = JSON.stringify([depot.lng, depot.lat]);
+    const frame = () => {
+      if (framedViewRef.current === view) return;
+      framedViewRef.current = view;
+      map.easeTo({ center: [depot.lng, depot.lat], zoom: 15, duration: 450 });
+    };
     if (styleReadyRef.current || map.loaded()) frame(); else map.once('load', frame);
     return () => { map.off('load', frame); };
-  }, [depot, overviewRoutes, selectedOverviewRouteId, showPlanDetails, t]);
+  }, [depot, filterKey, overviewRoutes, selectedOverviewRouteId, showPlanDetails, t]);
 
   // Smooth real-time driver marker update (runs every second on SSE location_update)
   useEffect(() => {
@@ -675,7 +740,8 @@ export default function RouteMapInner({
     () => selectedOverviewRoute?.stops.map((stop) => stop.location) ?? [],
     [selectedOverviewRoute],
   );
-  if (!depot && fleetDrivers.length === 0 && overviewRoutes.length === 0) return <div className="flex h-full items-center justify-center bg-slate-50 px-6 text-center"><div className="max-w-sm"><MapPinned className="mx-auto text-blue-700" size={28} /><p className="mt-4 font-semibold text-slate-900">{t("Chưa có kho xuất phát")}</p><p className="mt-1 text-sm leading-6 text-slate-600">{t("Chọn đơn hoặc thiết lập kho mặc định để bắt đầu lập tuyến.")}</p></div></div>;
+  const noMatchingRoutes = Boolean(filterKey) && overviewRoutes.length === 0;
+  if (!hasMapOrigin) return <div className="flex h-full items-center justify-center bg-slate-50 px-6 text-center"><div className="max-w-sm"><MapPinned className="mx-auto text-blue-700" size={28} /><p role="status" className="mt-4 font-semibold text-slate-900">{noMatchingRoutes ? t('Không có tuyến phù hợp với bộ lọc.') : t('Chưa có kho xuất phát')}</p>{!noMatchingRoutes && <p className="mt-1 text-sm leading-6 text-slate-600">{t('Chọn đơn hoặc thiết lập kho mặc định để bắt đầu lập tuyến.')}</p>}</div></div>;
   if (!mapKey) return <div role="alert" className="flex h-full items-center justify-center bg-slate-100 px-6 text-center text-sm text-rose-700">{t("Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.")}</div>;
 
   const totalOverviewStops = overviewRoutes.reduce((sum, item) => sum + item.stops.length, 0);
@@ -688,22 +754,27 @@ export default function RouteMapInner({
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
       aria-label={t("Bản đồ điều phối theo đường phố")}
     />
-    <div className="pointer-events-none absolute inset-x-2 bottom-9 z-10 flex items-end justify-between gap-2 sm:inset-x-3">
-      <div className="min-w-0 max-w-lg rounded-lg bg-white px-3 py-2 text-slate-950 shadow-md">
+    <div
+      aria-hidden={isPlansOpen}
+      className={`pointer-events-none absolute inset-x-2 bottom-4 z-10 flex items-end justify-between gap-2 transition-all duration-200 sm:inset-x-3 ${
+        isPlansOpen ? 'translate-y-2 opacity-0' : 'translate-y-0 opacity-100'
+      }`}
+    >
+      <div className="min-w-0 max-w-lg rounded-xl border border-slate-200/90 bg-white/95 px-3.5 py-2 text-slate-950 shadow-lg backdrop-blur-md">
         <div className="flex items-center gap-2 text-sm font-semibold">
-          <Route className="shrink-0 text-blue-700" size={16} />
+          <Route className="shrink-0 text-[#17766c]" size={16} />
           {selectedOverviewRoute
             ? `${selectedOverviewRoute.label} · ${selectedOverviewRoute.stops.length} ${t('điểm giao')}`
             : isOverviewMode
               ? `${overviewRoutes.length} ${t('kế hoạch đang hiển thị')}`
-              : t('Theo dõi đội xe trực tiếp')}
+              : noMatchingRoutes ? t('Không có tuyến phù hợp với bộ lọc.') : t('Theo dõi đội xe trực tiếp')}
         </div>
         <p role={mapError ? 'status' : undefined} className="mt-1 text-xs leading-5 text-slate-600">
           {mapError || (selectedOverviewRoute
             ? `${selectedOverviewRoute.driverName ? `${selectedOverviewRoute.driverName} · ` : ''}${t('Bấm vào tuyến khác để chuyển hoặc Đóng để xem tất cả')}`
             : isOverviewMode
               ? `${totalOverviewStops} ${t('điểm giao')}${fleetDrivers.length > 0 ? ` · ${fleetDrivers.length} ${t('tài xế trực tuyến')}` : ''} · ${t('Bấm vào tuyến để xem chi tiết')}`
-              : `${fleetDrivers.length} ${t('tài xế đang trực tuyến')}`)}
+              : noMatchingRoutes ? t('Đổi hoặc xóa bộ lọc để xem tuyến.') : `${fleetDrivers.length} ${t('tài xế đang trực tuyến')}`)}
         </p>
       </div>
       {readyMap && <RouteMapLayers
@@ -711,17 +782,20 @@ export default function RouteMapInner({
         stops={layerStops}
         plannedLegs={EMPTY_LEGS}
         firstStopIndex={0}
+        showStopMarkers={showDeliveryStops}
       />}
     </div>
-    {readyMap && [...overviewRoutes, ...(previewOverviewRoute ? [previewOverviewRoute] : [])].map((overviewRoute) => (
+    {readyMap && overviewRoutes.map((overviewRoute) => (
       <OverviewRoadLine
         key={overviewRoute.id}
         map={readyMap}
         route={overviewRoute}
         isSelected={(highlightedPlan?.planId ?? selectedOverviewRouteId) === overviewRoute.id}
         hasSelection={Boolean(highlightedPlan || selectedOverviewRoute)}
+        showDeliveryStops={showDeliveryStops}
         highlightedStopId={highlightedPlan?.planId === overviewRoute.id ? highlightedPlan.stopId : undefined}
         onSelect={onSelectOverviewRoute}
+        onHover={onHoverOverviewPlan}
       />
     ))}
 

@@ -2,21 +2,28 @@ package com.swiftroute.orderservice.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import com.swiftroute.orderservice.exception.GlobalExceptionHandler;
@@ -47,6 +54,20 @@ class OrderImportHttpTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(new JacksonJsonHttpMessageConverter(mapper))
                 .build();
+
+        when(imports.previewExcel(any())).thenCallRealMethod();
+        var excel = sampleExcel();
+        mvc.perform(multipart("/api/orders/import/file/preview").file(excel)
+                .header("Authorization", "Bearer creator"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.rows[0].line").value(2))
+                .andExpect(jsonPath("$.data.rows[0].external_order_code").value("XLS-01"))
+                .andExpect(jsonPath("$.data.rows[0].recipient_phone").value("0900000000"))
+                .andExpect(jsonPath("$.data.errors[0].line").value(3));
+        mvc.perform(multipart("/api/orders/import/file/preview").file(excel)
+                .header("Authorization", "Bearer reader"))
+                .andExpect(status().isForbidden());
+        verify(imports, never()).submit(anyList(), any(), any(), any());
 
         when(imports.submit(anyList(), eq(tenant), eq(user), eq("OPERATOR"))).thenAnswer(call -> {
             List<OrderImportService.Row> rows = call.getArgument(0);
@@ -94,6 +115,27 @@ class OrderImportHttpTest {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/orders/import/pending").header("Authorization", "Bearer creator")
                 .header("X-Tenant-Id", UUID.randomUUID().toString())).andExpect(status().isForbidden());
+    }
+
+    private MockMultipartFile sampleExcel() throws Exception {
+        try (var workbook = new XSSFWorkbook(); var bytes = new ByteArrayOutputStream()) {
+            var sheet = workbook.createSheet("Orders");
+            var headers = sheet.createRow(0);
+            var fields = List.of("externalOrderCode", "recipientName", "recipientPhone", "weightKg", "deliveryAddress");
+            for (int i = 0; i < fields.size(); i++) {
+                headers.createCell(i).setCellValue(fields.get(i));
+            }
+            var order = sheet.createRow(1);
+            order.createCell(0).setCellValue("XLS-01");
+            order.createCell(1).setCellValue("Nguyễn Văn A");
+            order.createCell(2).setCellValue("0900000000");
+            order.createCell(3).setCellValue(1.5);
+            order.createCell(4).setCellValue("225 đường 3/2");
+            var invalid = sheet.createRow(2);
+            invalid.createCell(1).setCellValue("Thiếu mã");
+            workbook.write(bytes);
+            return new MockMultipartFile("file", "orders.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes.toByteArray());
+        }
     }
 
     private Claims claims(UUID tenant, UUID user, String permission) {

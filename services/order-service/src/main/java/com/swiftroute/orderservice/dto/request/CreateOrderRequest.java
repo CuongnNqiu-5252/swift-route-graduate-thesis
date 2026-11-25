@@ -12,7 +12,6 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -64,10 +63,7 @@ public record CreateOrderRequest(
         OrderPriority priority,
 
         // Financial & COD fields
-        @DecimalMin("0.0") BigDecimal codAmount,
-        @DecimalMin("0.0") BigDecimal declaredValue,
-        @DecimalMin("0.0") BigDecimal deliveryFee,
-        String payer
+        @DecimalMin("0.0") BigDecimal codAmount
 ) {
     public boolean hasValidTimeWindow() {
         if (timeWindowStart == null || timeWindowEnd == null) {
@@ -85,15 +81,6 @@ public record CreateOrderRequest(
         }
         if (codAmount == null) {
             codAmount = BigDecimal.ZERO;
-        }
-        if (declaredValue == null) {
-            declaredValue = BigDecimal.ZERO;
-        }
-        if (deliveryFee == null) {
-            deliveryFee = BigDecimal.ZERO;
-        }
-        if (payer == null || payer.isBlank()) {
-            payer = "SENDER";
         }
     }
 }

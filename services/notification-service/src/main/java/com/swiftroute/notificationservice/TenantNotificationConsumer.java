@@ -54,9 +54,11 @@ public class TenantNotificationConsumer {
             handleMemberPermissionsUpdated(p);
             return;
         }
-        if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "user.password_reset_requested.v1", "tenant.created.v1",
-                "tenant.verification_submitted.v1", "tenant.verification_changes_requested.v1", "tenant.approved.v1",
-                "tenant.rejected.v1", "tenant.suspended.v1", IMPORT_COMPLETED).contains(type)) {
+        if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "user.password_reset_requested.v1",
+                "tenant.created", "tenant.created.v1", "tenant.verification_submitted.v1",
+                "tenant.verification_under_review.v1", "tenant.verification_changes_requested.v1",
+                "tenant.approved", "tenant.approved.v1", "tenant.rejected.v1", "tenant.suspended.v1",
+                IMPORT_COMPLETED).contains(type)) {
             return;
         }
 
@@ -78,12 +80,15 @@ public class TenantNotificationConsumer {
             case "user.email_verification.v1" -> "Xác minh tài khoản SwiftRoute";
             case "user.password_reset_requested.v1" -> "Đặt lại mật khẩu SwiftRoute";
             case "tenant.driver_invited.v1" -> "Lời mời tham gia đội ngũ giao hàng";
-            case "tenant.created.v1" -> "Doanh nghiệp mới đã được tạo";
-            case "tenant.approved.v1" -> "Hồ sơ doanh nghiệp đã được phê duyệt";
-            case "tenant.rejected.v1" -> "Hồ sơ doanh nghiệp đã bị từ chối";
+            case "tenant.created", "tenant.created.v1" -> "Khởi tạo doanh nghiệp thành công";
+            case "tenant.verification_submitted.v1" -> "Hồ sơ xác minh doanh nghiệp đã được gửi";
+            case "tenant.verification_under_review.v1" -> "Hồ sơ xác minh đang được thẩm định";
+            case "tenant.verification_changes_requested.v1" -> "Yêu cầu bổ sung hồ sơ xác minh doanh nghiệp";
+            case "tenant.approved", "tenant.approved.v1" -> "Hồ sơ doanh nghiệp đã được phê duyệt";
+            case "tenant.rejected.v1" -> "Hồ sơ doanh nghiệp không được phê duyệt";
             case "tenant.suspended.v1" -> "Doanh nghiệp đã bị tạm ngưng hoạt động";
             case IMPORT_COMPLETED -> "Đã chạy nhập vận đơn tự động";
-            default -> "Cập nhật workspace SwiftRoute";
+            default -> "Thông báo doanh nghiệp";
         };
 
         String body = switch (type) {
@@ -99,10 +104,41 @@ public class TenantNotificationConsumer {
                 "Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản " + p.path("email").asText()
                 + ".\nLiên kết có hiệu lực trong 15 phút: " + p.path("verificationUrl").asText()
                 + "\nNếu bạn không yêu cầu, hãy bỏ qua email này.";
+            case "tenant.created", "tenant.created.v1" ->
+                "Không gian làm việc cho doanh nghiệp đã sẵn sàng. Hãy hoàn thiện hồ sơ xác minh để bắt đầu vận hành.";
+            case "tenant.verification_submitted.v1" ->
+                "Hồ sơ xác minh doanh nghiệp đã được tiếp nhận và đang chờ ban quản trị phê duyệt. Hệ thống sẽ thông báo ngay khi có kết quả.";
+            case "tenant.verification_under_review.v1" ->
+                "Đội ngũ quản trị đang thẩm định thông tin và hồ sơ đăng ký của doanh nghiệp.";
+            case "tenant.verification_changes_requested.v1" -> {
+                String reason = p.path("reason").asText("").trim();
+                yield reason.isBlank()
+                    ? "Ban quản trị yêu cầu cập nhật, bổ sung thông tin hồ sơ doanh nghiệp trước khi phê duyệt."
+                    : "Yêu cầu bổ sung thông tin hồ sơ: " + reason;
+            }
+            case "tenant.approved", "tenant.approved.v1" ->
+                "Hồ sơ doanh nghiệp đã được phê duyệt thành công. Bạn hiện có thể tạo đơn hàng và bắt đầu điều phối giao vận.";
+            case "tenant.rejected.v1" -> {
+                String reason = p.path("reason").asText("").trim();
+                yield reason.isBlank()
+                    ? "Hồ sơ xác minh doanh nghiệp đã bị từ chối phê duyệt. Vui lòng liên hệ ban quản trị để được hỗ trợ."
+                    : "Hồ sơ doanh nghiệp không được phê duyệt. Lý do: " + reason;
+            }
+            case "tenant.suspended.v1" -> {
+                String reason = p.path("reason").asText("").trim();
+                yield reason.isBlank()
+                    ? "Tài khoản doanh nghiệp đã bị tạm ngưng hoạt động. Vui lòng liên hệ hỗ trợ SwiftRoute để biết thêm chi tiết."
+                    : "Tài khoản doanh nghiệp tạm ngưng hoạt động. Lý do: " + reason;
+            }
             case IMPORT_COMPLETED -> "Đã tạo %d vận đơn. Cần bổ sung địa chỉ: %d. Trùng mã: %d. Dòng lỗi: %d."
                 .formatted(p.path("created").asInt(), p.path("needsAddress").asInt(),
                     p.path("duplicates").asInt(), p.path("invalid").asInt());
-            default -> "Trạng thái: " + type + (p.hasNonNull("reason") ? " - Lý do: " + p.path("reason").asText() : "");
+            default -> {
+                String reason = p.path("reason").asText("").trim();
+                yield reason.isBlank()
+                    ? "Không gian làm việc vừa có thông tin cập nhật mới."
+                    : "Cập nhật thông tin doanh nghiệp: " + reason;
+            }
         };
 
         log.info("Recorded in-app tenant notification [{}]: {} for user/tenant {}",
@@ -126,15 +162,29 @@ public class TenantNotificationConsumer {
 
         // Broadcast over SSE to connected tenant operator sessions (skip sensitive token/invitation URLs)
         if (sseService != null && tenant != null && !SENSITIVE_AUTH_EVENTS.contains(type)) {
+            String severity = switch (type) {
+                case "tenant.suspended.v1" -> "CRITICAL";
+                case "tenant.rejected.v1", "tenant.verification_changes_requested.v1" -> "HIGH";
+                default -> "LOW";
+            };
+            String actionUrl = switch (type) {
+                case IMPORT_COMPLETED -> OperationalAlertConsumer.resolveActionUrl(type, null, null, null);
+                case "tenant.verification_submitted.v1", "tenant.verification_under_review.v1",
+                     "tenant.verification_changes_requested.v1", "tenant.rejected.v1", "tenant.suspended.v1" -> "/onboarding";
+                case "tenant.approved", "tenant.approved.v1" -> "/orders";
+                default -> "/onboarding";
+            };
+
             Map<String, Object> alertDto = new HashMap<>();
             alertDto.put("id", eventId.toString());
             alertDto.put("title", title);
             alertDto.put("body", body);
-            alertDto.put("severity", "LOW");
+            alertDto.put("severity", severity);
+            alertDto.put("category", "WORKSPACE");
+            alertDto.put("action_url", actionUrl);
             alertDto.put("template_code", type);
             alertDto.put("created_at", Instant.now().toString());
             if (IMPORT_COMPLETED.equals(type)) {
-                alertDto.put("action_url", OperationalAlertConsumer.resolveActionUrl(type, null, null, null));
                 if (TransactionSynchronizationManager.isSynchronizationActive()) {
                     TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                         @Override

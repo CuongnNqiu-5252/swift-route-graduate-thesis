@@ -33,7 +33,6 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
   final _notesController = TextEditingController();
   var _isSubmitting = false;
   var _contactAttempts = 1;
-  var _canContinueDelivery = true;
 
   Uint8List? _evidenceImageBytes;
   String? _uploadedEvidenceUrl;
@@ -155,8 +154,6 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
             severity: _selectedSeverity,
             notes: notes.isNotEmpty ? notes : null,
             evidenceUrls: evidenceUrls,
-            canContinueDelivery: _canContinueDelivery,
-            needsImmediateAssistance: _selectedSeverity == 'CRITICAL',
             contactAttempts: _contactAttempts,
           );
 
@@ -534,28 +531,6 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                         ],
                       ),
                     ],
-
-                    const SizedBox(height: 8),
-
-                    // Toggles
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: const Text(
-                        'Vẫn có thể tiếp tục giao các đơn khác',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      subtitle: const Text(
-                        'Bật nếu sự cố chỉ ảnh hưởng đơn này',
-                        style: TextStyle(fontSize: 11),
-                      ),
-                      value: _canContinueDelivery,
-                      onChanged: (val) =>
-                          setState(() => _canContinueDelivery = val),
-                    ),
 
                     const SizedBox(height: 8),
                     TextField(

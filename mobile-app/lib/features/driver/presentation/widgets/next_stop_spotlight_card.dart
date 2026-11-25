@@ -13,7 +13,7 @@ import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incid
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 /// Dominant "Next Action First" operational card on the Today screen.
-/// Consolidates batch route acceptance, 1-swipe grouped depot pickup, and direct map cockpit launch.
+/// Shows grouped depot pickup or the next delivery.
 class NextStopSpotlightCard extends ConsumerStatefulWidget {
   const NextStopSpotlightCard({super.key, required this.orders});
 
@@ -25,28 +25,6 @@ class NextStopSpotlightCard extends ConsumerStatefulWidget {
 }
 
 class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
-  bool _isAcceptingBatch = false;
-
-  Future<void> _acceptAllAssigned(List<OrderModel> assigned) async {
-    setState(() => _isAcceptingBatch = true);
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .acceptAllAssigned(orderIds: assigned.map((o) => o.id).toList());
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.error,
-            content: Text('Không nhận được chuyến: $e'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isAcceptingBatch = false);
-    }
-  }
-
   Future<void> _swipeBatchPickup(List<OrderModel> depotGroup) async {
     try {
       await ref
@@ -103,83 +81,6 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
       );
     }
 
-    // Case 1: Unaccepted ASSIGNED tasks -> 1-Tap Batch Start Route!
-    final unaccepted = active
-        .where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.assigned)
-        .toList();
-    if (unaccepted.isNotEmpty &&
-        active.every((o) => o.needsPickup || o.isReturnTask)) {
-      final totalPackages = unaccepted.length;
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.primaryBorder, width: 1.4),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                StatusPill(
-                  label: '${unaccepted.length} đơn mới · $totalPackages kiện',
-                  foreground: AppColors.primary,
-                  background: AppColors.primarySoft,
-                  icon: Icons.bolt_rounded,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Chuyến giao tại ${unaccepted.first.pickupDisplayName}',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              unaccepted.first.pickupAddress,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13.5,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: FilledButton.icon(
-                onPressed: _isAcceptingBatch
-                    ? null
-                    : () => _acceptAllAssigned(unaccepted),
-                icon: _isAcceptingBatch
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.play_arrow_rounded, size: 22),
-                label: Text(
-                  _isAcceptingBatch
-                      ? 'Đang nhận chuyến…'
-                      : 'Bắt đầu chuyến (${unaccepted.length} đơn)',
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Case 2: Prioritize active customer delivery first, else grouped depot pickup
     final nextDelivery = active.where((o) => o.isOutForDelivery).firstOrNull;
     if (nextDelivery != null) {
       return _ActiveDeliverySpotlight(order: nextDelivery);

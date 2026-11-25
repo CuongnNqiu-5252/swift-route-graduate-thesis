@@ -107,7 +107,7 @@ export function CustomSelect({
           <SelectPrimitive.Content
             position="popper"
             sideOffset={5}
-            className={`z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] max-w-[min(92vw,24rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1 text-slate-900 shadow-lg ring-1 ring-slate-950/5 ${contentClassName}`}
+            className={`z-[10050] max-h-72 min-w-[var(--radix-select-trigger-width)] max-w-[min(92vw,24rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1 text-slate-900 shadow-lg ring-1 ring-slate-950/5 ${contentClassName}`}
           >
             <SelectPrimitive.Viewport className="max-h-68 overflow-y-auto">
               {options.map((option) => (

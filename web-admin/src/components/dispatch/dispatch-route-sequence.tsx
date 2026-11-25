@@ -24,6 +24,8 @@ export function DispatchRouteSequence({
   departureMinute,
   axisStart,
   axisMinutes,
+  highlightedStopId,
+  isRouteHighlighted = false,
   onSelectRoute,
   onHighlightStop,
   onReorder,
@@ -36,6 +38,8 @@ export function DispatchRouteSequence({
   departureMinute?: number;
   axisStart: number;
   axisMinutes: number;
+  highlightedStopId?: string;
+  isRouteHighlighted?: boolean;
   onSelectRoute: () => void;
   onHighlightStop: (stopId?: string) => void;
   onReorder?: (ids: string[]) => Promise<DispatchPlanRecord>;
@@ -185,6 +189,8 @@ export function DispatchRouteSequence({
     const lateLabel = late ? `${t('Dự kiến trễ')} ${stop.lateBy} ${t('phút')}` : '';
     const label = `${index + 1}. ${stop.label} · ${formatEta(stop.eta)}${late ? ` · ${lateLabel}` : ''}`;
     const selected = selectedId === stop.id;
+    const isHighlighted = highlightedStopId === stop.id;
+    const activeGlow = selected || isHighlighted;
     const target = targetId === stop.id && draggedIndex !== index;
     return (
       <button
@@ -238,8 +244,12 @@ export function DispatchRouteSequence({
         )}
         <span
           aria-hidden="true"
-          className={`grid size-4 place-items-center rounded-full border-2 ${selected ? 'ring-2 ring-slate-600 ring-offset-2' : ''} ${stop.delivered ? 'text-white' : 'bg-white'}`}
-          style={{ borderColor: color, backgroundColor: stop.delivered || (selected && !late) ? color : undefined }}
+          className={`grid size-4 place-items-center rounded-full border-2 transition-transform duration-150 ${activeGlow ? 'scale-125' : ''} ${selected ? 'ring-2 ring-slate-700 ring-offset-2' : ''} ${stop.delivered ? 'text-white' : 'bg-white'}`}
+          style={{
+            borderColor: color,
+            backgroundColor: stop.delivered || (activeGlow && !late) ? color : undefined,
+            boxShadow: isHighlighted ? `0 0 0 5px ${color}40, 0 2px 8px rgb(15 23 42 / 25%)` : undefined,
+          }}
         >
           {stop.delivered && <Check size={10} strokeWidth={3} />}
           {late && <TriangleAlert size={10} strokeWidth={2.5} className="text-amber-800" />}
@@ -253,10 +263,18 @@ export function DispatchRouteSequence({
       <div ref={railRef} data-drop-plan={acceptsDrops ? plan.plan_id : undefined}>
       {timedStops.length > 0 && (
         <div className="relative mx-4 h-8">
-          <div aria-hidden="true" className="absolute top-2 h-4 rounded-full"
-            style={{ left: `${firstPosition}%`, width: `${Math.max(0, lastEta - firstPosition)}%`, backgroundColor: `color-mix(in srgb, ${color} 22%, white)` }} />
+          <div
+            aria-hidden="true"
+            className="absolute top-2 h-4 rounded-full transition-shadow duration-150"
+            style={{
+              left: `${firstPosition}%`,
+              width: `${Math.max(0, lastEta - firstPosition)}%`,
+              backgroundColor: `color-mix(in srgb, ${color} ${isRouteHighlighted ? 34 : 20}%, white)`,
+              boxShadow: isRouteHighlighted ? `0 0 0 2px ${color}33` : undefined,
+            }}
+          />
           {timedStops.map(({ stop, index, position }) => (
-            <div key={stop.id} className={`absolute top-0 -translate-x-1/2 ${selectedId === stop.id ? 'z-20' : 'z-10 hover:z-20'}`} style={{ left: `${position}%` }}>
+            <div key={stop.id} className={`absolute top-0 -translate-x-1/2 ${selectedId === stop.id || highlightedStopId === stop.id ? 'z-30' : 'z-10 hover:z-20'}`} style={{ left: `${position}%` }}>
               {stopButton(stop, index)}
             </div>
           ))}

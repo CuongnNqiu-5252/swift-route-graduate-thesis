@@ -9,16 +9,9 @@ public record CreateReturnRequest(
         @NotNull(message = "order_id is required")
         UUID orderId,
         UUID incidentId,
-        String requestType,
         @NotBlank(message = "reason is required")
         String reason,
         UUID returnLocationId,
         String notes,
         String evidenceUrl
-) {
-    public CreateReturnRequest {
-        if (requestType == null || requestType.isBlank()) {
-            requestType = "RETURN_TO_ORIGIN";
-        }
-    }
-}
+) {}

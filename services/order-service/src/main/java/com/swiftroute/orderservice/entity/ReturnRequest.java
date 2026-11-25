@@ -55,9 +55,6 @@ public class ReturnRequest {
     @Column(name = "current_holder_id")
     private UUID currentHolderId;
 
-    @Column(name = "request_type", nullable = false, length = 30)
-    private String requestType;
-
     @Column(name = "reason", nullable = false, length = 1000)
     private String reason;
 
@@ -87,12 +84,6 @@ public class ReturnRequest {
     // Discrepancy investigation fields
     @Column(name = "discrepancy_type", length = 50)
     private String discrepancyType;
-
-    @Column(name = "actual_quantity")
-    private Integer actualQuantity;
-
-    @Column(name = "package_condition", length = 100)
-    private String packageCondition;
 
     @Column(name = "discrepancy_notes", length = 1000)
     private String discrepancyNotes;

@@ -23,6 +23,7 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
@@ -84,6 +85,32 @@ class OutboxPublisherTest {
         assertThat(saved.getPublishedAt()).isNotNull();
         assertThat(saved.getDlqPublishedAt()).isNull();
         assertThat(saved.getLastError()).isNull();
+    }
+
+    @Test
+    void returnedRecipientNotificationIsRetriedEvenWhenTheBrokerAcknowledgesIt() {
+        OutboxEvent event = OutboxEvent.builder()
+                .eventId(UUID.randomUUID())
+                .aggregateType("DELIVERY_TASK")
+                .aggregateId(UUID.randomUUID())
+                .eventType(RecipientDeliveryEvents.STARTED)
+                .payload("{}")
+                .build();
+        when(outboxEventRepository.findPendingEventsForPublish()).thenReturn(List.of(event));
+        doAnswer(call -> {
+            CorrelationData data = call.getArgument(4);
+            data.setReturned(new ReturnedMessage(new Message(new byte[0]), 312, "NO_ROUTE",
+                    TenantEventConfig.EVENT_EXCHANGE, RecipientDeliveryEvents.STARTED));
+            data.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+
+        outboxPublisher.publishPendingEvents();
+
+        assertThat(event.getPublishedAt()).isNull();
+        assertThat(event.getRetryCount()).isEqualTo(1);
+        assertThat(event.getLastError()).contains("could not route");
     }
 
     @Test

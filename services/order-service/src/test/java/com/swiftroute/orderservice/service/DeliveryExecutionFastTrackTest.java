@@ -6,17 +6,21 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import com.swiftroute.orderservice.dto.request.BatchDeliveryTaskActionRequest;
 import com.swiftroute.orderservice.dto.request.UpdateDeliveryTaskRequest;
@@ -24,6 +28,7 @@ import com.swiftroute.orderservice.dto.response.DriverDeliveryTaskResponse;
 import com.swiftroute.orderservice.entity.DeliveryTask;
 import com.swiftroute.orderservice.entity.DispatchPlan;
 import com.swiftroute.orderservice.entity.Order;
+import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
@@ -58,6 +63,8 @@ class DeliveryExecutionFastTrackTest {
     private OutboxEventRepository outboxEvents;
     @Mock
     private DispatchPlanRepository dispatchPlans;
+    @Mock
+    private RecipientDeliveryEvents recipientDeliveryEvents;
 
     private DeliveryExecutionService service;
 
@@ -67,7 +74,7 @@ class DeliveryExecutionFastTrackTest {
     @BeforeEach
     void setUp() {
         service = new DeliveryExecutionService(
-                tasks, attempts, orders, auditLogs, returnRequests, custody, outboxEvents, dispatchPlans);
+                tasks, attempts, orders, auditLogs, returnRequests, custody, outboxEvents, dispatchPlans, recipientDeliveryEvents);
         tenantId = UUID.randomUUID();
         driverId = UUID.randomUUID();
     }
@@ -90,6 +97,7 @@ class DeliveryExecutionFastTrackTest {
 
     @Test
     void batchPickup_acquiresCustodyAndStartsDeliveryInOneSwipe() {
+        ReflectionTestUtils.setField(service, "deliveryStartedEventEnabled", true);
         DeliveryTask t1 = sampleTask(DeliveryTaskStatus.ACCEPTED);
         DeliveryTask t2 = sampleTask(DeliveryTaskStatus.ASSIGNED);
         when(tasks.findByDriverIdAndStatusIn(any(), any())).thenReturn(List.of(t1, t2));
@@ -110,6 +118,60 @@ class DeliveryExecutionFastTrackTest {
         assertThat(t2.getOrder().getStatus()).isEqualTo(OrderStatus.IN_TRANSIT);
         verify(custody).acquireAtPickup(t1.getOrder(), driverId);
         verify(custody).acquireAtPickup(t2.getOrder(), driverId);
+        ArgumentCaptor<OutboxEvent> events = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEvents, times(2)).save(events.capture());
+        assertThat(events.getAllValues()).extracting(OutboxEvent::getAggregateId)
+                .containsExactlyInAnyOrder(t1.getId(), t2.getId());
+    }
+
+    @Test
+    void deliveryStartRecordsOneEventWhenTheDriverRepeatsTheRequest() {
+        ReflectionTestUtils.setField(service, "deliveryStartedEventEnabled", true);
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ACCEPTED);
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+        var request = new UpdateDeliveryTaskRequest(DeliveryTaskStatus.OUT_FOR_DELIVERY, null, null, null);
+
+        service.update(task.getId(), driverId, "DRIVER", request);
+        String startedAt = task.getUpdatedAt().toString();
+        service.update(task.getId(), driverId, "DRIVER", request);
+
+        ArgumentCaptor<OutboxEvent> events = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEvents).save(events.capture());
+        OutboxEvent event = events.getValue();
+        assertThat(event.getEventType()).isEqualTo("order.delivery_started.v1");
+        assertThat(event.getAggregateId()).isEqualTo(task.getId());
+        assertThat(event.getPayload()).isEqualTo(Map.of(
+                "event_id", event.getEventId().toString(),
+                "tenant_id", tenantId.toString(),
+                "order_id", task.getOrder().getId().toString(),
+                "delivery_task_id", task.getId().toString(),
+                "started_at", startedAt));
+    }
+
+    @Test
+    void deliveryStartDoesNotPublishBeforeTheConsumerIsEnabled() {
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ACCEPTED);
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+        var request = new UpdateDeliveryTaskRequest(DeliveryTaskStatus.OUT_FOR_DELIVERY, null, null, null);
+
+        service.update(task.getId(), driverId, "DRIVER", request);
+
+        assertThat(task.getOrder().getStatus()).isEqualTo(OrderStatus.IN_TRANSIT);
+        verifyNoInteractions(outboxEvents);
+    }
+
+    @Test
+    void returnPickupDoesNotPublishARecipientDeliveryStart() {
+        ReflectionTestUtils.setField(service, "deliveryStartedEventEnabled", true);
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ACCEPTED);
+        task.setTaskType("RETURN");
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+        var request = new UpdateDeliveryTaskRequest(DeliveryTaskStatus.OUT_FOR_DELIVERY, null, null, null);
+
+        service.update(task.getId(), driverId, "DRIVER", request);
+
+        assertThat(task.getOrder().getStatus()).isEqualTo(OrderStatus.RETURNING);
+        verifyNoInteractions(outboxEvents);
     }
 
     @Test
@@ -126,6 +188,38 @@ class DeliveryExecutionFastTrackTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_ORDER_STATUS);
         assertThat(task.getOrder().getPlanId()).isNull();
         assertThat(task.getStatus()).isEqualTo(DeliveryTaskStatus.ASSIGNED);
+    }
+
+    @Test
+    void orphanedAcceptedTaskAfterPlanCancelIsHiddenAndRejected() {
+        DeliveryTask task = sampleTask(DeliveryTaskStatus.ACCEPTED);
+        task.setDispatchPlanId(null);
+        task.getOrder().setAssignedDriverId(null);
+        task.getOrder().setStatus(OrderStatus.READY_FOR_DISPATCH);
+        when(tasks.findByDriverIdAndStatusIn(any(), any())).thenReturn(List.of(task));
+        when(tasks.findById(task.getId())).thenReturn(Optional.of(task));
+
+        assertThat(service.activeForDriver(driverId, "DRIVER")).isEmpty();
+
+        var pickupRequest = new UpdateDeliveryTaskRequest(DeliveryTaskStatus.OUT_FOR_DELIVERY, null, null, null);
+        assertThatThrownBy(() -> service.update(task.getId(), driverId, "DRIVER", pickupRequest))
+                .isInstanceOf(AppException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_ORDER_STATUS);
+    }
+
+    @Test
+    void assignReactivatesCancelledTaskForSameOrDifferentDriver() {
+        DeliveryTask cancelledTask = sampleTask(DeliveryTaskStatus.CANCELLED);
+        cancelledTask.getOrder().setAssignedDriverId(null);
+        cancelledTask.getOrder().setStatus(OrderStatus.READY_FOR_DISPATCH);
+        UUID newDriverId = UUID.randomUUID();
+        when(tasks.findByOrder_IdAndTaskType(cancelledTask.getOrder().getId(), "DELIVERY"))
+                .thenReturn(Optional.of(cancelledTask));
+
+        DeliveryTask reassigned = service.assign(cancelledTask.getOrder(), newDriverId);
+
+        assertThat(reassigned.getDriverId()).isEqualTo(newDriverId);
+        assertThat(reassigned.getStatus()).isEqualTo(DeliveryTaskStatus.ASSIGNED);
     }
 
     @Test

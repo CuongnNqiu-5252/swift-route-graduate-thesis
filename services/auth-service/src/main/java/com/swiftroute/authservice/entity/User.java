@@ -51,7 +51,7 @@ public class User {
 
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private String status = "ACTIVE";
+    private String status = "PENDING_VERIFICATION";
 
     @Column(name = "is_email_verified", nullable = false)
     @Builder.Default

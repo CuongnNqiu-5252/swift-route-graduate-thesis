@@ -5,6 +5,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.security.TenantRequestInterceptor;
@@ -39,8 +41,9 @@ public class OperationsAssistantController {
 
     public record Query(@NotBlank @Size(max = 2000) String question,
             @Size(max = 8) List<@NotNull @Valid Turn> history,
-            UUID planId,
-            @Pattern(regexp = "vi|en") String language) {}
+            @JsonProperty("plan_id") @JsonAlias("planId") UUID planId,
+            @Pattern(regexp = "vi|en") String language,
+            @Pattern(regexp = "shift_briefing") String intent) {}
 
     @PostMapping(value = "/query", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<Flux<ServerSentEvent<Object>>> stream(
@@ -52,16 +55,18 @@ public class OperationsAssistantController {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
         boolean readOrders = TenantRequestInterceptor.isAuthorizedForPermission(role, "order:read", ROLES);
-        boolean readPlans = TenantRequestInterceptor.isAuthorizedForPermission(role, "dispatch:read", ROLES)
-                || TenantRequestInterceptor.isAuthorizedForPermission(role, "dispatch:execute", ROLES);
+        boolean executeDispatch = TenantRequestInterceptor.isAuthorizedForPermission(role, "dispatch:execute", ROLES);
+        boolean readPlans = executeDispatch || TenantRequestInterceptor.isAuthorizedForPermission(role, "dispatch:read", ROLES);
         if (!readOrders && !readPlans) throw new AppException(ErrorCode.ACCESS_DENIED);
 
-        var scope = new AssistantScope(tenantId, userId, role, readOrders, readPlans, query.planId());
+        boolean createOrders = TenantRequestInterceptor.isAuthorizedForPermission(role, "order:create", ROLES);
+        var scope = new AssistantScope(tenantId, userId, role, readOrders, readPlans, query.planId(), executeDispatch, createOrders);
         var history = query.history() == null ? List.<OperationsAssistant.Turn>of()
                 : query.history().stream().map(turn -> new OperationsAssistant.Turn(turn.role(), turn.text())).toList();
         return ResponseEntity.ok()
                 .header("Cache-Control", "no-cache, no-transform")
                 .header("X-Accel-Buffering", "no")
-                .body(assistant.stream(history, query.question(), "en".equals(query.language()), scope));
+                .body(assistant.stream(history, query.question(), "en".equals(query.language()), scope,
+                        "shift_briefing".equals(query.intent())));
     }
 }

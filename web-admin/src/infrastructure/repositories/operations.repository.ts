@@ -11,8 +11,6 @@ export interface IncidentDto {
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   notes: string | null;
   evidence_urls: string[];
-  can_continue_delivery: boolean;
-  needs_immediate_assistance: boolean;
   status: 'OPEN' | 'IN_PROGRESS' | 'ESCALATED' | 'RESOLVED';
   assigned_operator_id: string | null;
   resolution_type: string | null;
@@ -27,7 +25,6 @@ export interface ReturnRequestDto {
   order_id: string;
   order_code: string | null;
   incident_id: string | null;
-  request_type: 'RETURN_TO_ORIGIN' | 'RETURN_TO_DEPOT' | 'REDELIVERY';
   reason: string;
   status: 'REQUESTED' | 'REJECTED' | 'IN_EXECUTION' | 'ARRIVED' | 'AWAITING_RECEIPT' | 'COMPLETED' | 'DISCREPANCY' | 'EXECUTION_FAILED' | 'CANCELLED';
   return_location_id: string | null;
@@ -41,8 +38,6 @@ export interface ReturnRequestDto {
   received_at: string | null;
   completion_notes: string | null;
   discrepancy_type: string | null;
-  actual_quantity: number | null;
-  package_condition: string | null;
   discrepancy_notes: string | null;
   discrepancy_evidence_url: string | null;
   created_at: string;
@@ -57,19 +52,8 @@ export interface ResolveIncidentParams {
   replacement_driver_id?: string;
 }
 
-export interface CreateReturnParams {
-  order_id: string;
-  incident_id?: string;
-  request_type?: string;
-  reason: string;
-  return_location_id?: string;
-  notes?: string;
-  evidence_url?: string;
-}
-
 export interface ReportDiscrepancyParams {
   discrepancy_type: string;
-  actual_quantity?: number;
   discrepancy_notes?: string;
   evidence_url?: string;
 }
@@ -148,26 +132,8 @@ export const operationsRepository = {
     await api.patch(`/custody/handovers/${id}/${action}`, { notes });
   },
 
-  async reportIncident(params: {
-    order_id?: string;
-    dispatch_plan_id?: string;
-    incident_type: string;
-    severity: string;
-    notes: string;
-    can_continue_delivery: boolean;
-    needs_immediate_assistance: boolean;
-  }): Promise<IncidentDto> {
-    const res = await api.post<IncidentDto>('/operations/incidents', params);
-    return res.data;
-  },
-
   async getIncidents(params?: { status?: string; severity?: string; driver_id?: string; order_id?: string }): Promise<IncidentDto[]> {
     const res = await api.get<IncidentDto[]>('/operations/incidents', { params });
-    return res.data;
-  },
-
-  async getIncidentById(id: string): Promise<IncidentDto> {
-    const res = await api.get<IncidentDto>(`/operations/incidents/${id}`);
     return res.data;
   },
 
@@ -178,16 +144,6 @@ export const operationsRepository = {
 
   async getReturns(params?: { status?: string; driver_id?: string }): Promise<ReturnRequestDto[]> {
     const res = await api.get<ReturnRequestDto[]>('/operations/returns', { params });
-    return res.data;
-  },
-
-  async getReturnById(id: string): Promise<ReturnRequestDto> {
-    const res = await api.get<ReturnRequestDto>(`/operations/returns/${id}`);
-    return res.data;
-  },
-
-  async createReturn(params: CreateReturnParams): Promise<ReturnRequestDto> {
-    const res = await api.post<ReturnRequestDto>('/operations/returns', params);
     return res.data;
   },
 

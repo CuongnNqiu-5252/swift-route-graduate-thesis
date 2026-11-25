@@ -17,37 +17,6 @@ class AuthRepositoryImpl implements AuthRepository {
       _tokenStorage = tokenStorage;
 
   @override
-  Future<void> register(
-    String email,
-    String password,
-    String username, {
-    String phoneNumber = '',
-    String address = '',
-    String city = '',
-    String state = '',
-    String zipCode = '',
-    String country = 'VN',
-  }) async {
-    try {
-      final request = RegisterRequest(
-        email: email,
-        password: password,
-        fullName: username,
-        phoneNumber: phoneNumber.trim(),
-        address: address.trim(),
-        city: city.trim(),
-        state: state.trim(),
-        zipCode: zipCode.trim(),
-        country: country.trim(),
-      );
-      // POST /api/auth/register → 201 { data: null }
-      await _dio.post('/auth/register', data: request.toJson());
-    } on DioException catch (e) {
-      throw _handleDioError(e);
-    }
-  }
-
-  @override
   Future<User> login(String identifier, String password) async {
     try {
       // Backend LoginRequestDTO uses 'username' field

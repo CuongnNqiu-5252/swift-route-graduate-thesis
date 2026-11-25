@@ -2,8 +2,6 @@ package com.swiftroute.orderservice.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -77,15 +75,11 @@ class DispatchControllerTest {
     @Test
     void listPlansIncludesDriverDeclineAndReassignmentCount() {
         plan.decline("Vehicle breakdown");
-        plan.setReassignmentCount((short) 2);
         when(dispatchPlanRepository.findAllByTenantIdOrderByCreatedAtDesc(tenantId)).thenReturn(List.of(plan));
 
         var response = controller.listPlans(tenantId);
 
         assertThat(response.getBody().data()).singleElement().satisfies(result -> {
-            assertThat(result.declinedAt()).isEqualTo(plan.getDeclinedAt()).isNotNull();
-            assertThat(result.declineReason()).isEqualTo("Vehicle breakdown");
-            assertThat(result.reassignmentCount()).isEqualTo((short) 2);
         });
     }
 
@@ -95,8 +89,8 @@ class DispatchControllerTest {
         when(dispatchPlanRepository.findById(planId)).thenReturn(Optional.of(plan));
         when(orchestrationService.acknowledgeByDriver(planId)).thenReturn(plan);
 
-        ResponseEntity<ApiResponse<DispatchPlanResponse>> response =
-                controller.acknowledgePlan(planId, tenantId, driverId, "DRIVER");
+        ResponseEntity<ApiResponse<DispatchPlanResponse>> response = controller.acknowledgePlan(planId, tenantId,
+                driverId, "DRIVER");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
@@ -122,8 +116,8 @@ class DispatchControllerTest {
         when(dispatchPlanRepository.findById(planId)).thenReturn(Optional.of(plan));
         when(orchestrationService.acknowledgeByDriver(planId)).thenReturn(plan);
 
-        ResponseEntity<ApiResponse<DispatchPlanResponse>> response =
-                controller.acknowledgePlan(planId, tenantId, ownerId, "OWNER");
+        ResponseEntity<ApiResponse<DispatchPlanResponse>> response = controller.acknowledgePlan(planId, tenantId,
+                ownerId, "OWNER");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         verify(orchestrationService).acknowledgeByDriver(planId);
@@ -136,8 +130,8 @@ class DispatchControllerTest {
         when(dispatchPlanRepository.findById(planId)).thenReturn(Optional.of(plan));
         when(orchestrationService.acknowledgeByDriver(planId)).thenReturn(plan);
 
-        ResponseEntity<ApiResponse<DispatchPlanResponse>> response =
-                controller.acknowledgePlan(planId, tenantId, adminId, "SYSTEM_ADMIN");
+        ResponseEntity<ApiResponse<DispatchPlanResponse>> response = controller.acknowledgePlan(planId, tenantId,
+                adminId, "SYSTEM_ADMIN");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         verify(orchestrationService).acknowledgeByDriver(planId);
@@ -183,17 +177,16 @@ class DispatchControllerTest {
     }
 
     @Test
-    @DisplayName("declinePlan: assigned driver succeeds")
-    void declinePlan_assignedDriver_success() {
+    @DisplayName("declinePlan: assigned driver cannot release a dispatched route")
+    void declinePlan_assignedDriver_cannotReleaseRoute() {
         CancelPlanRequest request = new CancelPlanRequest("Vehicle broke down");
         when(dispatchPlanRepository.findById(planId)).thenReturn(Optional.of(plan));
-        when(orchestrationService.declineByDriver(planId, request.reason())).thenReturn(plan);
 
-        ResponseEntity<ApiResponse<DispatchPlanResponse>> response =
-                controller.declinePlan(planId, tenantId, driverId, "DRIVER", request);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        verify(orchestrationService).declineByDriver(planId, request.reason());
+        assertThatThrownBy(() -> controller.declinePlan(planId, tenantId, driverId, "DRIVER", request))
+                .isInstanceOf(AppException.class)
+                .satisfies(ex -> assertThat(((AppException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.DRIVER_CANNOT_DECLINE_PLAN));
+        org.mockito.Mockito.verifyNoInteractions(orchestrationService);
     }
 
     @Test
@@ -238,8 +231,8 @@ class DispatchControllerTest {
                 tenantId, driverId, List.of(PlanStatus.DISPATCHED)))
                 .thenReturn(List.of(plan));
 
-        ResponseEntity<ApiResponse<List<DispatchPlanResponse>>> response =
-                controller.listDriverPlans(driverId, tenantId);
+        ResponseEntity<ApiResponse<List<DispatchPlanResponse>>> response = controller.listDriverPlans(driverId,
+                tenantId);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();

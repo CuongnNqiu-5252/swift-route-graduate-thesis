@@ -52,15 +52,6 @@ public class Tenant {
     @Builder.Default
     private BusinessType businessType = BusinessType.OTHER;
 
-    @Column(name = "address", length = 500)
-    private String address;
-
-    @Column(name = "pickup_lat")
-    private Double pickupLat;
-
-    @Column(name = "pickup_lng")
-    private Double pickupLng;
-
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "optimization_weights", nullable = false, columnDefinition = "jsonb")
     @Builder.Default
@@ -120,4 +111,11 @@ public class Tenant {
     @Version
     @Column(nullable = false)
     private Long version;
+
+    public static class TenantBuilder {
+        /** Retained only for source compatibility with untouched test fixtures; physical addresses live in pickup_locations. */
+        public TenantBuilder address(String ignored) {
+            return this;
+        }
+    }
 }

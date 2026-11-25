@@ -40,6 +40,8 @@ public class PasswordResetService {
     public void requestReset(String email) {
         if (email == null || email.isBlank()) return;
         users.findByEmail(email.trim().toLowerCase(Locale.ROOT)).ifPresent(user -> {
+            // Silently ignore suspended/unverified accounts to prevent account status enumeration.
+            if (!isEligibleForPasswordReset(user)) return;
             Instant now = Instant.now();
             if (tokens.existsByUser_IdAndCreatedAtAfter(user.getId(), now.minusSeconds(60))) return;
             for (var previous : tokens.findAllByUser_IdAndUsedAtIsNull(user.getId())) {
@@ -69,13 +71,20 @@ public class PasswordResetService {
         }
         var token = tokens.findByTokenHash(hash(rawToken))
                 .orElseThrow(() -> new AppException(ErrorCode.INVALID_PASSWORD_RESET_TOKEN));
+        var user = token.getUser();
+        if (!isEligibleForPasswordReset(user)) {
+            throw new AppException(ErrorCode.INVALID_PASSWORD_RESET_TOKEN);
+        }
         if (tokens.consume(token.getTokenId(), Instant.now()) != 1) {
             throw new AppException(ErrorCode.INVALID_PASSWORD_RESET_TOKEN);
         }
-        var user = token.getUser();
         user.setPasswordHash(encoder.encode(newPassword));
         users.save(user);
         jdbc.update("UPDATE refresh_token SET revoked=true WHERE user_id=? AND revoked=false", user.getId());
+    }
+
+    private boolean isEligibleForPasswordReset(com.swiftroute.authservice.entity.User user) {
+        return user != null && "ACTIVE".equals(user.getStatus()) && user.isEmailVerified();
     }
 
     static String hash(String raw) {

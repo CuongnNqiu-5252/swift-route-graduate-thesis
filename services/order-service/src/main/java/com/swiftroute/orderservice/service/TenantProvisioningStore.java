@@ -67,9 +67,11 @@ public class TenantProvisioningStore {
 
     @Transactional
     public void failed(UUID id) {
-        jdbc.update(
+        int updated = jdbc.update(
                 "UPDATE tenant_provisioning SET status='RETRY_REQUIRED',last_error_code='OWNER_PROVISIONING_UNAVAILABLE',next_attempt_at=now()+interval '30 seconds',updated_at=now() WHERE tenant_id=? AND status<>'READY'",
                 id);
+        if (updated == 1) audit.save(AuditLog.builder().tenantId(id).aggregateType("TENANT_PROVISIONING")
+                .aggregateId(id).action("PROVISIONING_FAILED").details(Map.of("status", "RETRY_REQUIRED")).build());
     }
 
     @Transactional
