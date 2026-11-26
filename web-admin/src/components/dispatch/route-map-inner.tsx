@@ -10,10 +10,12 @@ import {
 } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
 import { MapPinned, Route } from 'lucide-react';
-import type { GeoJSONSource } from 'maplibre-gl';
+import type { GeoJSONSource, MapMouseEvent } from 'maplibre-gl';
 import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DispatchMapEditing, type DispatchMapEditControls } from './dispatch-map-editing';
+import type { RouteMapProps } from './route-map';
 import { RouteMapLayers, TRAFFIC_LAYER_ID } from './route-map-layers';
 import {
   ensureRouteDirectionArrowImage,
@@ -28,25 +30,6 @@ if (typeof window !== 'undefined') {
 }
 const EMPTY_OVERVIEW_ROUTES: MapOverviewRoute[] = [];
 const EMPTY_LEGS: readonly (number | null)[] = [];
-
-interface RouteMapInnerProps {
-  depot: DispatchDepot | null;
-  overviewRoutes?: MapOverviewRoute[];
-  selectedOverviewRouteId?: string | null;
-  highlightedPlan?: MapPlanHighlight | null;
-  filterKey?: string;
-  showDeliveryStops?: boolean;
-  showPlanDetails?: boolean;
-  isPlansOpen?: boolean;
-  onSelectOverviewRoute?: (planId: string) => void;
-  onHoverOverviewPlan?: (highlight: MapPlanHighlight | null) => void;
-  fleetDrivers?: MapDriverMarker[];
-  fleetOrigin?: MapDriverMarker;
-  driver?: [number, number];
-  driverName?: string;
-  driverVehicle?: string;
-  trackingSignal?: TrackingSignal;
-}
 
 function markerElement(
   label: string,
@@ -164,6 +147,9 @@ interface OverviewRoadLineProps {
   highlightedStopId?: string;
   onSelect?: (planId: string) => void;
   onHover?: (highlight: MapPlanHighlight | null) => void;
+  editControls?: DispatchMapEditControls;
+  dropTarget?: boolean;
+  dropCandidate?: boolean;
 }
 
 function OverviewRoadLine({
@@ -177,13 +163,15 @@ function OverviewRoadLine({
   highlightedStopId,
   onSelect,
   onHover,
+  editControls,
+  dropTarget = false,
+  dropCandidate = false,
 }: OverviewRoadLineProps) {
   const points = useMemo(
     () =>
-      route.stops
-        .map((stop) => stop.location)
+      [route.depot, ...route.stops.map((stop) => stop.location)]
         .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
-    [route.stops],
+    [route.depot, route.stops],
   );
 
   const road = useRoadRoute(points);
@@ -197,11 +185,13 @@ function OverviewRoadLine({
 
   const onSelectRef = useRef(onSelect);
   const onHoverRef = useRef(onHover);
+  const editRef = useRef(editControls);
   const stopMarkers = useRef<Marker[]>([]);
   useEffect(() => {
     onSelectRef.current = onSelect;
     onHoverRef.current = onHover;
-  }, [onHover, onSelect]);
+    editRef.current = editControls;
+  }, [editControls, onHover, onSelect]);
 
   // Draw stop markers for this plan cluster
   useEffect(() => {
@@ -213,10 +203,24 @@ function OverviewRoadLine({
         'live',
         route.color,
       );
-      element.addEventListener('click', () => {
+      const pin = markerPin(element);
+      pin.dataset.dispatchMapStop = stop.id;
+      pin.dataset.dispatchMapPlan = route.id;
+      pin.className = 'data-[dispatch-dragging=true]:opacity-40! motion-reduce:transition-none!';
+      element.addEventListener('click', (event) => {
+        const editing = editRef.current;
+        if (editing?.editableIds.has(stop.id)) {
+          const ids = new Set(editing.selectedIds);
+          if (ids.has(stop.id)) ids.delete(stop.id);
+          else if (event.ctrlKey || event.metaKey) ids.add(stop.id);
+          else { ids.clear(); ids.add(stop.id); }
+          editing.onSelection(ids);
+          return;
+        }
         onSelectRef.current?.(route.id);
       });
       element.addEventListener('mouseenter', () => {
+        if (editRef.current?.drawing) return;
         onHoverRef.current?.({ planId: route.id, stopId: stop.id });
       });
       element.addEventListener('mouseleave', () => {
@@ -252,18 +256,25 @@ function OverviewRoadLine({
       const element = marker.getElement();
       const pin = markerPin(element);
       const isStopHighlighted = route.stops[index].id === highlightedStopId;
-      element.style.zIndex = isStopHighlighted ? '35' : isSelected ? '20' : '10';
-      pin.style.opacity = hasSelection && !isSelected ? '0.35' : '1';
-      pin.style.transform = isStopHighlighted ? 'scale(1.38)' : isSelected ? 'scale(1.12)' : 'scale(1)';
-      pin.style.outline = isStopHighlighted ? '2px solid #0f172a' : '';
-      pin.style.outlineOffset = isStopHighlighted ? '2px' : '';
-      pin.style.boxShadow = isStopHighlighted
+      const isStopSelected = editControls?.selectedIds.has(route.stops[index].id);
+      const editable = editControls?.editableIds.has(route.stops[index].id);
+      const emphasized = isStopHighlighted || isStopSelected;
+      if (editable || isStopSelected) pin.setAttribute('aria-pressed', String(Boolean(isStopSelected)));
+      else pin.removeAttribute('aria-pressed');
+      pin.style.cursor = editControls?.drawing ? 'crosshair' : editable ? 'grab' : 'pointer';
+      pin.style.touchAction = editable && !editControls?.drawing ? 'none' : '';
+      element.style.zIndex = emphasized ? '35' : isSelected ? '20' : '10';
+      pin.style.opacity = hasSelection && !isSelected && !emphasized ? '0.35' : '1';
+      pin.style.transform = emphasized ? 'scale(1.38)' : isSelected ? 'scale(1.12)' : 'scale(1)';
+      pin.style.outline = emphasized ? '2px solid #0f172a' : '';
+      pin.style.outlineOffset = emphasized ? '2px' : '';
+      pin.style.boxShadow = emphasized
         ? `0 0 0 7px ${route.color}4d, 0 0 0 2.5px #ffffff, 0 8px 22px rgb(15 23 42 / 38%)`
         : isSelected
           ? `0 0 0 3px ${route.color}33, 0 6px 18px rgb(15 23 42 / 32%)`
           : '0 4px 14px rgb(15 23 42 / 24%)';
     });
-  }, [map, route, isSelected, hasSelection, highlightedStopId, showDeliveryStops]);
+  }, [map, route, isSelected, hasSelection, highlightedStopId, showDeliveryStops, editControls]);
 
   // 3. Initialize Source, luminous glow Layer, casing, line Layer, and wider transparent hit Layer
   useEffect(() => {
@@ -361,14 +372,17 @@ function OverviewRoadLine({
       });
     }
 
-    const handleClick = () => {
+    const handleClick = (event: MapMouseEvent) => {
+      if (editRef.current?.drawing || (event.originalEvent.target as Element | null)?.closest('[data-dispatch-map-stop]')) return;
       onSelectRef.current?.(route.id);
     };
     const handleMouseEnter = () => {
+      if (editRef.current?.drawing) return;
       map.getCanvas().style.cursor = 'pointer';
       onHoverRef.current?.({ planId: route.id });
     };
     const handleMouseLeave = () => {
+      if (editRef.current?.drawing) return;
       map.getCanvas().style.cursor = '';
       onHoverRef.current?.(null);
     };
@@ -409,16 +423,16 @@ function OverviewRoadLine({
   useEffect(() => {
     if (!map.getStyle() || !map.getLayer(layerId)) return;
     map.setPaintProperty(layerId, 'line-color', route.color);
-    map.setPaintProperty(layerId, 'line-width', isSelected ? 7.5 : hasSelection ? 3.5 : 5);
-    map.setPaintProperty(layerId, 'line-opacity', isSelected ? 1 : hasSelection ? 0.28 : 0.88);
+    map.setPaintProperty(layerId, 'line-width', dropTarget ? 10 : isSelected ? 7.5 : dropCandidate ? 6 : hasSelection ? 3.5 : 5);
+    map.setPaintProperty(layerId, 'line-opacity', dropTarget || isSelected || dropCandidate ? 1 : hasSelection ? 0.28 : 0.88);
     if (map.getLayer(glowLayerId)) {
       map.setPaintProperty(glowLayerId, 'line-color', route.color);
       map.setPaintProperty(glowLayerId, 'line-width', isSelected ? 22 : 16);
       map.setPaintProperty(glowLayerId, 'line-opacity', isSelected ? 0.45 : 0);
     }
     if (map.getLayer(casingLayerId)) {
-      map.setPaintProperty(casingLayerId, 'line-width', isSelected ? 11.5 : hasSelection ? 5.5 : 8);
-      map.setPaintProperty(casingLayerId, 'line-opacity', isSelected ? 0.96 : hasSelection ? 0.28 : 0.9);
+      map.setPaintProperty(casingLayerId, 'line-width', dropTarget ? 14 : isSelected ? 11.5 : dropCandidate ? 10 : hasSelection ? 5.5 : 8);
+      map.setPaintProperty(casingLayerId, 'line-opacity', isSelected || dropCandidate ? 0.96 : hasSelection ? 0.28 : 0.9);
     }
     if (map.getLayer(arrowLayerId)) {
       map.setLayoutProperty(arrowLayerId, 'visibility', showRouteDirection ? 'visible' : 'none');
@@ -432,7 +446,7 @@ function OverviewRoadLine({
       if (map.getLayer(arrowLayerId)) map.moveLayer(arrowLayerId);
       if (map.getLayer(hitLayerId)) map.moveLayer(hitLayerId);
     }
-  }, [map, styleVersion, glowLayerId, layerId, casingLayerId, arrowLayerId, hitLayerId, route.color, isSelected, hasSelection, showRouteDirection]);
+  }, [map, styleVersion, glowLayerId, layerId, casingLayerId, arrowLayerId, hitLayerId, route.color, isSelected, hasSelection, showRouteDirection, dropTarget, dropCandidate]);
 
   // 5. Update GeoJSON using street coordinates or straight-line fallback
   useEffect(() => {
@@ -486,7 +500,10 @@ export default function RouteMapInner({
   driverName,
   driverVehicle,
   trackingSignal = 'waiting',
-}: RouteMapInnerProps) {
+  editControls,
+  dropTarget,
+  dropCandidatePlanIds,
+}: RouteMapProps) {
   const { t } = useLocale();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -864,15 +881,19 @@ export default function RouteMapInner({
         map={readyMap}
         styleVersion={styleVersion}
         route={overviewRoute}
-        isSelected={(highlightedPlan?.planId ?? selectedOverviewRouteId) === overviewRoute.id}
-        hasSelection={Boolean(highlightedPlan || selectedOverviewRoute)}
+        isSelected={(dropTarget?.planId ?? highlightedPlan?.planId ?? selectedOverviewRouteId) === overviewRoute.id}
+        hasSelection={Boolean(dropTarget || highlightedPlan || selectedOverviewRoute)}
         showDeliveryStops={showDeliveryStops}
         showRouteDirection={showRouteDirection}
-        highlightedStopId={highlightedPlan?.planId === overviewRoute.id ? highlightedPlan.stopId : undefined}
+        highlightedStopId={dropTarget?.planId === overviewRoute.id ? dropTarget.stopId : highlightedPlan?.planId === overviewRoute.id ? highlightedPlan.stopId : undefined}
+        editControls={editControls}
+        dropTarget={dropTarget?.planId === overviewRoute.id}
+        dropCandidate={dropCandidatePlanIds?.has(overviewRoute.id)}
         onSelect={onSelectOverviewRoute}
         onHover={onHoverOverviewPlan}
       />
     ))}
+    {readyMap && editControls && <DispatchMapEditing map={readyMap} styleVersion={styleVersion} routes={overviewRoutes} controls={editControls} />}
 
   </div>;
 }

@@ -417,19 +417,21 @@ export const orderRepository = {
     return response.data;
   },
 
-  async moveDraftStop(input: {
+  async moveDraftStops(input: {
     sourcePlan: DispatchPlanRecord;
     targetPlan: DispatchPlanRecord;
-    orderId: string;
+    orderIds: string[];
     targetIndex: number;
+    swapOrderId?: string;
   }): Promise<{ source_plan: DispatchPlanRecord | null; target_plan: DispatchPlanRecord }> {
     const response = await api.post<{ source_plan: DispatchPlanRecord | null; target_plan: DispatchPlanRecord }>(
       '/orders/dispatch/plans/move-stop',
       {
         source_plan_id: input.sourcePlan.plan_id,
         target_plan_id: input.targetPlan.plan_id,
-        order_id: input.orderId,
+        ...(input.orderIds.length === 1 ? { order_id: input.orderIds[0] } : { order_ids: input.orderIds }),
         target_index: input.targetIndex,
+        swap_order_id: input.swapOrderId,
         expected_source_version: input.sourcePlan.version,
         expected_target_version: input.targetPlan.version,
       },

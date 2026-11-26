@@ -19,6 +19,9 @@ interface DispatchStopTimelineProps {
   driver?: Driver;
   routeColor?: string;
   highlightedStopId?: string;
+  selectedStopIds: ReadonlySet<string>;
+  editableStopIds?: ReadonlySet<string>;
+  onToggleStop: (stopId: string) => void;
   onHighlightStop?: (stopId?: string) => void;
   onClose: () => void;
 }
@@ -80,6 +83,9 @@ export function DispatchStopTimeline({
   driver,
   routeColor = '#2563eb',
   highlightedStopId,
+  selectedStopIds,
+  editableStopIds,
+  onToggleStop,
   onHighlightStop,
   onClose,
 }: DispatchStopTimelineProps) {
@@ -201,6 +207,7 @@ export function DispatchStopTimeline({
                 : null;
             const isLast = index === stops.length - 1;
             const isHighlighted = highlightedStopId === stop.id;
+            const isSelected = selectedStopIds.has(stop.id);
 
             return (
               <li
@@ -229,8 +236,9 @@ export function DispatchStopTimeline({
                 </div>
 
                 <div
-                  className={`min-w-0 flex-1 rounded-xl border p-2.5 transition-all duration-150 ${
-                    isHighlighted
+                  className={`min-w-0 flex-1 rounded-xl border p-2.5 transition-all duration-150 motion-reduce:transition-none ${
+                    isSelected ? 'border-teal-600 bg-teal-50 ring-1 ring-teal-600'
+                    : isHighlighted
                       ? 'border-slate-400 shadow-md'
                       : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
@@ -248,6 +256,10 @@ export function DispatchStopTimeline({
                         {t(ORDER_STATUS_LABEL[matchedOrder.status])}
                       </span>
                     )}
+                    {editableStopIds?.has(stop.id) && <Button type="button" size="sm" variant="ghost"
+                      className="min-h-8 px-2 text-xs" aria-pressed={isSelected} onClick={() => onToggleStop(stop.id)}>
+                      {t(isSelected ? 'Bỏ chọn' : 'Chọn')}
+                    </Button>}
                   </div>
 
                   <p className="mt-1 flex items-start gap-1 text-xs leading-5 text-slate-600">

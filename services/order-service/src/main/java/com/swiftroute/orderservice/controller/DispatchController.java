@@ -183,7 +183,7 @@ public class DispatchController {
     }
 
     @PostMapping("/plans/move-stop")
-    @Operation(summary = "Move a stop between two unassigned draft plans and re-measure both routes")
+    @Operation(summary = "Move or exchange stops between unassigned draft plans and re-measure both routes")
     public ApiResponse<MoveStopResponse> moveStop(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestAttribute("effectiveRole") String role,

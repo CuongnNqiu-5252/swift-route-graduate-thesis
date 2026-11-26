@@ -4,6 +4,7 @@ import { clockMinutes, dispatchDay, formatClockMinute, getPlanStartTime, readPla
 import { useRouteWeather } from '@/application/use-route-weather';
 import { DispatchRouteSequence } from '@/components/dispatch/dispatch-route-sequence';
 import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +42,15 @@ interface PlanApprovalPanelProps {
   onInsertOrderIntoPlan: (planId: string, orderId: string) => Promise<void>;
   onReorderStops: (plan: DispatchPlanRecord, ids: string[]) => Promise<DispatchPlanRecord>;
   onMoveStop: (plan: DispatchPlanRecord, orderId: string, targetPlanId: string, targetIndex: number) => Promise<void>;
+  selectedStopIds: ReadonlySet<string>;
+  onToggleStop: (orderId: string) => void;
+  dropTargetPlanId?: string | null;
+  onDragTarget: (planId: string | null) => void;
+  canDropOn: (sourcePlanId: string, targetPlanId: string) => boolean;
+  mapEditPending: boolean;
+  editablePlanIds: ReadonlySet<string>;
+  dropCandidatePlanIds: ReadonlySet<string>;
+  onMoveMapSelection?: (planId: string) => void;
 }
 
 type PlanFilter = 'CURRENT' | 'DRAFT' | 'APPROVED' | 'DISPATCHED';
@@ -67,6 +77,8 @@ export function PlanApprovalPanel({
   plans, drivers, orders, routeColors, eligibleOrders, canExecute, isLoading,
   selectedPlanId, highlightedPlan, editingPlanId, maxOrdersPerDriver, initialFilter, onSelectPlan, onHighlightPlan,
   onApprovePlan, onDispatchPlan, onCancelPlan, onInsertOrderIntoPlan, onReorderStops, onMoveStop,
+  selectedStopIds, onToggleStop, dropTargetPlanId, onDragTarget, canDropOn, mapEditPending,
+  editablePlanIds, dropCandidatePlanIds, onMoveMapSelection,
 }: PlanApprovalPanelProps) {
   const { t } = useLocale();
   const weather = useRouteWeather([
@@ -203,29 +215,32 @@ export function PlanApprovalPanel({
               const id = plan.plan_id;
               const selected = selectedPlanId === id;
               const isHovered = highlightedPlan?.planId === id;
-              const busy = busyPlanId !== null || editingPlanId === id;
+              const isDropTarget = dropTargetPlanId === id;
+              const isDropCandidate = dropCandidatePlanIds.has(id);
+              const busy = busyPlanId !== null || editingPlanId !== null || mapEditPending;
               const draft = plan.plan_status === 'DRAFT';
               const driver = plan.driver_id ? drivers.find((item) => item.id === plan.driver_id || item.user_id === plan.driver_id) : undefined;
-              const isDraftEditable = draft && !plan.driver_id && typeof plan.version === 'number';
-              const canEdit = canExecute && isDraftEditable && stops.length > 1
+              const isDraftEditable = editablePlanIds.has(id);
+              const canEdit = canExecute && isDraftEditable && stops.length > 1 && !mapEditPending
                 && busyPlanId !== id && (editingPlanId === null || editingPlanId === id);
-              const canMove = canExecute && isDraftEditable && busyPlanId === null && editingPlanId === null;
+              const canMove = canExecute && isDraftEditable && !busy;
               const etaLabel = arrivalMinute === undefined ? '—' : formatClockMinute(arrivalMinute);
               const assignableDrivers = drivers.filter((item) => item.onboarding_status === 'ACTIVE' && (item.user_id || item.id));
               const driverChoices = assignableDrivers.length > 0 ? assignableDrivers : drivers.filter((item) => Boolean(item.user_id || item.id));
               return (
                 <section key={id} id={`dispatch-plan-${id}`} aria-label={`${t('Kế hoạch')} #${id.slice(0, 8)}`}
+                  data-dispatch-drop-plan={canMove ? id : undefined}
                   onPointerEnter={(event) => { if (event.pointerType !== 'touch') onHighlightPlan({ planId: id }); }}
                   onPointerLeave={(event) => { if (event.pointerType !== 'touch') onHighlightPlan(null); }}
                   onFocus={() => onHighlightPlan({ planId: id })}
                   onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onHighlightPlan(null); }}
-                  className={`${GRID} border-b border-slate-100 transition-colors duration-150 ${isHovered
+                  className={`${GRID} border-b border-slate-100 transition-colors duration-150 motion-reduce:transition-none ${isDropTarget ? 'bg-teal-50 ring-2 ring-inset ring-teal-600' : isDropCandidate ? 'bg-teal-50/50' : isHovered
                       ? 'bg-blue-50/40'
                       : selected
                         ? 'bg-slate-50'
                         : 'bg-white hover:bg-slate-50/80'
                     }`}>
-                  <div className={`sticky left-0 z-10 border-r border-slate-100 px-3.5 py-2.5 transition-colors duration-150 ${isHovered ? 'bg-blue-50/90' : selected ? 'bg-slate-50' : 'bg-white'
+                  <div className={`sticky left-0 z-10 border-r border-slate-100 px-3.5 py-2.5 transition-colors duration-150 motion-reduce:transition-none ${isDropTarget ? 'bg-teal-50 ring-2 ring-inset ring-teal-600' : isHovered ? 'bg-blue-50/90' : selected ? 'bg-slate-50' : 'bg-white'
                     }`}>
                     <span
                       aria-hidden="true"
@@ -263,6 +278,10 @@ export function PlanApprovalPanel({
 
                     {/* Row 3: Organized Driver Assignment / Approve / Dispatch / Cancel Action Bar */}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {isDropCandidate && onMoveMapSelection && (
+                        <Button type="button" size="sm" variant="outline" className="min-h-7 px-2 text-xs"
+                          disabled={busy} onClick={() => onMoveMapSelection(id)}>{t('Chuyển đơn đã chọn đến đây')}</Button>
+                      )}
                       {plan.driver_id && (
                         <span
                           className="inline-flex max-w-[10rem] items-center gap-1 truncate rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700"
@@ -386,6 +405,10 @@ export function PlanApprovalPanel({
                       onHighlightStop={(stopId) => onHighlightPlan({ planId: id, stopId })}
                       onReorder={canEdit ? (ids) => onReorderStops(plan, ids) : undefined}
                       acceptsDrops={canMove}
+                      selectedStopIds={selectedStopIds}
+                      onToggleStop={onToggleStop}
+                      onDragTarget={onDragTarget}
+                      canDropOn={(targetId) => canDropOn(id, targetId)}
                       onMoveStop={canMove
                         ? (orderId, targetPlanId, targetIndex) => onMoveStop(plan, orderId, targetPlanId, targetIndex)
                         : undefined}

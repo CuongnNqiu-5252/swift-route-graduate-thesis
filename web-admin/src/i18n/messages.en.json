@@ -1936,5 +1936,21 @@
   "Không tải được lịch sử thông báo.": "Could not load notification history.",
   "Chưa có thông báo cho người nhận của đơn này.": "This order has no recipient notifications yet.",
   "Giao chưa thành công": "Delivery unsuccessful",
-  "Đã xử lý": "Processed"
+  "Đã xử lý": "Processed",
+  "Chọn theo vùng": "Select by area",
+  "đơn hàng": "orders",
+  "Đã chọn": "Selected",
+  "Bỏ chọn": "Deselect",
+  "Chuyển đơn đã chọn đến đây": "Move selected orders here",
+  "Bấm để vẽ. Bấm lại đỉnh đầu hoặc bấm đúp để hoàn tất. Esc để hủy.": "Click to draw. Click the first vertex or double-click to finish. Esc to cancel.",
+  "Thay đổi tuyến chưa lưu": "Unsaved route change",
+  "Chỉ có thể chuyển nhóm đơn thuộc cùng một tuyến.": "Selected orders must belong to the same route to move together.",
+  "Kéo một điểm đã chọn để chuyển cả nhóm.": "Drag any selected stop to move the group.",
+  "Kéo điểm đã chọn lên một điểm khác để đổi chỗ.": "Drag the selected stop onto another stop to swap them.",
+  "Chỉ có thể chỉnh sửa tuyến nháp chưa gán tài xế và các điểm giao chưa khóa.": "Only unassigned draft routes and unlocked stops can be edited.",
+  "Chỉ có thể chuyển đơn giữa các tuyến cùng điểm lấy hàng": "Orders can only be moved between routes with the same pickup location.",
+  "Hãy thả nhóm đơn sang tuyến khác, hoặc thả một đơn lên điểm giao khác để đổi chỗ.": "Drop the group on another route or drop one order onto another stop to swap them.",
+  "Hãy lưu hoặc hoàn tác thay đổi trước khi chỉnh sửa tiếp.": "Save or undo the current change before making another edit.",
+  "Đã lưu thay đổi tuyến.": "Route change saved.",
+  "Không thể lưu thay đổi tuyến.": "Could not save the route change."
 }

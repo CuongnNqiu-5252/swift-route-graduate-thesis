@@ -418,6 +418,12 @@ public class DispatchOrchestrationService {
         }
 
         List<Order> orderedOrders = requestedIds.stream().map(stops::get).toList();
+        if (orderedOrders.stream().anyMatch(order -> !isEditableDraftStop(order))) {
+            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
+        }
+        if (!pickupOriginKey(stops.get(currentIds.getFirst())).equals(pickupOriginKey(orderedOrders.getFirst()))) {
+            throw new AppException(ErrorCode.PLAN_PICKUP_MISMATCH);
+        }
         applyMeasuredRoute(plan, orderedOrders, measureDraftRoute(plan, orderedOrders));
         return dispatchPlanRepository.saveAndFlush(plan);
     }
@@ -426,7 +432,7 @@ public class DispatchOrchestrationService {
     }
 
     /**
-     * Moves one stop between two unassigned DRAFT plans of the same tenant and
+     * Moves stops between two unassigned DRAFT plans of the same tenant and
      * re-measures both routes so distance, duration and per-stop ETAs stay
      * accurate.
      * A source plan left without stops is cancelled.
@@ -451,21 +457,50 @@ public class DispatchOrchestrationService {
             throw new AppException(ErrorCode.CONCURRENT_UPDATE);
         }
 
-        Order moved = source.getOrders().stream()
-                .filter(order -> order.getId().equals(request.orderId()))
-                .findFirst()
-                .orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
-
-        int maxOrdersPerDriver = resolveMaxOrdersPerDriver(target.getTenant());
-        if (target.getOrders().size() >= maxOrdersPerDriver) {
-            throw new AppException(ErrorCode.PLAN_MAX_ORDERS_EXCEEDED);
+        if ((request.orderId() == null) == (request.orderIds() == null)) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        List<UUID> requestedIds = request.orderIds() != null ? request.orderIds() : List.of(request.orderId());
+        Set<UUID> movedIds = new HashSet<>(requestedIds);
+        List<Order> sourceRemaining = new ArrayList<>(source.getOrdersInStopOrder());
+        List<Order> targetOrdered = new ArrayList<>(target.getOrdersInStopOrder());
+        List<Order> moved = sourceRemaining.stream().filter(order -> movedIds.contains(order.getId())).toList();
+        if (moved.isEmpty() || moved.size() != requestedIds.size() || targetOrdered.isEmpty()) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (sourceRemaining.stream().anyMatch(order -> !isEditableDraftStop(order))
+                || targetOrdered.stream().anyMatch(order -> !isEditableDraftStop(order))) {
+            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
+        }
+        String sourcePickup = pickupOriginKey(sourceRemaining.getFirst());
+        String targetPickup = pickupOriginKey(targetOrdered.getFirst());
+        if (!sourcePickup.equals(targetPickup) || moved.stream().anyMatch(order -> !targetPickup.equals(pickupOriginKey(order)))) {
+            throw new AppException(ErrorCode.PLAN_PICKUP_MISMATCH);
         }
 
-        List<Order> sourceRemaining = new ArrayList<>(source.getOrdersInStopOrder());
-        sourceRemaining.remove(moved);
-        List<Order> targetOrdered = new ArrayList<>(target.getOrdersInStopOrder());
         int insertAt = Math.min(request.targetIndex(), targetOrdered.size());
-        targetOrdered.add(insertAt, moved);
+        Order swapped = null;
+        if (request.swapOrderId() != null) {
+            swapped = targetOrdered.stream().filter(order -> request.swapOrderId().equals(order.getId()))
+                    .findFirst().orElseThrow(() -> new AppException(ErrorCode.VALIDATION_ERROR));
+            if (moved.size() != 1) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR);
+            }
+            if (!sourcePickup.equals(pickupOriginKey(swapped))) {
+                throw new AppException(ErrorCode.PLAN_PICKUP_MISMATCH);
+            }
+            sourceRemaining.set(sourceRemaining.indexOf(moved.getFirst()), swapped);
+            targetOrdered.set(targetOrdered.indexOf(swapped), moved.getFirst());
+        } else {
+            if (targetOrdered.size() + moved.size() > resolveMaxOrdersPerDriver(target.getTenant())) {
+                throw new AppException(ErrorCode.PLAN_MAX_ORDERS_EXCEEDED);
+            }
+            sourceRemaining.removeAll(moved);
+            targetOrdered.addAll(insertAt, moved);
+        }
+        if (!sourceRemaining.isEmpty() && !sourcePickup.equals(pickupOriginKey(sourceRemaining.getFirst()))) {
+            throw new AppException(ErrorCode.PLAN_PICKUP_MISMATCH);
+        }
 
         // Measure both routes before touching any state so a routing failure changes
         // nothing.
@@ -474,8 +509,14 @@ public class DispatchOrchestrationService {
                 ? null
                 : measureDraftRoute(source, sourceRemaining);
 
-        source.removeOrder(moved);
-        target.addOrder(moved, insertAt + 1);
+        moved.forEach(source::removeOrder);
+        if (swapped != null) {
+            target.removeOrder(swapped);
+            source.addOrder(swapped, sourceRemaining.indexOf(swapped) + 1);
+        }
+        for (Order order : moved) {
+            target.addOrder(order, targetOrdered.indexOf(order) + 1);
+        }
         applyMeasuredRoute(target, targetOrdered, targetMeasured);
         DispatchPlan savedTarget = dispatchPlanRepository.saveAndFlush(target);
         if (sourceMeasured == null) {
@@ -484,6 +525,11 @@ public class DispatchOrchestrationService {
         }
         applyMeasuredRoute(source, sourceRemaining, sourceMeasured);
         return new MoveStopResult(dispatchPlanRepository.saveAndFlush(source), savedTarget);
+    }
+
+    private boolean isEditableDraftStop(Order order) {
+        return order.getAssignedDriverId() == null
+                && (order.getStatus() == OrderStatus.PLANNED || order.getStatus() == OrderStatus.READY_FOR_DISPATCH);
     }
 
     private BatchOptimizationResponse measureDraftRoute(DispatchPlan plan, List<Order> ordered) {

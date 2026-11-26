@@ -1,11 +1,12 @@
 'use client';
 
-import { type PointerEvent, useRef, useState } from 'react';
+import { type PointerEvent, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, TriangleAlert, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
 import { formatClockMinute } from '@/application/dispatch-plan-clock';
+import { DispatchDragPreview } from './dispatch-drag-preview';
 
 export interface PlanTimelineStop {
   id: string;
@@ -26,6 +27,10 @@ export function DispatchRouteSequence({
   axisMinutes,
   highlightedStopId,
   isRouteHighlighted = false,
+  selectedStopIds,
+  onToggleStop,
+  onDragTarget,
+  canDropOn,
   onSelectRoute,
   onHighlightStop,
   onReorder,
@@ -40,6 +45,10 @@ export function DispatchRouteSequence({
   axisMinutes: number;
   highlightedStopId?: string;
   isRouteHighlighted?: boolean;
+  selectedStopIds?: ReadonlySet<string>;
+  onToggleStop?: (id: string) => void;
+  onDragTarget: (planId: string | null) => void;
+  canDropOn: (planId: string) => boolean;
   onSelectRoute: () => void;
   onHighlightStop: (stopId?: string) => void;
   onReorder?: (ids: string[]) => Promise<DispatchPlanRecord>;
@@ -51,6 +60,7 @@ export function DispatchRouteSequence({
   const { t } = useLocale();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const saving = useRef(false);
@@ -121,11 +131,14 @@ export function DispatchRouteSequence({
 
   /** Finds another route under the pointer and the position inside it where the stop would land. */
   function foreignDrop(x: number, y: number): { planId: string; index: number } | null {
-    const rail = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-drop-plan]');
-    const planId = rail?.dataset.dropPlan;
-    if (!rail || !planId || planId === plan.plan_id) return null;
-    const hit = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-stop-index]');
-    if (hit && rail.contains(hit)) return { planId, index: Number(hit.dataset.stopIndex) };
+    const hit = document.elementFromPoint(x, y);
+    const row = hit?.closest<HTMLElement>('[data-dispatch-drop-plan]');
+    const planId = row?.dataset.dispatchDropPlan;
+    if (!row || !planId || planId === plan.plan_id) return null;
+    const rail = row.querySelector<HTMLElement>('[data-drop-plan]');
+    const stop = hit?.closest<HTMLElement>('[data-stop-index]');
+    if (stop && rail?.contains(stop)) return { planId, index: Number(stop.dataset.stopIndex) };
+    if (!rail?.contains(hit)) return { planId, index: rail?.querySelectorAll('[data-stop-index]').length ?? 0 };
     // Dropped on empty rail space: insert before the first stop that is to the right of the pointer.
     let index = 0;
     for (const button of rail.querySelectorAll<HTMLElement>('[data-stop-index]')) {
@@ -170,8 +183,25 @@ export function DispatchRouteSequence({
   function clearDrag() {
     pointerDrag.current = null;
     setDraggedId(null);
+    setDragPosition(null);
     setTargetId(null);
+    onDragTarget(null);
   }
+
+  useEffect(() => {
+    function cancel(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || !pointerDrag.current?.active) return;
+      event.preventDefault();
+      suppressClick.current = true;
+      pointerDrag.current = null;
+      setDraggedId(null);
+      setDragPosition(null);
+      setTargetId(null);
+      onDragTarget(null);
+    }
+    document.addEventListener('keydown', cancel, true);
+    return () => document.removeEventListener('keydown', cancel, true);
+  }, [onDragTarget]);
 
   function updateDrag(event: PointerEvent<HTMLButtonElement>) {
     const drag = pointerDrag.current;
@@ -179,6 +209,9 @@ export function DispatchRouteSequence({
     if (!drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
     drag.active = true;
     setDraggedId(stops[drag.index]?.id ?? null);
+    setDragPosition({ x: event.clientX, y: event.clientY });
+    const foreign = foreignDrop(event.clientX, event.clientY);
+    onDragTarget(foreign && canDropOn(foreign.planId) ? foreign.planId : null);
     const target = stops[dropIndex(event.clientX, event.clientY)]?.id;
     setTargetId(target ?? null);
     onHighlightStop(target);
@@ -189,8 +222,9 @@ export function DispatchRouteSequence({
     const lateLabel = late ? `${t('Dự kiến trễ')} ${stop.lateBy} ${t('phút')}` : '';
     const label = `${index + 1}. ${stop.label} · ${formatEta(stop.eta)}${late ? ` · ${lateLabel}` : ''}`;
     const selected = selectedId === stop.id;
+    const isMapSelected = selectedStopIds?.has(stop.id);
     const isHighlighted = highlightedStopId === stop.id;
-    const activeGlow = selected || isHighlighted;
+    const activeGlow = selected || isHighlighted || isMapSelected;
     const target = targetId === stop.id && draggedIndex !== index;
     return (
       <button
@@ -198,7 +232,7 @@ export function DispatchRouteSequence({
         data-stop-index={index}
         aria-label={label}
         title={stop.address ? `${label} · ${stop.address}` : label}
-        aria-pressed={selected}
+        aria-pressed={Boolean(selected || isMapSelected)}
         onPointerEnter={(event) => { if (event.pointerType !== 'touch') onHighlightStop(stop.id); }}
         onPointerLeave={(event) => { if (event.pointerType !== 'touch' && !pointerDrag.current?.active) onHighlightStop(); }}
         onFocus={(event) => { event.stopPropagation(); onHighlightStop(stop.id); }}
@@ -206,6 +240,11 @@ export function DispatchRouteSequence({
         onClick={(event) => {
           if (suppressClick.current && event.detail > 0) {
             suppressClick.current = false;
+            return;
+          }
+          if (isMapSelected && onToggleStop) {
+            onToggleStop(stop.id);
+            setSelectedId(null);
             return;
           }
           setSelectedId(selected ? null : stop.id);
@@ -237,14 +276,14 @@ export function DispatchRouteSequence({
         onLostPointerCapture={(event) => { if (pointerDrag.current?.id === event.pointerId) clearDrag(); }}
         className={`relative grid size-8 shrink-0 place-items-center rounded-md focus-visible:outline-2 focus-visible:outline-blue-700
           ${canDrag ? 'touch-none cursor-grab select-none active:cursor-grabbing' : 'cursor-pointer'}
-          ${draggedId === stop.id ? 'opacity-50' : ''}`}
+          ${draggedId === stop.id ? 'opacity-40' : ''}`}
       >
         {target && (
           <span aria-hidden="true" className={`absolute top-1 h-6 w-0.5 rounded-full bg-slate-900 ${draggedIndex < index ? 'right-0' : 'left-0'}`} />
         )}
         <span
           aria-hidden="true"
-          className={`grid size-4 place-items-center rounded-full border-2 transition-transform duration-150 ${activeGlow ? 'scale-125' : ''} ${selected ? 'ring-2 ring-slate-700 ring-offset-2' : ''} ${stop.delivered ? 'text-white' : 'bg-white'}`}
+          className={`grid size-4 place-items-center rounded-full border-2 transition-transform duration-150 motion-reduce:transition-none ${activeGlow ? 'scale-125' : ''} ${selected || isMapSelected ? 'ring-2 ring-slate-700 ring-offset-2' : ''} ${stop.delivered ? 'text-white' : 'bg-white'}`}
           style={{
             borderColor: color,
             backgroundColor: stop.delivered || (activeGlow && !late) ? color : undefined,
@@ -260,6 +299,7 @@ export function DispatchRouteSequence({
 
   return (
     <div className="min-w-0 py-1" aria-busy={isSaving}>
+      {dragPosition && <DispatchDragPreview {...dragPosition} color={color} label={stops[draggedIndex]?.label ?? ''} />}
       <div ref={railRef} data-drop-plan={acceptsDrops ? plan.plan_id : undefined}>
       {timedStops.length > 0 && (
         <div className="relative mx-4 h-8">

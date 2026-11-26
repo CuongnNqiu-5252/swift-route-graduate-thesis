@@ -11,6 +11,7 @@ import { useFleetLiveTracking } from '@/application/hooks/use-fleet-live-trackin
 import { useOrders } from '@/application/hooks/use-orders';
 import { usePlanLiveTracking } from '@/application/hooks/use-plan-live-tracking';
 import { AccessDeniedNotice } from '@/components/auth/permission-guard';
+import type { MapDraggedOrders, MapStopDrop, MapStopTarget } from '@/components/dispatch/dispatch-map-editing';
 import { DispatchStopTimeline } from '@/components/dispatch/dispatch-stop-timeline';
 import { PlanApprovalPanel } from '@/components/dispatch/plan-approval-panel';
 import { RouteMap } from '@/components/dispatch/route-map';
@@ -34,13 +35,27 @@ import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-l
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import { ApiError } from '@/lib/api';
 import * as Tabs from '@radix-ui/react-tabs';
-import { ChevronDown, ClipboardList, Play, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, ClipboardList, Pentagon, Play, RefreshCw, Undo2, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 const ROUTE_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
 const tabClass = 'inline-flex min-h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 border-transparent px-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-teal-700 data-[state=active]:border-teal-700 data-[state=active]:text-slate-950 sm:px-3.5';
+
+type PendingMapEdit = {
+  sourcePlan: DispatchPlanRecord;
+  targetPlan: DispatchPlanRecord;
+  orderIds: string[];
+  sourceIds: string[];
+  targetIds: string[];
+  targetIndex: number;
+  swapOrderId?: string;
+};
+
+function isEditablePlan(plan: DispatchPlanRecord | undefined): plan is DispatchPlanRecord {
+  return plan?.plan_status === 'DRAFT' && !plan.driver_id && typeof plan.version === 'number';
+}
 
 function setDispatchTab(tab: string) {
   const url = new URL(window.location.href);
@@ -87,6 +102,12 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [isPlanningPanelOpen, setIsPlanningPanelOpen] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
+  const [mapStopIds, setMapStopIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [drawingPolygon, setDrawingPolygon] = useState(false);
+  const [dropTarget, setDropTarget] = useState<MapStopTarget | null>(null);
+  const [mapDrag, setMapDrag] = useState<MapDraggedOrders | null>(null);
+  const [pendingMapEdit, setPendingMapEdit] = useState<PendingMapEdit | null>(null);
+  const editingStops = useRef(false);
   const [orderPageRevision, setOrderPageRevision] = useState(0);
   const isPlansOpen = isPlanningPanelOpen || activeTab === 'orders';
   const [highlightedPlan, setHighlightedPlan] = useState<MapPlanHighlight | null>(null);
@@ -376,7 +397,8 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
   };
 
   const handleReorderStops = async (plan: DispatchPlanRecord, orderedStopIds: string[]) => {
-    if (typeof plan.version !== 'number') throw new Error(t('Hãy tải lại tuyến trước khi chỉnh sửa.'));
+    if (typeof plan.version !== 'number' || editingStops.current) throw new Error(t('Hãy tải lại tuyến trước khi chỉnh sửa.'));
+    editingStops.current = true;
     setEditingPlanId(plan.plan_id);
     try {
       const updated = await orderRepository.reorderDraftStops(plan.plan_id, plan.version, orderedStopIds);
@@ -390,38 +412,40 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
       }
       if (error instanceof ApiError && (error.status === 409 || error.status === 400)) {
         await loadPlans();
-        throw new Error(t('Tuyến đã thay đổi. Hãy kiểm tra lại trước khi di chuyển điểm.'));
+        throw new Error(t(error.message || 'Tuyến đã thay đổi. Hãy kiểm tra lại trước khi di chuyển điểm.'));
       }
       throw error;
     } finally {
+      editingStops.current = false;
       setEditingPlanId(null);
     }
   };
 
   const handleMoveStop = async (
     sourcePlan: DispatchPlanRecord,
-    orderId: string,
-    targetPlanId: string,
+    targetPlan: DispatchPlanRecord,
+    orderIds: string[],
     targetIndex: number,
+    swapOrderId?: string,
   ) => {
-    const targetPlan = plans.find((item) => item.plan_id === targetPlanId);
-    if (!targetPlan || typeof sourcePlan.version !== 'number' || typeof targetPlan.version !== 'number') {
+    if (editingStops.current || !isEditablePlan(sourcePlan) || !isEditablePlan(targetPlan)) {
       throw new Error(t('Hãy tải lại tuyến trước khi chỉnh sửa.'));
     }
     const targetStopCount = targetPlan.ordered_stop_ids?.length ?? targetPlan.order_count;
-    if (typeof maxOrdersPerDriver === 'number' && targetStopCount >= maxOrdersPerDriver) {
-      const msg = t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.');
-      toast.error(msg);
-      throw new Error(msg);
+    if (!swapOrderId && typeof maxOrdersPerDriver === 'number' && targetStopCount + orderIds.length > maxOrdersPerDriver) {
+      throw new Error(t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.'));
     }
+    editingStops.current = true;
     setEditingPlanId(sourcePlan.plan_id);
     try {
-      const result = await orderRepository.moveDraftStop({ sourcePlan, targetPlan, orderId, targetIndex });
+      const result = await orderRepository.moveDraftStops({ sourcePlan, targetPlan, orderIds, targetIndex, swapOrderId });
       setPlans((current) => current.flatMap((item) => {
         if (item.plan_id === sourcePlan.plan_id) {
+          if (result.source_plan && (item.version ?? 0) > (result.source_plan.version ?? 0)) return [item];
           return result.source_plan ? [result.source_plan] : [];
         }
-        if (item.plan_id === result.target_plan.plan_id) return [result.target_plan];
+        if (item.plan_id === result.target_plan.plan_id
+          && (item.version ?? 0) <= (result.target_plan.version ?? 0)) return [result.target_plan];
         return [item];
       }));
       if (selectedPlanId === sourcePlan.plan_id && !result.source_plan) {
@@ -435,16 +459,15 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
       }
       if (error instanceof ApiError && (error.status === 409 || error.status === 400)) {
         await loadPlans();
-        throw new Error(t('Tuyến đã thay đổi. Hãy kiểm tra lại trước khi di chuyển điểm.'));
+        throw new Error(t(error.message || 'Tuyến đã thay đổi. Hãy kiểm tra lại trước khi di chuyển điểm.'));
       }
       if (error instanceof ApiError && error.status === 422) {
         await loadPlans();
-        const msg = t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.');
-        toast.error(msg);
-        throw new Error(msg);
+        throw new Error(t(error.message));
       }
       throw error;
     } finally {
+      editingStops.current = false;
       setEditingPlanId(null);
     }
   };
@@ -514,8 +537,8 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
             return {
               id: wp.stop_id || `stop-${idx}`,
               location: {
-                lat: wp.location?.lat ?? matchedOrder?.delivery_lat ?? 0,
-                lng: wp.location?.lng ?? matchedOrder?.delivery_lng ?? 0,
+                lat: matchedOrder?.delivery_lat ?? wp.location?.lat ?? NaN,
+                lng: matchedOrder?.delivery_lng ?? wp.location?.lng ?? NaN,
               },
               order: {
                 id: wp.stop_id || `stop-${idx}`,
@@ -525,7 +548,7 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
                   matchedOrder?.order_code || (wp.stop_id ? wp.stop_id.slice(0, 8) : `#${idx + 1}`),
               },
             };
-          });
+          }).filter((stop) => Number.isFinite(stop.location.lat) && Number.isFinite(stop.location.lng));
         }
       } catch {
         // Fallback sang ordered_stop_ids bên dưới
@@ -569,10 +592,6 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
     }
     return fallbackDepot;
   }
-  const stopsForMap = useMemo<OptimizationStop[]>(
-    () => (selectedPlan ? getPlanStops(selectedPlan, orders, t('Điểm giao hàng')) : []),
-    [orders, selectedPlan, t],
-  );
   const depotForMap = useMemo<DispatchDepot | null>(
     () => (selectedPlan ? getPlanDepot(selectedPlan, orders, fallbackDepot, t('Điểm lấy hàng')) : fallbackDepot),
     [fallbackDepot, orders, selectedPlan, t],
@@ -601,13 +620,121 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
           stops,
           driverId: driver?.user_id || driver?.id || plan.driver_id || undefined,
           driverName: driver?.name,
-          warehouseId: planDepot ? (planDepot.pickup_location_id || `location:${planDepot.lat}:${planDepot.lng}`) : undefined,
+          warehouseId: planDepot ? (planDepot.pickup_location_id || `location:${planDepot.lat.toFixed(5)}:${planDepot.lng.toFixed(5)}`) : undefined,
         };
       })
       .filter((item): item is MapOverviewRoute => item !== null);
   }, [drivers, fallbackDepot, orders, plans, routeColors, t]);
-  const overviewRoutes = useMemo(() => filterDispatchMapRoutes(mapRoutes, mapFilters), [mapRoutes, mapFilters]);
+  const previewPlans = useMemo(() => {
+    if (!pendingMapEdit) return plans;
+    return plans.map((plan) => {
+      const ids = plan.plan_id === pendingMapEdit.sourcePlan.plan_id ? pendingMapEdit.sourceIds
+        : plan.plan_id === pendingMapEdit.targetPlan.plan_id ? pendingMapEdit.targetIds : undefined;
+      return ids ? { ...plan, ordered_stop_ids: ids, order_count: ids.length, route_waypoints: null,
+        estimated_duration_minutes: null, total_distance_km: null } : plan;
+    });
+  }, [pendingMapEdit, plans]);
+  const overviewRoutes = useMemo(() => {
+    const visible = filterDispatchMapRoutes(mapRoutes, mapFilters);
+    if (!pendingMapEdit) return visible;
+    const stops = new Map(mapRoutes.flatMap((route) => route.stops.map((stop) => [stop.id, stop] as const)));
+    return visible.map((route) => {
+      const ids = route.id === pendingMapEdit.sourcePlan.plan_id ? pendingMapEdit.sourceIds
+        : route.id === pendingMapEdit.targetPlan.plan_id ? pendingMapEdit.targetIds : undefined;
+      return ids ? { ...route, stops: ids.flatMap((id) => stops.get(id) ?? []) } : route;
+    });
+  }, [mapRoutes, mapFilters, pendingMapEdit]);
   const mapFilterKey = Object.values(mapFilters).some(Boolean) ? JSON.stringify(mapFilters) : '';
+  const plansById = useMemo(() => new Map(plans.map((plan) => [plan.plan_id, plan])), [plans]);
+  const routesById = useMemo(() => new Map(mapRoutes.map((route) => [route.id, route])), [mapRoutes]);
+  const stopPlanIds = useMemo(() => new Map(plans.flatMap((plan) =>
+    (plan.ordered_stop_ids ?? []).map((id) => [id, plan.plan_id] as const))), [plans]);
+  const lockedStopIds = useMemo(() => new Set(orders.filter((order) => order.assigned_driver_id
+    || !['PLANNED', 'READY_FOR_DISPATCH'].includes(order.status)).map((order) => order.id)), [orders]);
+  const editablePlanIds = useMemo(() => new Set(plans.filter((plan) => isEditablePlan(plan)
+    && !(plan.ordered_stop_ids ?? []).some((id) => lockedStopIds.has(id))).map((plan) => plan.plan_id)), [lockedStopIds, plans]);
+  const editableStopIds = useMemo(() => new Set(mapRoutes.flatMap((route) => editablePlanIds.has(route.id)
+    ? route.stops.filter((stop) => stopPlanIds.get(stop.id) === route.id).map((stop) => stop.id) : [])),
+  [editablePlanIds, mapRoutes, stopPlanIds]);
+  const selectedMapStops = useMemo(() => new Set([...mapStopIds].filter((id) => editableStopIds.has(id))), [editableStopIds, mapStopIds]);
+  const selectedMapSources = new Set([...selectedMapStops].map((id) => stopPlanIds.get(id)));
+  const selectedMapSource = selectedMapSources.size === 1 ? [...selectedMapSources][0] : undefined;
+  const noEditableStopsOnMap = !overviewRoutes.some((route) => route.stops.some((stop) => editableStopIds.has(stop.id)));
+
+  function getDropError({ sourcePlanId, orderIds, target }: MapStopDrop): string | null {
+    if (pendingMapEdit || editingPlanId !== null || !canExecute) return t('Hãy lưu hoặc hoàn tác thay đổi trước khi chỉnh sửa tiếp.');
+    if (orderIds.length === 0 || !orderIds.every((id) => stopPlanIds.get(id) === sourcePlanId)) return t('Chỉ có thể chuyển nhóm đơn thuộc cùng một tuyến.');
+    if (!editablePlanIds.has(sourcePlanId) || !editablePlanIds.has(target.planId)
+      || (target.stopId && stopPlanIds.get(target.stopId) !== target.planId)) {
+      return t('Chỉ có thể chỉnh sửa tuyến nháp chưa gán tài xế và các điểm giao chưa khóa.');
+    }
+    if (sourcePlanId === target.planId) {
+      return orderIds.length === 1 && target.stopId && !orderIds.includes(target.stopId)
+        ? null : t('Hãy thả nhóm đơn sang tuyến khác, hoặc thả một đơn lên điểm giao khác để đổi chỗ.');
+    }
+    if (routesById.get(sourcePlanId)?.warehouseId !== routesById.get(target.planId)?.warehouseId) {
+      return t('Chỉ có thể chuyển đơn giữa các tuyến cùng điểm lấy hàng');
+    }
+    const swapsStops = orderIds.length === 1 && Boolean(target.stopId);
+    if (!swapsStops && typeof maxOrdersPerDriver === 'number'
+      && (plansById.get(target.planId)?.order_count ?? 0) + orderIds.length > maxOrdersPerDriver) {
+      return t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.');
+    }
+    return null;
+  }
+
+  function stageMapEdit(drop: MapStopDrop) {
+    const problem = getDropError(drop);
+    if (problem) { toast.error(problem); return; }
+    const sourcePlan = plansById.get(drop.sourcePlanId);
+    const targetPlan = plansById.get(drop.target.planId);
+    if (!sourcePlan || !targetPlan) return;
+    const moving = new Set(drop.orderIds);
+    const sourceIds = [...sourcePlan.ordered_stop_ids];
+    const targetIds = sourcePlan === targetPlan ? sourceIds : [...targetPlan.ordered_stop_ids];
+    const orderIds = sourceIds.filter((id) => moving.has(id));
+    const swapOrderId = orderIds.length === 1 ? drop.target.stopId : undefined;
+    const targetIndex = swapOrderId ? targetIds.indexOf(swapOrderId) : targetIds.length;
+    if (swapOrderId) {
+      sourceIds[sourceIds.indexOf(orderIds[0])] = swapOrderId;
+      targetIds[targetIndex] = orderIds[0];
+    } else {
+      targetIds.push(...orderIds);
+    }
+    setPendingMapEdit({ sourcePlan, targetPlan, orderIds,
+      sourceIds: swapOrderId ? sourceIds : sourceIds.filter((id) => !moving.has(id)), targetIds, targetIndex, swapOrderId });
+    setMapStopIds(moving);
+  }
+
+  const selectedMapOrders = selectedMapSource && !drawingPolygon ? { sourcePlanId: selectedMapSource, orderIds: [...selectedMapStops] } : null;
+  const movingMapOrders = mapDrag ?? selectedMapOrders;
+  const dropCandidatePlanIds = new Set(movingMapOrders ? plans.filter((plan) => plan.plan_id !== movingMapOrders.sourcePlanId
+    && !getDropError({ ...movingMapOrders, target: { planId: plan.plan_id } })).map((plan) => plan.plan_id) : []);
+
+  async function saveMapEdit() {
+    if (!pendingMapEdit || editingStops.current) return;
+    const { sourcePlan, targetPlan, orderIds, sourceIds, targetIndex, swapOrderId } = pendingMapEdit;
+    try {
+      if (sourcePlan.plan_id === targetPlan.plan_id) await handleReorderStops(sourcePlan, sourceIds);
+      else await handleMoveStop(sourcePlan, targetPlan, orderIds, targetIndex, swapOrderId);
+      setPendingMapEdit(null);
+      toast.success(t('Đã lưu thay đổi tuyến.'));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('Không thể lưu thay đổi tuyến.'));
+    }
+  }
+
+  function toggleMapStop(id: string) {
+    if (!editableStopIds.has(id)) return;
+    setMapStopIds((current) => {
+      const next = new Set([...current].filter((stop) => editableStopIds.has(stop)));
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const onTimelineDragTarget = useCallback((planId: string | null) => setDropTarget(planId ? { planId } : null), []);
   const filterDrivers = new Map(drivers.map((driver) => [driver.user_id || driver.id, driver.name]));
   const filterWarehouses = new Map(pickupLocations.map((pickup) => [pickup.id, pickup.name]));
   for (const route of mapRoutes) {
@@ -661,13 +788,16 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
   const selectedPlanTimeline = selectedPlan && (!mapFilterKey || visibleSelectedPlan) && (
     <DispatchStopTimeline
       key={selectedPlan.plan_id}
-      plan={selectedPlan}
+      plan={previewPlans.find((plan) => plan.plan_id === selectedPlan.plan_id) ?? selectedPlan}
       depot={depotForMap}
-      stops={stopsForMap}
+      stops={overviewRoutes.find((route) => route.id === selectedPlan.plan_id)?.stops ?? []}
       orders={orders}
       driver={selectedDriver}
       routeColor={routeColors.get(selectedPlan.plan_id)}
       highlightedStopId={highlightedPlan?.planId === selectedPlan.plan_id ? highlightedPlan.stopId : undefined}
+      selectedStopIds={selectedMapStops}
+      editableStopIds={canExecute && !pendingMapEdit ? editableStopIds : undefined}
+      onToggleStop={toggleMapStop}
       onHighlightStop={(stopId) =>
         setHighlightedPlan(stopId ? { planId: selectedPlan.plan_id, stopId } : null)
       }
@@ -775,9 +905,45 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
             onChange={changeMapFilters}
             onShowDeliveryStopsChange={(visible) => {
               setShowDeliveryStops(visible);
-              if (!visible) setHighlightedPlan(null);
+              if (!visible) {
+                setHighlightedPlan(null);
+                setDrawingPolygon(false);
+              }
             }}
           />}
+          {canExecute && <Button type="button" variant={drawingPolygon ? 'default' : 'outline'} size="sm"
+            className="min-h-11 min-w-11 gap-2 rounded-xl px-0 shadow-lg sm:px-3.5"
+            title={t('Chọn theo vùng')}
+            aria-pressed={drawingPolygon}
+            disabled={!drawingPolygon && (!showDeliveryStops || noEditableStopsOnMap || Boolean(pendingMapEdit) || editingPlanId !== null)}
+            onClick={() => { setHighlightedPlan(null); setDrawingPolygon(!drawingPolygon); }}>
+            <Pentagon size={16} aria-hidden="true" /><span className="sr-only sm:not-sr-only">{t('Chọn theo vùng')}</span>
+          </Button>}
+          {canExecute && (drawingPolygon || selectedMapStops.size > 0 || pendingMapEdit) && (
+            <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white px-2.5 py-1 shadow-md ring-1 ring-slate-200">
+              <span role="status" className="max-w-full text-xs font-medium text-slate-700">
+                {drawingPolygon ? t('Bấm để vẽ. Bấm lại đỉnh đầu hoặc bấm đúp để hoàn tất. Esc để hủy.')
+                  : pendingMapEdit ? t('Thay đổi tuyến chưa lưu')
+                  : `${t('Đã chọn')} ${selectedMapStops.size} ${t('đơn hàng')}`}
+              </span>
+              {!drawingPolygon && !pendingMapEdit && selectedMapSources.size > 1 && (
+                <span className="order-last basis-full text-xs font-medium text-amber-800 sm:order-none sm:basis-auto">{t('Chỉ có thể chuyển nhóm đơn thuộc cùng một tuyến.')}</span>
+              )}
+              {!drawingPolygon && !pendingMapEdit && selectedMapSources.size === 1 && selectedMapStops.size > 1 && (
+                <span className="order-last basis-full text-xs text-slate-600 sm:order-none sm:basis-auto">{t('Kéo một điểm đã chọn để chuyển cả nhóm.')}</span>
+              )}
+              {!drawingPolygon && !pendingMapEdit && selectedMapStops.size === 1 && (
+                <span className="order-last basis-full text-xs text-slate-600 sm:order-none sm:basis-auto">{t('Kéo điểm đã chọn lên một điểm khác để đổi chỗ.')}</span>
+              )}
+              {pendingMapEdit ? <>
+                <Button type="button" size="sm" variant="ghost" className="min-h-9 gap-1.5" disabled={editingPlanId !== null}
+                  onClick={() => setPendingMapEdit(null)}><Undo2 size={14} aria-hidden="true" />{t('Hoàn tác')}</Button>
+                <Button type="button" size="sm" className="min-h-9" isLoading={editingPlanId !== null}
+                  onClick={() => void saveMapEdit()}>{t('Lưu thay đổi')}</Button>
+              </> : !drawingPolygon && <Button type="button" size="sm" variant="ghost" className="min-h-9 gap-1"
+                onClick={() => setMapStopIds(new Set())}><X size={14} aria-hidden="true" />{t('Bỏ chọn')}</Button>}
+            </div>
+          )}
         </div>
 
         <div className="absolute inset-0">
@@ -796,6 +962,19 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
             showDeliveryStops={showDeliveryStops}
             showPlanDetails={Boolean(visibleSelectedPlan) && !isPlansOpen}
             isPlansOpen={isPlansOpen}
+            dropTarget={dropTarget}
+            dropCandidatePlanIds={mapDrag ? dropCandidatePlanIds : undefined}
+            editControls={canExecute ? {
+              drawing: drawingPolygon,
+              selectedIds: selectedMapStops,
+              editableIds: pendingMapEdit || editingPlanId !== null ? new Set() : editableStopIds,
+              onSelection: setMapStopIds,
+              onDrawingEnd: () => setDrawingPolygon(false),
+              onDragOrders: setMapDrag,
+              onDragTarget: setDropTarget,
+              getDropError,
+              onDrop: stageMapEdit,
+            } : undefined}
             onHoverOverviewPlan={setHighlightedPlan}
             onSelectOverviewRoute={(planId) =>
               setSelectedPlanId((current) => (current === planId ? null : planId))
@@ -807,7 +986,9 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
         <section
           id="dispatch-tool-plans"
           aria-label={t('Kế hoạch điều phối')}
-          className={`absolute inset-x-2 bottom-2 z-30 max-h-[min(65dvh,calc(100%_-_4.5rem))] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white sm:inset-x-4 sm:bottom-4 ${isPlansOpen ? 'flex' : 'hidden'}`}
+          className={`absolute inset-x-2 bottom-2 z-30 min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white sm:inset-x-4 sm:bottom-4 sm:max-h-[min(65dvh,calc(100%_-_4.5rem))] ${
+            drawingPolygon || selectedMapStops.size > 0 || pendingMapEdit ? 'max-h-[min(65dvh,calc(100%_-_10rem))]' : 'max-h-[min(65dvh,calc(100%_-_4.5rem))]'
+          } ${isPlansOpen ? 'flex' : 'hidden'}`}
         >
           <Tabs.Root value={activeTab} onValueChange={(tab) => {
             setHighlightedPlan(null);
@@ -838,7 +1019,7 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
             <Tabs.Content value="routes" forceMount className="min-h-0 overflow-y-auto overscroll-contain data-[state=inactive]:hidden">
               <PlanApprovalPanel
                 key={linkedPlanId ?? 'default'}
-                plans={plans}
+                plans={previewPlans}
                 drivers={drivers}
                 orders={orders}
                 routeColors={routeColors}
@@ -854,7 +1035,23 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
                 onCancelPlan={handleCancelPlan}
                 onInsertOrderIntoPlan={handleInsertOrderIntoPlan}
                 onReorderStops={handleReorderStops}
-                onMoveStop={handleMoveStop}
+                onMoveStop={(plan, orderId, targetPlanId, index) => {
+                  const problem = getDropError({ sourcePlanId: plan.plan_id, orderIds: [orderId], target: { planId: targetPlanId } });
+                  if (problem) return Promise.reject(new Error(problem));
+                  return handleMoveStop(plan, plansById.get(targetPlanId)!, [orderId], index);
+                }}
+                selectedStopIds={selectedMapStops}
+                onToggleStop={toggleMapStop}
+                dropTargetPlanId={dropTarget?.planId}
+                onDragTarget={onTimelineDragTarget}
+                canDropOn={(sourceId, targetId) => {
+                  const orderId = plansById.get(sourceId)?.ordered_stop_ids?.[0];
+                  return Boolean(orderId && !getDropError({ sourcePlanId: sourceId, orderIds: [orderId], target: { planId: targetId } }));
+                }}
+                mapEditPending={Boolean(pendingMapEdit) || drawingPolygon}
+                editablePlanIds={editablePlanIds}
+                dropCandidatePlanIds={dropCandidatePlanIds}
+                onMoveMapSelection={selectedMapOrders ? (planId) => stageMapEdit({ ...selectedMapOrders, target: { planId } }) : undefined}
                 editingPlanId={editingPlanId}
                 maxOrdersPerDriver={maxOrdersPerDriver}
               />

@@ -9,8 +9,9 @@ import {
 } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
 import dynamic from 'next/dynamic';
+import type { DispatchMapEditControls, MapStopTarget } from './dispatch-map-editing';
 
-interface RouteMapProps {
+export interface RouteMapProps {
   depot: DispatchDepot | null;
   overviewRoutes?: MapOverviewRoute[];
   selectedOverviewRouteId?: string | null;
@@ -27,6 +28,9 @@ interface RouteMapProps {
   driverName?: string;
   driverVehicle?: string;
   trackingSignal?: TrackingSignal;
+  editControls?: DispatchMapEditControls;
+  dropTarget?: MapStopTarget | null;
+  dropCandidatePlanIds?: ReadonlySet<string>;
 }
 
 const DynamicRouteMap = dynamic(() => import('./route-map-inner'), {
