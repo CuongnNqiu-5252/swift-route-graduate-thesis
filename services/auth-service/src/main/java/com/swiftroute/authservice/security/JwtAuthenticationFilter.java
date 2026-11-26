@@ -24,6 +24,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
 
+    @org.springframework.context.annotation.Lazy
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.authservice.service.DriverActivationService driverActivationService;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
@@ -41,6 +45,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             // 2. Validate Token hợp lệ hay không (không hợp lệ sẽ ném lỗi)
             if (jwtService.validateToken(jwt)) {
+                java.util.UUID sessionId = jwtService.extractSessionId(jwt);
+                if (sessionId != null
+                        && driverActivationService != null
+                        && driverActivationService.isSessionRevoked(sessionId)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
 
                 // 3. Lấy UserId và Role ra khỏi Token
                 String userId = jwtService.extractSubject(jwt);

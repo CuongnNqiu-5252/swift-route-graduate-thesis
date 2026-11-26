@@ -31,9 +31,22 @@ public class AuthController {
     private final AuthService authService;
     private final com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.authservice.service.DriverActivationService driverActivationService;
+
     public AuthController(AuthService authService, com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService) {
         this.authService = authService;
         this.tenantEmployeeService = tenantEmployeeService;
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "Activate Flutter Driver App using a 12-digit activation code")
+    @PostMapping("/driver/activate")
+    public ResponseEntity<ApiResponse<com.swiftroute.authservice.dto.response.DriverActivationAuthResponseDTO>> activateDriverApp(
+            @Valid @RequestBody com.swiftroute.authservice.dto.request.DriverActivateRequestDTO request,
+            HttpServletRequest httpRequest) {
+        com.swiftroute.authservice.dto.response.DriverActivationAuthResponseDTO response = driverActivationService
+                .activateDriverApp(request, httpRequest);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @PostMapping("/invitations/accept")

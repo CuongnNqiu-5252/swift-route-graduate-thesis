@@ -34,7 +34,34 @@ public class TenantPermissionRegistry {
     }
 
     private static final Map<String, LivePermissionSnapshot> LIVE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> REVOKED_SESSION_CACHE = new ConcurrentHashMap<>();
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    public static void recordRevokedSession(UUID sessionId, long expiresAtEpochSec) {
+        if (sessionId == null) {
+            return;
+        }
+        long nowSec = System.currentTimeMillis() / 1000L;
+        if (REVOKED_SESSION_CACHE.size() > 5000) {
+            REVOKED_SESSION_CACHE.entrySet().removeIf(entry -> entry.getValue() <= nowSec);
+        }
+        REVOKED_SESSION_CACHE.put(sessionId, Math.max(expiresAtEpochSec, nowSec + 7200L));
+    }
+
+    public static boolean isSessionRevoked(UUID sessionId) {
+        if (sessionId == null) {
+            return false;
+        }
+        Long exp = REVOKED_SESSION_CACHE.get(sessionId);
+        if (exp == null) {
+            return false;
+        }
+        if (exp <= System.currentTimeMillis() / 1000L) {
+            REVOKED_SESSION_CACHE.remove(sessionId);
+            return false;
+        }
+        return true;
+    }
 
     public static void recordLiveSnapshot(
             UUID tenantId,
@@ -78,6 +105,13 @@ public class TenantPermissionRegistry {
     public void onPermissionsUpdated(Message message) {
         try {
             JsonNode node = MAPPER.readTree(new String(message.getBody(), StandardCharsets.UTF_8));
+            String revokedSid = node.path("revokedSessionId").asText(node.path("revoked_session_id").asText(""));
+            if (!revokedSid.isBlank()) {
+                long expSec = node.path("revokedSessionExpiresAtEpochSec")
+                        .asLong((System.currentTimeMillis() / 1000L) + 7200L);
+                recordRevokedSession(UUID.fromString(revokedSid.trim()), expSec);
+                return;
+            }
             String tenantStr = node.path("tenantId").asText(node.path("tenant_id").asText(""));
             String userStr = node.path("userId").asText(node.path("user_id").asText(""));
             if (tenantStr.isBlank() || userStr.isBlank()) {
@@ -153,10 +187,12 @@ public class TenantPermissionRegistry {
             return Set.of("hub:manage");
         }
 
-        // 2. Tenant Settings & Delivery Zones
-        if (path.contains("/me/settings") || path.contains("/me/delivery-zone")) {
+        // 2. Tenant Settings, Delivery Zones & Delivery Proof Config
+        if (path.contains("/me/settings")
+                || path.contains("/me/delivery-zone")
+                || path.contains("/me/delivery-proof-config")) {
             if ("GET".equals(m) || path.endsWith("/check")) {
-                return Set.of("tenant:settings:read", "order:read", "order:create");
+                return Set.of("tenant:settings:read", "order:read", "order:create", "order:deliver");
             }
             return Set.of("tenant:settings:manage");
         }
@@ -237,15 +273,7 @@ public class TenantPermissionRegistry {
             return Set.of("order:update", "hub:manage", "sla:manage");
         }
 
-        // 7. Package Custody
-        if (path.startsWith("/api/custody")) {
-            if ("GET".equals(m)) {
-                return Set.of("order:read", "hub:read", "order:deliver");
-            }
-            return Set.of("order:deliver", "hub:manage", "order:update");
-        }
-
-        // 8. COD Ledger
+        // 7. COD Ledger
         if (path.startsWith("/api/cod")) {
             if (path.equals("/api/cod/mine/custody")
                     || path.endsWith("/collections")

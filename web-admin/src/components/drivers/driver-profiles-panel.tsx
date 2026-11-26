@@ -1,85 +1,93 @@
 'use client';
 
 import { FormEvent, useMemo, useState } from 'react';
-import { UserPlus, Mail, Phone, Truck, ShieldCheck, X, RefreshCw, Link2, Clock3, MessageSquare, Landmark } from 'lucide-react';
+import { KeyRound, MessageSquare, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useLocale } from '@/i18n/provider';
-import { CreateDriverPayload, Driver } from '@/domain/entities/driver.entity';
-import { TenantInvitation } from '@/domain/entities/member.entity';
-import { getCurrentTenantId, memberRepository } from '@/infrastructure/repositories/member.repository';
+import {
+  CreateDriverPayload,
+  Driver,
+  DriverActivationKeyResult,
+  UpdateDriverPayload,
+} from '@/domain/entities/driver.entity';
+import { getCurrentTenantId } from '@/infrastructure/repositories/member.repository';
 import { driverRepository } from '@/infrastructure/repositories/driver.repository';
 import { VIETQR_BANKS, formatBankDisplay, stripVietnameseDiacritics } from '@/application/vietqr';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
+import { DriverActivationCodeModal } from './driver-activation-code-modal';
+import { DriverProfileDialog } from './driver-profile-dialog';
+import { DriverProfilesTable, DriverProfileStatus } from './driver-profiles-table';
+import { driverVehicleLabel, formatDriverShift } from './driver-formatters';
 import { CustomSelect } from '@/components/ui/select';
-
-export type AddDriverMode = 'choose' | 'manual' | 'invite';
 
 interface DriverProfilesPanelProps {
   drivers: Driver[];
   isLoading: boolean;
   error: string | null;
-  invitations: TenantInvitation[];
-  mode: AddDriverMode | null;
-  onModeChange: (mode: AddDriverMode | null) => void;
+  isCreateOpen: boolean;
+  onCreateOpenChange: (open: boolean) => void;
   onCreateDriver: (payload: CreateDriverPayload) => Promise<Driver>;
+  onUpdateDriver?: (driverId: string, payload: UpdateDriverPayload) => Promise<Driver>;
   onReviewDriver: (driverId: string, approved: boolean, note?: string) => Promise<unknown>;
-  onReloadInvitations: () => Promise<void>;
+  onRefresh: () => void;
   onBankAccountUpdated?: () => Promise<void>;
 }
 
-const onboardingCopy: Record<Driver['onboarding_status'], { label: string; className: string }> = {
-  INACTIVE: { label: 'Cần hoàn thiện', className: 'bg-amber-50 text-amber-800' },
-  PENDING_APPROVAL: { label: 'Chờ duyệt', className: 'bg-blue-50 text-blue-800' },
-  ACTIVE: { label: 'Đã duyệt', className: 'bg-emerald-50 text-emerald-800' },
-  SUSPENDED: { label: 'Tạm ngưng', className: 'bg-red-50 text-red-800' },
-};
+const fieldRow =
+  'grid gap-1.5 text-sm font-medium text-slate-700 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-3';
 
-function invitationState(invitation: TenantInvitation) {
-  if (invitation.status === 'PENDING' && new Date(invitation.expires_at) <= new Date()) {
-    return { label: 'Đã hết hạn', className: 'bg-amber-50 text-amber-800', canResend: true, canRevoke: false };
-  }
-  const states = {
-    PENDING: { label: 'Đang chờ', className: 'bg-blue-50 text-blue-800', canResend: true, canRevoke: true },
-    ACCEPTED: { label: 'Đã chấp nhận', className: 'bg-emerald-50 text-emerald-800', canResend: false, canRevoke: false },
-    EXPIRED: { label: 'Đã hết hạn', className: 'bg-amber-50 text-amber-800', canResend: true, canRevoke: false },
-    REVOKED: { label: 'Đã thu hồi', className: 'bg-slate-100 text-slate-700', canResend: true, canRevoke: false },
-  };
-  return states[invitation.status];
-}
-
-/** Profiles, invitations, onboarding composer, and approval workflows for tenant drivers. */
+/** Driver profiles, manual creation, approval review, and VietQR payout configuration. */
 export function DriverProfilesPanel({
   drivers,
   isLoading,
   error,
-  invitations,
-  mode,
-  onModeChange,
+  isCreateOpen,
+  onCreateOpenChange,
   onCreateDriver,
+  onUpdateDriver,
   onReviewDriver,
-  onReloadInvitations,
+  onRefresh,
   onBankAccountUpdated,
 }: DriverProfilesPanelProps) {
-  const { t, intlLocale } = useLocale();
-  const { user } = useAuth();
+  const { t } = useLocale();
+  const { user, hasPermission } = useAuth();
+  const isManager = hasPermission('driver:manage');
+  const canReview =
+    isManager && ['OWNER', 'TENANT_ADMIN', 'SYSTEM_ADMIN'].includes(user?.tenantRole ?? user?.role ?? '');
   const canChat = ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? '');
-  const canManageBank = ['OWNER', 'TENANT_ADMIN', 'OPERATOR', 'SYSTEM_ADMIN'].includes(user?.tenantRole ?? '')
-    || user?.role === 'SYSTEM_ADMIN';
+  const canManageBank =
+    ['OWNER', 'TENANT_ADMIN', 'OPERATOR', 'SYSTEM_ADMIN'].includes(user?.tenantRole ?? '') ||
+    user?.role === 'SYSTEM_ADMIN';
+  const canEditProfile = isManager || canManageBank;
+
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [actionError, setActionError] = useState('');
-  const [createdDriver, setCreatedDriver] = useState<Driver | null>(null);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const [bankModalDriver, setBankModalDriver] = useState<Driver | null>(null);
+  const [selection, setSelection] = useState<{ id: string; review: boolean }>();
+  const profileDriver = drivers.find((driver) => driver.id === selection?.id);
+  const [issuedKeyResult, setIssuedKeyResult] = useState<DriverActivationKeyResult | null>(null);
+
   const [bankCode, setBankCode] = useState('VCB');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [bankAccountName, setBankAccountName] = useState('');
   const [bankError, setBankError] = useState('');
   const [savingBank, setSavingBank] = useState(false);
+
+  const [editFullName, setEditFullName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editVehicleType, setEditVehicleType] = useState<'MOTORCYCLE' | 'CAR' | 'VAN'>('MOTORCYCLE');
+  const [editLicensePlate, setEditLicensePlate] = useState('');
+  const [editCapacity, setEditCapacity] = useState('20');
+  const [editShiftStart, setEditShiftStart] = useState('');
+  const [editShiftEnd, setEditShiftEnd] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const bankOptions = useMemo(
     () =>
@@ -90,17 +98,82 @@ export function DriverProfilesPanel({
     []
   );
 
-  function openBankModal(driver: Driver) {
-    setBankModalDriver(driver);
+  function openProfile(driver: Driver, review = false) {
+    setActionError('');
+    setMessage('');
+    setSelection({ id: driver.id, review });
     setBankCode(driver.bank_code || 'VCB');
     setBankAccountNumber(driver.bank_account_number || '');
     setBankAccountName(driver.bank_account_name || stripVietnameseDiacritics(driver.name));
     setBankError('');
+    setEditFullName(driver.name || '');
+    setEditPhone(driver.phone || '');
+    setEditEmail(driver.email || '');
+    setEditVehicleType(
+      driver.vehicle_type === 'CAR' || driver.vehicle_type === 'VAN' ? driver.vehicle_type : 'MOTORCYCLE'
+    );
+    setEditLicensePlate(driver.vehicle_plate || '');
+    setEditCapacity(driver.capacity != null && driver.capacity > 0 ? String(driver.capacity) : '20');
+    setEditShiftStart(driver.shift_start ? driver.shift_start.slice(0, 5) : '');
+    setEditShiftEnd(driver.shift_end ? driver.shift_end.slice(0, 5) : '');
+    setProfileError('');
+  }
+
+  async function saveDriverProfile() {
+    if (!profileDriver) return;
+    const trimmedName = editFullName.trim();
+    const trimmedPhone = editPhone.trim().replace(/\s+/g, '');
+    const trimmedEmail = editEmail.trim().toLowerCase();
+    const parsedCapacity = Number(editCapacity);
+
+    if (trimmedName.length < 2) {
+      setProfileError(t('Họ và tên cần ít nhất 2 ký tự.'));
+      return;
+    }
+    if (!/^\+?[0-9]{9,15}$/.test(trimmedPhone)) {
+      setProfileError(t('Số điện thoại không hợp lệ (9–15 chữ số).'));
+      return;
+    }
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setProfileError(t('Địa chỉ email liên hệ không hợp lệ.'));
+      return;
+    }
+    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 1) {
+      setProfileError(t('Sức chứa phải là số nguyên lớn hơn hoặc bằng 1.'));
+      return;
+    }
+
+    setSavingProfile(true);
+    setProfileError('');
+    try {
+      const payload: UpdateDriverPayload = {
+        full_name: trimmedName,
+        phone: trimmedPhone,
+        email: trimmedEmail,
+        vehicle_type: editVehicleType,
+        license_plate: editLicensePlate.trim().toUpperCase(),
+        capacity: parsedCapacity,
+        driver_type: 'DEDICATED',
+        shift_start: editShiftStart ? editShiftStart : undefined,
+        shift_end: editShiftEnd ? editShiftEnd : undefined,
+      };
+      if (onUpdateDriver) {
+        await onUpdateDriver(profileDriver.id, payload);
+      } else {
+        await driverRepository.updateDriver(profileDriver.id, payload);
+        onRefresh();
+      }
+      toast.success(t('Đã cập nhật hồ sơ tài xế'));
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : t('Không thể cập nhật hồ sơ tài xế.'));
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   async function saveDriverBankAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!bankModalDriver) return;
+    if (!profileDriver) return;
     const cleanNumber = bankAccountNumber.trim().replace(/\s+/g, '');
     if (!/^[0-9A-Za-z]{4,40}$/.test(cleanNumber)) {
       setBankError(t('Số tài khoản cần từ 4 đến 40 ký tự chữ hoặc số.'));
@@ -109,13 +182,13 @@ export function DriverProfilesPanel({
     setSavingBank(true);
     setBankError('');
     try {
-      await driverRepository.updateBankAccount(bankModalDriver.id, {
+      await driverRepository.updateBankAccount(profileDriver.id, {
         bank_code: bankCode,
         bank_account_number: cleanNumber,
-        bank_account_name: bankAccountName.trim() || bankModalDriver.name,
+        bank_account_name: bankAccountName.trim() || profileDriver.name,
       });
       toast.success(t('Đã lưu tài khoản ngân hàng tài xế'));
-      setBankModalDriver(null);
+      setSelection(undefined);
       if (onBankAccountUpdated) {
         await onBankAccountUpdated();
       }
@@ -126,18 +199,9 @@ export function DriverProfilesPanel({
     }
   }
 
-  const pendingInvitations = useMemo(
-    () => invitations.filter((item) => item.status === 'PENDING' && new Date(item.expires_at) > new Date()),
-    [invitations]
-  );
-  const readyCount = drivers.filter((driver) => driver.onboarding_status === 'ACTIVE' && driver.is_available).length;
-  const reviewCount = drivers.filter((driver) => driver.onboarding_status === 'PENDING_APPROVAL').length;
-
   const resetComposer = () => {
-    onModeChange(null);
-    setCreatedDriver(null);
+    onCreateOpenChange(false);
     setActionError('');
-    setMessage('');
   };
 
   async function createManual(event: FormEvent<HTMLFormElement>) {
@@ -147,18 +211,25 @@ export function DriverProfilesPanel({
     setMessage('');
     const data = new FormData(event.currentTarget);
     try {
+      const emailRaw = String(data.get('email') || '').trim().toLowerCase();
       const payload: CreateDriverPayload = {
         tenantId: getCurrentTenantId(),
         fullName: String(data.get('fullName')).trim(),
         phone: String(data.get('phone')).trim(),
+        email: emailRaw || undefined,
         vehicleType: data.get('vehicleType') as CreateDriverPayload['vehicleType'],
-        licensePlate: String(data.get('licensePlate')).trim().toUpperCase() || undefined,
+        licensePlate: String(data.get('licensePlate') || '').trim().toUpperCase() || undefined,
         capacity: Number(data.get('capacity')),
         driverType: 'DEDICATED',
       };
       const created = await onCreateDriver(payload);
-      setCreatedDriver(created);
-      setMessage(`Đã tạo hồ sơ cho ${created.name}. Hồ sơ chưa thể nhận đơn cho đến khi tài khoản được liên kết và duyệt.`);
+      onCreateOpenChange(false);
+      toast.success(`${t('Đã tạo hồ sơ cho')} ${created.name}`);
+      setMessage(
+        `${t('Đã tạo hồ sơ cho')} ${created.name}. ${t(
+          'Bạn có thể cấp mã kích hoạt ứng dụng 12 chữ số ngay ở tab "Kích hoạt ứng dụng".'
+        )}`
+      );
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t('Không thể tạo hồ sơ tài xế.'));
     } finally {
@@ -166,53 +237,16 @@ export function DriverProfilesPanel({
     }
   }
 
-  async function invite(event: FormEvent<HTMLFormElement>, driverId?: string) {
-    event.preventDefault();
+  async function issueActivationFromProfile(driver: Driver) {
     setBusy(true);
-    setActionError('');
-    setMessage('');
-    const data = new FormData(event.currentTarget);
+    setProfileError('');
     try {
-      const email = String(data.get('email')).trim().toLowerCase();
-      await memberRepository.inviteMember({ email, role: 'DRIVER', driverId });
-      setMessage(`Đã gửi lời mời đến ${email}. Lời mời có hiệu lực 7 ngày.`);
-      await onReloadInvitations();
-      if (!driverId) onModeChange(null);
+      const issued = await driverRepository.generateActivationCode(driver.id);
+      setSelection(undefined);
+      setIssuedKeyResult(issued);
+      onRefresh();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t('Không thể gửi lời mời.'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function revoke(id: string) {
-    setBusy(true);
-    setActionError('');
-    try {
-      await memberRepository.revokeInvitation(id);
-      await onReloadInvitations();
-      setMessage(t('Đã thu hồi lời mời.'));
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t('Không thể thu hồi lời mời.'));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resend(invitation: TenantInvitation) {
-    setBusy(true);
-    setActionError('');
-    setMessage('');
-    try {
-      await memberRepository.inviteMember({
-        email: invitation.email,
-        role: 'DRIVER',
-        driverId: invitation.driver_id,
-      });
-      await onReloadInvitations();
-      setMessage(`Đã gửi lời mời mới đến ${invitation.email}. Liên kết cũ không còn hiệu lực.`);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t('Không thể gửi lại lời mời.'));
+      setProfileError(err instanceof Error ? err.message : t('Không thể tạo mã kích hoạt.'));
     } finally {
       setBusy(false);
     }
@@ -229,7 +263,9 @@ export function DriverProfilesPanel({
     try {
       await onReviewDriver(driver.id, approved, note);
       setReviewNotes((current) => ({ ...current, [driver.id]: '' }));
-      setMessage(approved ? `Đã duyệt hồ sơ ${driver.name}.` : `Đã gửi yêu cầu bổ sung cho ${driver.name}.`);
+      setMessage(
+        approved ? `${t('Đã duyệt hồ sơ')} ${driver.name}.` : `${t('Đã gửi yêu cầu bổ sung cho')} ${driver.name}.`
+      );
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t('Không thể xử lý hồ sơ.'));
     } finally {
@@ -237,358 +273,460 @@ export function DriverProfilesPanel({
     }
   }
 
+  const actionFeedback = (actionError || message) && (
+    <div
+      role={actionError ? 'alert' : 'status'}
+      className={`rounded-lg px-3 py-2 text-sm ${
+        actionError ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'
+      }`}
+    >
+      {actionError || message}
+    </div>
+  );
+
   return (
-    <div className="space-y-6">
-      <section className="grid divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        {[
-          [t('Tổng hồ sơ'), drivers.length],
-          [t('Sẵn sàng nhận đơn'), readyCount],
-          [t('Đang chờ duyệt'), reviewCount],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="px-5 py-4">
-            <p className="text-xs text-slate-500">{label}</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{isLoading ? '—' : value}</p>
-          </div>
-        ))}
-      </section>
+    <div className="space-y-4">
+      {!isCreateOpen && !profileDriver && actionFeedback}
+      <DriverProfilesTable
+        drivers={drivers}
+        isLoading={isLoading}
+        error={error}
+        canReview={canReview}
+        onRefresh={onRefresh}
+        onOpen={openProfile}
+        onAdd={
+          isManager
+            ? () => {
+                setActionError('');
+                onCreateOpenChange(true);
+              }
+            : undefined
+        }
+      />
 
-      {(actionError || message) && (
-        <div
-          role={actionError ? 'alert' : 'status'}
-          className={`rounded-lg px-4 py-3 text-sm ${actionError ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'}`}
+      {isCreateOpen && (
+        <Modal
+          open
+          onOpenChange={(open) => {
+            if (!open && !busy) resetComposer();
+          }}
+          title={t('Thêm tài xế')}
+          description={t('Tạo hồ sơ tài xế nội bộ. Sau khi lưu, cấp mã kích hoạt 12 chữ số để tài xế đăng nhập ứng dụng.')}
+          className="max-h-[calc(100dvh-1.5rem)] w-[calc(100%-1.5rem)] max-w-xl overflow-y-auto"
         >
-          {actionError || message}
-        </div>
-      )}
-
-      {mode && (
-        <section className="rounded-xl border border-slate-300 bg-white p-5 sm:p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950">{t('Thêm tài xế')}</h2>
-              <p className="mt-1 text-sm text-slate-600">{t('Chọn cách phù hợp với tình trạng nhân sự hiện tại.')}</p>
-            </div>
-            <button
-              type="button"
-              onClick={resetComposer}
-              aria-label={t('Đóng')}
-              className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          {mode === 'choose' && (
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => onModeChange('manual')}
-                className="rounded-xl border border-slate-200 p-5 text-left transition-colors hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <UserPlus size={20} />
-                <h3 className="mt-4 font-semibold text-slate-950">{t('Tạo hồ sơ thủ công')}</h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  {t('Dành cho tài xế đang làm việc với doanh nghiệp. Có thể gửi lời mời kích hoạt sau.')}
-                </p>
-              </button>
-              <button
-                type="button"
-                onClick={() => onModeChange('invite')}
-                className="rounded-xl border border-slate-200 p-5 text-left transition-colors hover:border-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                <Mail size={20} />
-                <h3 className="mt-4 font-semibold text-slate-950">{t('Mời bằng email')}</h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  {t('Tài xế tạo tài khoản và tự hoàn thiện hồ sơ từ lời mời.')}
-                </p>
-              </button>
+          {actionError && (
+            <div role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {actionError}
             </div>
           )}
 
-          {mode === 'manual' && !createdDriver && (
-            <form onSubmit={createManual} className="mt-5 grid gap-4 sm:grid-cols-2">
-              <Input name="fullName" label={t('Họ và tên')} required minLength={2} />
-              <Input name="phone" label={t('Số điện thoại')} required pattern="\+?[0-9]{9,15}" />
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-gray-700">
-                {t('Loại phương tiện')}
+          <form onSubmit={(event) => void createManual(event)} className="space-y-4">
+            <div className="space-y-2.5">
+              <label className={fieldRow}>
+                <span>{t('Họ và tên')}</span>
+                <Input name="fullName" required minLength={2} placeholder={t('VD: Nguyễn Văn Tài')} />
+              </label>
+              <label className={fieldRow}>
+                <span>{t('Số điện thoại')}</span>
+                <Input name="phone" type="tel" required pattern="\+?[0-9]{9,15}" placeholder={t('VD: 0901234567')} />
+              </label>
+              <label className={fieldRow}>
+                <span>{t('Email liên hệ')}</span>
+                <Input name="email" type="email" placeholder={t('Tùy chọn — dùng gửi mã kích hoạt')} />
+              </label>
+            </div>
+            <div className="space-y-2.5 border-t border-slate-200 pt-4">
+              <label className={fieldRow}>
+                <span>{t('Loại phương tiện')}</span>
                 <CustomSelect
                   name="vehicleType"
+                  aria-label={t('Loại phương tiện')}
                   defaultValue="MOTORCYCLE"
                   options={[
                     { value: 'MOTORCYCLE', label: t('Xe máy') },
                     { value: 'CAR', label: t('Ô tô') },
-                    { value: 'VAN', label: 'Xe van' },
+                    { value: 'VAN', label: t('Xe van') },
                   ]}
                 />
               </label>
-              <Input name="licensePlate" label={t('Biển số (có thể bổ sung sau)')} />
-              <Input name="capacity" label={t('Sức chứa (đơn)')} type="number" min={1} required defaultValue={20} />
-              <div className="flex items-end gap-2">
-                <Button type="button" variant="outline" onClick={() => onModeChange('choose')}>
-                  {t('Quay lại')}
-                </Button>
-                <Button type="submit" isLoading={busy}>
-                  {t('Tạo hồ sơ')}
-                </Button>
-              </div>
-            </form>
-          )}
-
-          {mode === 'manual' && createdDriver && (
-            <div className="mt-5">
-              <p className="text-sm leading-6 text-slate-700">
-                {t('Hồ sơ đã được lưu. Gửi lời mời để tài xế liên kết tài khoản, hoặc đóng và thực hiện sau từ danh sách.')}
-              </p>
-              <form onSubmit={(event) => invite(event, createdDriver.id)} className="mt-4 flex flex-col gap-3 sm:flex-row">
-                <Input name="email" label={t('Email tài xế')} type="email" required className="min-w-0 sm:w-72" />
-                <div className="flex items-end gap-2">
-                  <Button type="submit" isLoading={busy}>
-                    {t('Gửi lời mời')}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={resetComposer}>
-                    {t('Để sau')}
-                  </Button>
-                </div>
-              </form>
+              <label className={fieldRow}>
+                <span>{t('Biển số xe')}</span>
+                <Input name="licensePlate" required placeholder={t('VD: 65-B1 123.45')} />
+              </label>
+              <label className={fieldRow}>
+                <span>{t('Sức chứa (đơn)')}</span>
+                <Input name="capacity" type="number" min={1} required defaultValue={20} />
+              </label>
             </div>
-          )}
-
-          {mode === 'invite' && (
-            <form onSubmit={(event) => invite(event)} className="mt-5 flex flex-col gap-3 sm:flex-row">
-              <Input name="email" label={t('Email tài xế')} type="email" required className="min-w-0 sm:w-80" />
-              <div className="flex items-end gap-2">
-                <Button type="button" variant="outline" onClick={() => onModeChange('choose')}>
-                  {t('Quay lại')}
-                </Button>
-                <Button type="submit" isLoading={busy}>
-                  {t('Gửi lời mời')}
-                </Button>
-              </div>
-            </form>
-          )}
-        </section>
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
+              <Button type="button" variant="outline" className="cursor-pointer" disabled={busy} onClick={resetComposer}>
+                {t('Đóng')}
+              </Button>
+              <Button type="submit" className="cursor-pointer" isLoading={busy}>
+                {t('Tạo hồ sơ')}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
 
-      {invitations.length > 0 && (
-        <section>
-          <div className="mb-3 flex items-center gap-2">
-            <Clock3 size={17} />
-            <h2 className="font-semibold text-slate-950">{t('Lời mời tài xế')}</h2>
-            {pendingInvitations.length > 0 && (
-              <span className="text-sm text-slate-500">
-                {pendingInvitations.length} {t('đang chờ')}
-              </span>
-            )}
-          </div>
-          <div className="divide-y rounded-xl border border-slate-200 bg-white">
-            {invitations.map((invitation) => {
-              const state = invitationState(invitation);
-              return (
-                <div key={invitation.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate font-medium text-slate-900">{invitation.email}</p>
-                      <span className={`rounded-md px-2 py-1 text-xs font-medium ${state.className}`}>{t(state.label)}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {t('Hết hạn')} {new Date(invitation.expires_at).toLocaleString(intlLocale)}
-                      {invitation.driver_id ? ` ${t('· Đã gắn hồ sơ')}` : ` ${t('· Chưa tạo hồ sơ')}`}
+      {profileDriver && (
+        <DriverProfileDialog
+          key={profileDriver.id}
+          name={profileDriver.name}
+          initialSection={selection?.review ? 'review' : 'profile'}
+          busy={savingBank || savingProfile || busy}
+          onClose={() => setSelection(undefined)}
+          profileAction={
+            canEditProfile && (
+              <Button
+                type="button"
+                size="sm"
+                className="cursor-pointer"
+                onClick={() => void saveDriverProfile()}
+                isLoading={savingProfile}
+              >
+                {t('Lưu hồ sơ')}
+              </Button>
+            )
+          }
+          profile={
+            <>
+              {canEditProfile ? (
+                <div className="space-y-3">
+                  <label className={fieldRow}>
+                    <span>{t('Họ và tên')}</span>
+                    <input
+                      type="text"
+                      required
+                      minLength={2}
+                      maxLength={255}
+                      disabled={savingProfile}
+                      value={editFullName}
+                      onChange={(event) => {
+                        setEditFullName(event.target.value);
+                        if (profileError) setProfileError('');
+                      }}
+                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </label>
+                  <label className={fieldRow}>
+                    <span>{t('Số điện thoại')}</span>
+                    <input
+                      type="tel"
+                      required
+                      pattern="^\+?[0-9]{9,15}$"
+                      maxLength={15}
+                      disabled={savingProfile}
+                      value={editPhone}
+                      onChange={(event) => {
+                        setEditPhone(event.target.value);
+                        if (profileError) setProfileError('');
+                      }}
+                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </label>
+                  <label className={fieldRow}>
+                    <span>{t('Email liên hệ')}</span>
+                    <input
+                      type="email"
+                      maxLength={255}
+                      disabled={savingProfile}
+                      value={editEmail}
+                      onChange={(event) => {
+                        setEditEmail(event.target.value);
+                        if (profileError) setProfileError('');
+                      }}
+                      placeholder={t('Dùng để nhận mã kích hoạt ứng dụng')}
+                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </label>
+                  <DriverDetailRows
+                    rows={[
+                      [t('Trạng thái'), <DriverProfileStatus key="status" driver={profileDriver} />],
+                      [
+                        t('Tài khoản ứng dụng'),
+                        profileDriver.user_id ? t('Đã liên kết tài khoản') : t('Chưa kích hoạt ứng dụng'),
+                      ],
+                    ]}
+                  />
+                  {profileError && (
+                    <p role="alert" className="text-sm text-red-700">
+                      {profileError}
                     </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {state.canResend && (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => resend(invitation)}>
-                        <RefreshCw size={14} />
-                        {t('Gửi lại')}
-                      </Button>
-                    )}
-                    {state.canRevoke && (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => revoke(invitation.id)}>
-                        {t('Thu hồi')}
-                      </Button>
-                    )}
+                  )}
+                </div>
+              ) : (
+                <DriverDetailRows
+                  rows={[
+                    [t('Họ và tên'), profileDriver.name || '—'],
+                    [t('Số điện thoại'), profileDriver.phone || '—'],
+                    [t('Email liên hệ'), profileDriver.email || '—'],
+                    [t('Trạng thái'), <DriverProfileStatus key="status" driver={profileDriver} />],
+                    [
+                      t('Tài khoản ứng dụng'),
+                      profileDriver.user_id ? t('Đã liên kết tài khoản') : t('Chưa kích hoạt ứng dụng'),
+                    ],
+                  ]}
+                />
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {profileDriver.user_id && canChat && (
+                  <Link
+                    href={`/messages?peer=${encodeURIComponent(profileDriver.user_id)}`}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-600"
+                  >
+                    <MessageSquare size={14} aria-hidden="true" />
+                    {t('Nhắn tin')}
+                  </Link>
+                )}
+                {isManager && profileDriver.onboarding_status !== 'SUSPENDED' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="cursor-pointer"
+                    disabled={busy || savingProfile}
+                    onClick={() => void issueActivationFromProfile(profileDriver)}
+                  >
+                    <KeyRound size={14} aria-hidden="true" />
+                    {t('Cấp mã kích hoạt ứng dụng')}
+                  </Button>
+                )}
+              </div>
+            </>
+          }
+          vehicle={
+            canEditProfile ? (
+              <div className="space-y-3">
+                <label className={fieldRow}>
+                  <span>{t('Loại phương tiện')}</span>
+                  <CustomSelect
+                    aria-label={t('Loại phương tiện')}
+                    value={editVehicleType}
+                    onValueChange={(val) => setEditVehicleType(val as 'MOTORCYCLE' | 'CAR' | 'VAN')}
+                    disabled={savingProfile}
+                    options={[
+                      { value: 'MOTORCYCLE', label: t('Xe máy') },
+                      { value: 'CAR', label: t('Ô tô') },
+                      { value: 'VAN', label: t('Xe van') },
+                    ]}
+                  />
+                </label>
+                <label className={fieldRow}>
+                  <span>{t('Biển số')}</span>
+                  <input
+                    type="text"
+                    maxLength={20}
+                    disabled={savingProfile}
+                    value={editLicensePlate}
+                    onChange={(event) => {
+                      setEditLicensePlate(event.target.value.toUpperCase());
+                      if (profileError) setProfileError('');
+                    }}
+                    placeholder={t('VD: 65-B1 123.45')}
+                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase tabular-nums text-slate-950 placeholder:normal-case placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </label>
+                <label className={fieldRow}>
+                  <span>{t('Sức chứa (đơn)')}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    required
+                    disabled={savingProfile}
+                    value={editCapacity}
+                    onChange={(event) => {
+                      setEditCapacity(event.target.value);
+                      if (profileError) setProfileError('');
+                    }}
+                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </label>
+                <div className={fieldRow}>
+                  <span>{t('Ca làm')}</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="time"
+                      aria-label={t('Giờ bắt đầu ca')}
+                      disabled={savingProfile}
+                      value={editShiftStart}
+                      onChange={(event) => setEditShiftStart(event.target.value)}
+                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                    <input
+                      type="time"
+                      aria-label={t('Giờ kết thúc ca')}
+                      disabled={savingProfile}
+                      value={editShiftEnd}
+                      onChange={(event) => setEditShiftEnd(event.target.value)}
+                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+                {profileError && (
+                  <p role="alert" className="text-sm text-red-700">
+                    {profileError}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <DriverDetailRows
+                rows={[
+                  [t('Loại phương tiện'), profileDriver.vehicle_type ? t(driverVehicleLabel(profileDriver.vehicle_type)) : '—'],
+                  [t('Biển số'), profileDriver.vehicle_plate || '—'],
+                  [t('Sức chứa (đơn)'), profileDriver.capacity ?? '—'],
+                  [t('Ca làm'), formatDriverShift(profileDriver.shift_start, profileDriver.shift_end)],
+                ]}
+              />
+            )
+          }
+          review={
+            profileDriver.onboarding_status === 'PENDING_APPROVAL' ||
+            profileDriver.review_note ||
+            selection?.review ||
+            message ? (
+              <div className="space-y-3">
+                <DriverProfileStatus driver={profileDriver} />
+                {profileDriver.review_note && (
+                  <p className="break-words text-sm text-slate-700">
+                    {t('Yêu cầu bổ sung:')} {profileDriver.review_note}
+                  </p>
+                )}
+                {canReview && profileDriver.onboarding_status === 'PENDING_APPROVAL' && (
+                  <>
+                    <label className="block text-sm font-medium text-slate-700" htmlFor="driver-review-note">
+                      {t('Ghi chú xét duyệt')}
+                    </label>
+                    <textarea
+                      id="driver-review-note"
+                      value={reviewNotes[profileDriver.id] || ''}
+                      onChange={(event) =>
+                        setReviewNotes((current) => ({ ...current, [profileDriver.id]: event.target.value }))
+                      }
+                      maxLength={1000}
+                      disabled={busy}
+                      className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-blue-600"
+                      placeholder={t('Bắt buộc khi yêu cầu bổ sung')}
+                    />
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => void review(profileDriver, false)}
+                      >
+                        {t('Yêu cầu bổ sung')}
+                      </Button>
+                      <Button type="button" size="sm" disabled={busy} onClick={() => void review(profileDriver, true)}>
+                        <ShieldCheck size={15} aria-hidden="true" />
+                        {t('Duyệt hồ sơ')}
+                      </Button>
+                    </div>
+                  </>
+                )}
+                {actionFeedback}
+              </div>
+            ) : undefined
+          }
+          bankAction={
+            canManageBank && (
+              <Button type="submit" size="sm" form="driver-bank-account" isLoading={savingBank}>
+                {t('Lưu tài khoản')}
+              </Button>
+            )
+          }
+          bank={
+            canManageBank ? (
+              <form
+                id="driver-bank-account"
+                onSubmit={(event) => void saveDriverBankAccount(event)}
+                className="space-y-3"
+              >
+                <label className={fieldRow}>
+                  {t('Ngân hàng')}
+                  <CustomSelect
+                    aria-label={t('Ngân hàng')}
+                    value={bankCode}
+                    onValueChange={setBankCode}
+                    options={bankOptions}
+                    disabled={savingBank}
+                  />
+                </label>
+                <label className={fieldRow}>
+                  {t('Số tài khoản')}
+                  <input
+                    type="text"
+                    required
+                    pattern="^[0-9A-Za-z]{4,40}$"
+                    maxLength={40}
+                    disabled={savingBank}
+                    value={bankAccountNumber}
+                    onChange={(event) => {
+                      setBankAccountNumber(event.target.value);
+                      if (bankError) setBankError('');
+                    }}
+                    placeholder={t('VD: 0123456789')}
+                    className={`h-10 rounded-lg border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                      bankError
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
+                        : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500/20'
+                    }`}
+                  />
+                </label>
+                <label className={fieldRow}>
+                  {t('Tên chủ tài khoản (không dấu)')}
+                  <input
+                    type="text"
+                    maxLength={120}
+                    disabled={savingBank}
+                    value={bankAccountName}
+                    onChange={(event) => setBankAccountName(event.target.value)}
+                    placeholder={profileDriver ? stripVietnameseDiacritics(profileDriver.name) : ''}
+                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </label>
+                {bankError && (
+                  <p role="alert" className="text-sm text-red-700">
+                    {bankError}
+                  </p>
+                )}
+              </form>
+            ) : (
+              <DriverDetailRows
+                rows={[
+                  [t('Ngân hàng'), profileDriver.bank_code ? formatBankDisplay(profileDriver.bank_code) : '—'],
+                  [t('Số tài khoản'), profileDriver.bank_account_number || '—'],
+                  [t('Tên chủ tài khoản'), profileDriver.bank_account_name || '—'],
+                ]}
+              />
+            )
+          }
+        />
       )}
 
-      <section>
-        <h2 className="mb-3 font-semibold text-slate-950">{t('Danh sách tài xế')}</h2>
-        {isLoading ? (
-          <div className="py-16 text-center text-sm text-slate-500">{t('Đang tải hồ sơ…')}</div>
-        ) : error ? (
-          <div className="rounded-lg bg-red-50 p-4 text-sm text-red-800">{error}</div>
-        ) : drivers.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-300 py-16 text-center">
-            <p className="font-medium text-slate-900">{t('Chưa có tài xế')}</p>
-            <p className="mt-1 text-sm text-slate-500">{t('Dùng “Thêm tài xế” để bắt đầu.')}</p>
-          </div>
-        ) : (
-          <div className="divide-y rounded-xl border border-slate-200 bg-white">
-            {drivers.map((driver) => {
-              const state = onboardingCopy[driver.onboarding_status] || onboardingCopy.INACTIVE;
-              const linked = Boolean(driver.user_id);
-              return (
-                <article key={driver.id} className="p-4 sm:p-5">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold text-slate-950">{driver.name}</h3>
-                        <span className={`rounded-md px-2 py-1 text-xs font-medium ${state.className}`}>{t(state.label)}</span>
-                        {!linked && (
-                          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700">
-                            {t('Chưa liên kết tài khoản')}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-600">
-                        <span className="flex items-center gap-1.5">
-                          <Phone size={14} />
-                          {driver.phone}
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <Truck size={14} />
-                          {driver.vehicle_plate
-                            ? `${driver.vehicle_type} · ${driver.vehicle_plate}`
-                            : `${driver.vehicle_type} · ${t('Chưa có biển số')}`}
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <Landmark size={14} />
-                          {driver.bank_code && driver.bank_account_number ? (
-                            <span className="font-mono text-xs text-slate-700">
-                              {formatBankDisplay(driver.bank_code)} · {driver.bank_account_number}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">{t('Chưa có tài khoản nhận lương')}</span>
-                          )}
-                        </span>
-                      </div>
-                      {driver.review_note && (
-                        <p className="mt-2 text-sm text-amber-800">
-                          {t('Yêu cầu bổ sung:')} {driver.review_note}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 self-start">
-                      {canManageBank && (
-                        <Button size="sm" variant="outline" onClick={() => openBankModal(driver)}>
-                          <Landmark size={14} />
-                          {driver.bank_account_number ? t('Sửa STK') : t('Thêm STK')}
-                        </Button>
-                      )}
-                      {linked && canChat && (
-                        <Link href={`/messages?peer=${encodeURIComponent(driver.user_id)}`}
-                          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                          <MessageSquare size={14} />
-                          {t('Nhắn tin')}
-                        </Link>
-                      )}
-                      {!linked && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setCreatedDriver(driver);
-                            onModeChange('manual');
-                          }}
-                        >
-                          <Link2 size={14} />
-                          {t('Mời kích hoạt')}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {driver.onboarding_status === 'PENDING_APPROVAL' && (
-                    <div className="mt-4 border-t border-slate-100 pt-4">
-                      <label className="text-sm font-medium text-slate-700" htmlFor={`note-${driver.id}`}>
-                        {t('Ghi chú xét duyệt')}
-                      </label>
-                      <textarea
-                        id={`note-${driver.id}`}
-                        value={reviewNotes[driver.id] || ''}
-                        onChange={(event) =>
-                          setReviewNotes((current) => ({ ...current, [driver.id]: event.target.value }))
-                        }
-                        maxLength={1000}
-                        className="mt-1.5 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                        placeholder={t('Bắt buộc khi yêu cầu bổ sung')}
-                      />
-                      <div className="mt-3 flex justify-end gap-2">
-                        <Button variant="outline" disabled={busy} onClick={() => review(driver, false)}>
-                          {t('Yêu cầu bổ sung')}
-                        </Button>
-                        <Button disabled={busy} onClick={() => review(driver, true)}>
-                          <ShieldCheck size={15} />
-                          {t('Duyệt hồ sơ')}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      <Modal
-        open={Boolean(bankModalDriver)}
-        onOpenChange={(open) => {
-          if (!open && !savingBank) setBankModalDriver(null);
-        }}
-        title={t('Tài khoản nhận lương VietQR')}
-        description={bankModalDriver?.name}
-      >
-        <form onSubmit={(event) => void saveDriverBankAccount(event)} className="space-y-4">
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-            {t('Ngân hàng')}
-            <CustomSelect value={bankCode} onValueChange={setBankCode} options={bankOptions} />
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-            {t('Số tài khoản')}
-            <input
-              type="text"
-              required
-              pattern="^[0-9A-Za-z]{4,40}$"
-              maxLength={40}
-              value={bankAccountNumber}
-              onChange={(event) => {
-                setBankAccountNumber(event.target.value);
-                if (bankError) setBankError('');
-              }}
-              placeholder={t('VD: 0123456789')}
-              className={`h-10 rounded-lg border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
-                bankError
-                  ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
-                  : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500/20'
-              }`}
-            />
-            {bankError && <p role="alert" className="text-xs font-normal text-red-600">{bankError}</p>}
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-            {t('Tên chủ tài khoản (không dấu)')}
-            <input
-              type="text"
-              maxLength={120}
-              value={bankAccountName}
-              onChange={(event) => setBankAccountName(event.target.value)}
-              placeholder={bankModalDriver ? stripVietnameseDiacritics(bankModalDriver.name) : ''}
-              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            />
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setBankModalDriver(null)} disabled={savingBank}>
-              {t('Hủy')}
-            </Button>
-            <Button type="submit" isLoading={savingBank}>
-              {t('Lưu tài khoản')}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      {issuedKeyResult && (
+        <DriverActivationCodeModal
+          items={[issuedKeyResult]}
+          onClose={() => setIssuedKeyResult(null)}
+          onEmailDelivered={onRefresh}
+        />
+      )}
     </div>
+  );
+}
+
+function DriverDetailRows({ rows }: { rows: [string, React.ReactNode][] }) {
+  return (
+    <dl className="divide-y divide-slate-100">
+      {rows.map(([label, value]) => (
+        <div key={label} className={`${fieldRow} py-2.5`}>
+          <dt className="text-slate-600">{label}</dt>
+          <dd className="min-w-0 break-words text-slate-950">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

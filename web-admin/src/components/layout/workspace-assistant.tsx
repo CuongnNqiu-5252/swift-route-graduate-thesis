@@ -141,6 +141,7 @@ function WorkspaceAssistantSession({ tenantId }: { tenantId: string }) {
     setPlanningId(action.id);
     try {
       const result = await orderRepository.triggerDispatchPlanning({
+        scope: 'DEPOT',
         depotId: action.payload.depot_id,
         tenantId,
         signal: request.signal,

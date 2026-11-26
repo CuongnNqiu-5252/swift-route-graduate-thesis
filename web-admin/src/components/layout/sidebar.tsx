@@ -1,14 +1,13 @@
 'use client';
 
-import { useLocale } from '@/i18n/provider';
 import { useAuth } from '@/application/contexts/auth-context';
+import { useLocale } from '@/i18n/provider';
 
+import { cn } from '@/lib/utils';
+import { AlertTriangle, ChartNoAxesColumnIncreasing, ClipboardCheck, GitBranch, LayoutDashboard, MapPin, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Route, Settings, Truck, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AlertTriangle, ChartNoAxesColumnIncreasing, GitBranch, LayoutDashboard, MapPin, Menu, MessageSquare, PackageSearch, PanelLeftClose, PanelLeftOpen, Route, Settings, Truck, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
-import { cn } from '@/lib/utils';
-
 interface NavItemConfig {
   href: string;
   label: string;
@@ -26,8 +25,7 @@ const navGroups: { label?: string; items: NavItemConfig[] }[] = [
   {
     label: 'Vận hành',
     items: [
-      { href: '/orders', label: 'Đơn hàng', icon: PackageSearch, requiredPermissions: ['order:read'] },
-      { href: '/dispatch', label: 'Điều phối', icon: Route, requiredPermissions: ['dispatch:read', 'dispatch:execute'] },
+      { href: '/dispatch', label: 'Điều phối', icon: Route, requiredPermissions: ['dispatch:read', 'dispatch:execute', 'order:read'] },
       { href: '/operation-flow', label: 'Luồng vận hành', icon: GitBranch, requiredPermissions: ['order:create', 'dispatch:execute'] },
       { href: '/operations', label: 'Sự cố & COD', icon: AlertTriangle, requiredPermissions: ['sla:read', 'order:read'] },
       { href: '/reports', label: 'Báo cáo giao hàng', icon: ChartNoAxesColumnIncreasing, requiredPermissions: ['order:read'], tenantRoles: ['OWNER', 'TENANT_ADMIN', 'OPERATOR'] },
@@ -49,11 +47,16 @@ const navGroups: { label?: string; items: NavItemConfig[] }[] = [
       { href: '/onboarding', label: 'Thiết lập doanh nghiệp', icon: Settings, requiredPermissions: ['tenant:settings:manage'] },
       { href: '/settings', label: 'Cài đặt', icon: Settings, requiredPermissions: ['tenant:settings:read'] },
       { href: '/profile', label: 'Hồ sơ cá nhân', icon: UserRound },
+      {
+        href: '/proof-of-delivery',
+        label: 'Bằng chứng giao nhận',
+        icon: ClipboardCheck,
+      },
     ],
   },
 ];
 
-const mobilePrimary = ['/', '/orders', '/dispatch', '/operations'];
+const mobilePrimary = ['/', '/dispatch', '/operations'];
 const sidebarWidthKey = 'swiftroute.workspace.sidebar-width';
 const defaultSidebarWidth = 240;
 const minSidebarWidth = 216;

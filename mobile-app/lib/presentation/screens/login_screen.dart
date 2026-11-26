@@ -162,7 +162,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 24),
                       const Divider(),
                       const SizedBox(height: 16),
-                      const Text('Bạn nhận được lời mời từ doanh nghiệp?'),
+                      const Text(
+                        'Được doanh nghiệp cấp mã kích hoạt 12 chữ số?',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
                       const SizedBox(height: 12),
                       SizedBox(
                         height: 56,
@@ -173,8 +176,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   context,
                                   '/driver/activate',
                                 ),
-                          icon: const Icon(Icons.badge_outlined),
-                          label: const Text('Kích hoạt tài khoản tài xế'),
+                          icon: const Icon(Icons.key_rounded),
+                          label: const Text('Kích hoạt bằng mã'),
                         ),
                       ),
                     ],

@@ -48,11 +48,23 @@ public record BatchOptimizationRequest(
             @JsonProperty("time_window_start") String timeWindowStart,
             @JsonProperty("time_window_end") String timeWindowEnd,
             @JsonInclude(JsonInclude.Include.NON_NULL)
-            @JsonProperty("service_time") Double serviceTime
+            @JsonProperty("service_time") Double serviceTime,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @JsonProperty("priority") String priority
     ) {
         public StopItem(String id, String name, LocationPoint location, double demandKg,
+                String timeWindowStart, String timeWindowEnd, Double serviceTime) {
+            this(id, name, location, demandKg, timeWindowStart, timeWindowEnd, serviceTime, null);
+        }
+
+        public StopItem(String id, String name, LocationPoint location, double demandKg,
                 String timeWindowStart, String timeWindowEnd) {
-            this(id, name, location, demandKg, timeWindowStart, timeWindowEnd, null);
+            this(id, name, location, demandKg, timeWindowStart, timeWindowEnd, null, null);
+        }
+
+        public StopItem(String id, String name, LocationPoint location, double demandKg,
+                String timeWindowStart, String timeWindowEnd, String priority) {
+            this(id, name, location, demandKg, timeWindowStart, timeWindowEnd, null, priority);
         }
     }
 }

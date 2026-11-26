@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 public class InternalFleetController {
     private final DriverRepository drivers;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.driverservice.service.DriverActivationManagementService activationManagementService;
     @Value("${tenant.internal-key:}") private String key;
 
     private void authenticate(String supplied) {
@@ -91,5 +93,44 @@ public class InternalFleetController {
                     && x.getVehicleType()!=null && x.getLicensePlate()!=null && !x.getLicensePlate().isBlank()
                     && x.getCapacity()!=null && x.getCapacity()>0)
             .map(x -> Map.<String,Object>of("driver_id",x.getId(),"user_id",x.getUserId())).toList();
+    }
+
+    public record ActivateDeviceRequest(
+            @com.fasterxml.jackson.annotation.JsonAlias({"userId", "user_id"}) UUID userId,
+            @com.fasterxml.jackson.annotation.JsonAlias({"installationId", "installation_id"}) String installationId,
+            @com.fasterxml.jackson.annotation.JsonAlias({"sessionId", "session_id"}) UUID sessionId,
+            @com.fasterxml.jackson.annotation.JsonAlias({"deviceOs", "device_os"}) String deviceOs,
+            @com.fasterxml.jackson.annotation.JsonAlias({"osVersion", "os_version"}) String osVersion,
+            @com.fasterxml.jackson.annotation.JsonAlias({"appVersion", "app_version"}) String appVersion,
+            @com.fasterxml.jackson.annotation.JsonAlias({"deviceModel", "device_model"}) String deviceModel) {
+    }
+
+    @PostMapping("/{tenantId}/drivers/{driverId}/activate-device")
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> activateDevice(
+            @PathVariable UUID tenantId,
+            @PathVariable UUID driverId,
+            @RequestBody ActivateDeviceRequest request,
+            @RequestHeader("X-Service-Key") String supplied) {
+        authenticate(supplied);
+        if (request.userId() == null || request.sessionId() == null
+                || request.installationId() == null || request.installationId().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST);
+        }
+        UUID revokedSessionId = activationManagementService.registerActivatedDevice(
+                tenantId,
+                driverId,
+                new com.swiftroute.driverservice.service.DriverActivationManagementService.ActivateDeviceInternalCommand(
+                        request.userId(),
+                        request.installationId().trim(),
+                        request.sessionId(),
+                        request.deviceOs(),
+                        request.osVersion(),
+                        request.appVersion(),
+                        request.deviceModel()));
+        var result = new LinkedHashMap<String, Object>();
+        result.put("driver_id", driverId);
+        result.put("revoked_session_id", revokedSessionId);
+        return result;
     }
 }

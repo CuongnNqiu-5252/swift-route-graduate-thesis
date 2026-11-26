@@ -15,7 +15,6 @@ public record OrderTimelineResponse(
         String trackingToken,
         OrderStatus currentStatus,
         UUID assignedDriverId,
-        UUID custodianDriverId,
         UUID dispatchPlanId,
         String latestProofUrl,
         Instant createdAt,

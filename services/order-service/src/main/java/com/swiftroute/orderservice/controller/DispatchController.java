@@ -1,10 +1,11 @@
 package com.swiftroute.orderservice.controller;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.swiftroute.orderservice.dto.request.ApprovePlanRequest;
 import com.swiftroute.orderservice.dto.request.CancelPlanRequest;
@@ -41,6 +43,7 @@ import com.swiftroute.orderservice.service.planning.PlanningTriggerScheduler;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.JsonNode;
 
 /**
  * REST API for dispatch plan lifecycle management.
@@ -107,22 +110,61 @@ public class DispatchController {
     // -------------------------------------------------------------------------
 
     @PostMapping("/trigger")
-    @Operation(summary = "Create unassigned draft routes for eligible orders and return the planning result")
+    @Operation(summary = "Create unassigned draft routes for selected orders or a specific depot")
     public ResponseEntity<ApiResponse<ManualPlanningResult>> triggerManual(
             @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
             @RequestAttribute("effectiveRole") String role,
-            @RequestParam(name = "depot_id", required = false) UUID depotId) {
+            @RequestParam(name = "depot_id", required = false) UUID depotId,
+            @RequestBody(required = false) JsonNode body) {
         if (!Set.of("OWNER", "TENANT_ADMIN", "OPERATOR").contains(role.toUpperCase(Locale.ROOT))
                 || !TenantRequestInterceptor.isAuthorizedForPermission(
                         role, "dispatch:execute", Set.of("TENANT_ADMIN", "OPERATOR"))) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
-        var cycle = planningTriggerScheduler.triggerManual(requireTenantId(tenantId), depotId);
+        Set<UUID> orderIds = readPlanningOrderIds(body, depotId);
+        var cycle = planningTriggerScheduler.triggerManual(requireTenantId(tenantId), depotId, orderIds);
+        List<UUID> unplannedOrderIds = null;
+        if (orderIds != null) {
+            Set<UUID> plannedOrderIds = cycle.plans().stream()
+                    .flatMap(plan -> plan.getOrders().stream())
+                    .map(Order::getId)
+                    .collect(Collectors.toSet());
+            unplannedOrderIds = orderIds.stream().filter(id -> !plannedOrderIds.contains(id)).toList();
+        }
         return ResponseEntity.ok(ApiResponse.success(new ManualPlanningResult(
-                cycle.outcome(), cycle.plans().stream().map(DispatchPlan::getId).toList())));
+                cycle.outcome(), cycle.plans().stream().map(DispatchPlan::getId).toList(), unplannedOrderIds)));
     }
 
-    public record ManualPlanningResult(String outcome, @JsonProperty("plan_ids") List<UUID> planIds) {
+    private static Set<UUID> readPlanningOrderIds(JsonNode body, UUID depotId) {
+        // The assistant can still trigger a single depot without a body.
+        if (body == null && depotId != null) return null;
+        JsonNode scope = body != null ? body.get("scope") : null;
+        if (scope == null || !scope.isString() || !"SELECTED".equals(scope.stringValue())) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        JsonNode ids = body.get("order_ids");
+        if (ids == null || !ids.isArray() || ids.isEmpty()) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        Set<UUID> orderIds = new LinkedHashSet<>();
+        for (JsonNode value : ids) {
+            if (!value.isString()) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR);
+            }
+            String id = value.stringValue();
+            UUID orderId = UUID.fromString(id);
+            if (!orderId.toString().equalsIgnoreCase(id)) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR);
+            }
+            orderIds.add(orderId);
+        }
+        return orderIds;
+    }
+
+    public record ManualPlanningResult(
+            String outcome,
+            @JsonProperty("plan_ids") List<UUID> planIds,
+            @JsonProperty("unplanned_order_ids") @JsonInclude(JsonInclude.Include.NON_NULL) List<UUID> unplannedOrderIds) {
     }
 
     @PostMapping("/plans/{planId}/stop-order")

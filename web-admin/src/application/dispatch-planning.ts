@@ -1,8 +1,7 @@
 import { toast } from 'sonner';
 import type { Translator } from '@/i18n/translate';
-import type { DispatchPlanningResult } from '@/infrastructure/repositories/order.repository';
 
-export function reportDispatchPlanning(result: DispatchPlanningResult, t: Translator): string | undefined {
+export function reportDispatchPlanning(result: { outcome: string; plan_ids: string[] }, t: Translator): string | undefined {
   if (result.outcome === 'PLANNED' && result.plan_ids.length > 0) {
     toast.success(`${t('Đã tạo tuyến nháp chưa gán tài xế')}: ${result.plan_ids.length}`);
     return result.plan_ids[0];

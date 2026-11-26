@@ -217,19 +217,16 @@ class OrderModel {
     return 'Điểm lấy hàng';
   }
 
-  /// True when this is a forward delivery order whose physical package has not been picked up yet.
-  bool get needsPickup =>
-      status != OrderStatus.cancelled &&
-      deliveryTaskType != 'RETURN' &&
-      (deliveryTaskStatus ?? DeliveryTaskStatus.assigned).index <
-          DeliveryTaskStatus.pickedUp.index;
+  /// Warehouse pickup confirmation is disabled; assigned forward stops go straight to delivery.
+  bool get needsPickup => false;
 
-  /// True when the package is on the vehicle and ready to be delivered to the customer.
+  /// True when the forward delivery stop is active and ready to be delivered to the customer.
   bool get isOutForDelivery =>
       status != OrderStatus.cancelled &&
       deliveryTaskType != 'RETURN' &&
-      (deliveryTaskStatus == DeliveryTaskStatus.pickedUp ||
-          deliveryTaskStatus == DeliveryTaskStatus.outForDelivery);
+      deliveryTaskStatus != DeliveryTaskStatus.completed &&
+      deliveryTaskStatus != DeliveryTaskStatus.failed &&
+      deliveryTaskStatus != DeliveryTaskStatus.cancelled;
 
   /// True when this task represents a Return-to-Sender (RTS) trip back to the warehouse.
   bool get isReturnTask => deliveryTaskType == 'RETURN';

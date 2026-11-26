@@ -4,21 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
-import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
-import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
-import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_stop_card.dart';
 import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-enum _RouteFilter { all, delivering, pickup, returns, done }
+enum _RouteFilter { all, delivering, returns, done }
 
 /// Today's route timeline (D05).
 ///
-/// Layout, top to bottom: shift progress →
-/// grouped depot pickup cards (1 swipe per warehouse) → filter chips → stops.
+/// Layout, top to bottom: shift progress → filter chips → stops.
 class DriverRouteTab extends ConsumerStatefulWidget {
   const DriverRouteTab({super.key});
 
@@ -30,33 +26,6 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
   _RouteFilter _filter = _RouteFilter.all;
   Future<void> _refresh() =>
       ref.read(driverOrdersProvider.notifier).refreshOrders();
-
-  Future<void> _confirmDepotPickup(List<OrderModel> group) async {
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .confirmBatchPickup(orderIds: group.map((o) => o.id).toList());
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.success,
-          content: Text(
-            'Đã lấy ${group.length} đơn tại ${group.first.pickupDisplayName}.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(
-            'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
-          ),
-        ),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,25 +102,15 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
         o.deliveryTaskStatus == DeliveryTaskStatus.failed ||
         o.deliveryTaskStatus == DeliveryTaskStatus.cancelled;
 
-    final pendingPickups = allStops
-        .where((o) => o.needsPickup && !isClosed(o))
-        .toList();
     final doneCount = allStops
         .where((o) => o.deliveryTaskStatus == DeliveryTaskStatus.completed)
         .length;
-
-    // Group pending pickups by warehouse so the driver confirms once per depot.
-    final depotGroups = <String, List<OrderModel>>{};
-    for (final order in pendingPickups) {
-      depotGroups.putIfAbsent(order.pickupGroupKey, () => []).add(order);
-    }
 
     final counts = {
       _RouteFilter.all: allStops.length,
       _RouteFilter.delivering: allStops
           .where((o) => o.isOutForDelivery && !isClosed(o))
           .length,
-      _RouteFilter.pickup: pendingPickups.length,
       _RouteFilter.returns: allStops.where((o) => o.isReturnTask).length,
       _RouteFilter.done: allStops.where(isClosed).length,
     };
@@ -160,7 +119,6 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
       return switch (_filter) {
         _RouteFilter.all => true,
         _RouteFilter.delivering => o.isOutForDelivery && !isClosed(o),
-        _RouteFilter.pickup => o.needsPickup && !isClosed(o),
         _RouteFilter.returns => o.isReturnTask,
         _RouteFilter.done => isClosed(o),
       };
@@ -173,13 +131,6 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
         children: [
           _ProgressCard(done: doneCount, total: allStops.length),
-          for (final group in depotGroups.values) ...[
-            const SizedBox(height: 12),
-            _DepotPickupCard(
-              group: group,
-              onConfirm: () => _confirmDepotPickup(group),
-            ),
-          ],
           const SizedBox(height: 16),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -231,7 +182,6 @@ class _DriverRouteTabState extends ConsumerState<DriverRouteTab> {
   String _filterLabel(_RouteFilter f) => switch (f) {
     _RouteFilter.all => 'Tất cả',
     _RouteFilter.delivering => 'Đang giao',
-    _RouteFilter.pickup => 'Chờ lấy',
     _RouteFilter.returns => 'Hoàn hàng',
     _RouteFilter.done => 'Đã xong',
   };
@@ -279,122 +229,6 @@ class _ProgressCard extends StatelessWidget {
                 backgroundColor: AppColors.surfaceVariant,
                 color: AppColors.success,
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// One card per warehouse: confirming the swipe acquires custody for every
-/// order in the group and moves them straight to OUT_FOR_DELIVERY.
-class _DepotPickupCard extends StatelessWidget {
-  const _DepotPickupCard({required this.group, required this.onConfirm});
-
-  final List<OrderModel> group;
-  final Future<void> Function() onConfirm;
-
-  @override
-  Widget build(BuildContext context) {
-    final first = group.first;
-    final packages = group.length;
-    final weight = group.fold<double>(0, (sum, o) => sum + o.weightKg);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.warningSoft,
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: const Icon(
-                    Icons.warehouse_rounded,
-                    color: AppColors.warning,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        first.pickupDisplayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        first.pickupAddress,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                StatusPill(
-                  label:
-                      '${group.length} đơn · $packages kiện · ${weight.toStringAsFixed(1)} kg',
-                  foreground: AppColors.warning,
-                  background: AppColors.warningSoft,
-                  borderColor: AppColors.warningBorder,
-                  icon: Icons.inventory_2_outlined,
-                ),
-                const Spacer(),
-                PhoneCallButton(phone: first.senderPhone, compact: true),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: IconButton.outlined(
-                    tooltip: 'Dẫn đường tới kho',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DriverNavigationScreen(order: first),
-                      ),
-                    ),
-                    style: IconButton.styleFrom(
-                      side: const BorderSide(color: AppColors.divider),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: const Icon(
-                      Icons.navigation_rounded,
-                      size: 20,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SlideToConfirmButton(
-              label: 'Vuốt đã lấy $packages kiện tại kho này',
-              backgroundColor: AppColors.accent,
-              icon: Icons.inventory_2_rounded,
-              onConfirmed: onConfirm,
             ),
           ],
         ),

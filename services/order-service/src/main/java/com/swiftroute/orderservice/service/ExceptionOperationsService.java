@@ -74,7 +74,6 @@ public class ExceptionOperationsService {
     private final DeliveryIncidentRepository incidents;
     private final ReturnRequestRepository returns;
     private final DeliveryExecutionService execution;
-    private final PackageCustodyService custody;
     private final RecoveryRuleEngine recoveryRuleEngine;
     private final DispatchPlanRepository dispatchPlans;
     private final PickupLocationRepository pickupLocations;
@@ -85,6 +84,8 @@ public class ExceptionOperationsService {
     private final RecipientDeliveryEvents recipientDeliveryEvents;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private OrderStatusHistoryRecorder statusHistory;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.orderservice.service.planning.DispatchOrchestrationService dispatchOrchestration;
 
     // =========================================================================
     // 1. DELIVERY INCIDENTS MANAGEMENT
@@ -306,8 +307,6 @@ public class ExceptionOperationsService {
             case "RETRY_DELIVERY" -> {
                 if (order != null) {
                     execution.reactivateForRedelivery(order, order.getAssignedDriverId());
-                    order.setStatus(OrderStatus.PLANNED);
-                    order.setUpdatedAt(Instant.now());
                 }
                 incident.setStatus("RESOLVED");
                 incident.setResolvedBy(actorId);
@@ -318,11 +317,29 @@ public class ExceptionOperationsService {
                     if (request.replacementDriverId() == null) {
                         throw new AppException(ErrorCode.VALIDATION_ERROR);
                     }
-                    // Physical custody safety check: Never reassign without verified custody
-                    if (custody.holdsOrder(order)) {
+                    if (order.getStatus() == OrderStatus.DELIVERED
+                            || order.getStatus() == OrderStatus.CANCELLED
+                            || order.getStatus() == OrderStatus.RETURNED) {
                         throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
                     }
-                    order.setAssignedDriverId(request.replacementDriverId());
+                    UUID previousDriverId = order.getAssignedDriverId();
+                    UUID replacementDriverId = request.replacementDriverId();
+                    if (dispatchOrchestration != null
+                            && previousDriverId != null
+                            && !previousDriverId.equals(replacementDriverId)) {
+                        dispatchOrchestration.synchronizePackageTransfer(
+                                order, previousDriverId, replacementDriverId, "DELIVERY");
+                    } else {
+                        order.setAssignedDriverId(replacementDriverId);
+                        execution.assign(order, replacementDriverId);
+                    }
+                    OrderStatus previousStatus = order.getStatus();
+                    if (previousStatus == OrderStatus.FAILED || previousStatus == OrderStatus.PLANNED) {
+                        order.setStatus(OrderStatus.IN_TRANSIT);
+                        execution.resumeDeliveryAfterIncident(order, replacementDriverId);
+                        recordStatusChange(order, previousStatus, OrderStatus.IN_TRANSIT, actorId, role,
+                                nonBlankOrDefault(request.notes(), "Điều phối phân công lại tài xế"));
+                    }
                     order.setUpdatedAt(Instant.now());
                 }
                 incident.setStatus("RESOLVED");
@@ -518,17 +535,12 @@ public class ExceptionOperationsService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
-        if (custody.holdsOrder(order) && !driverId.equals(order.getAssignedDriverId())) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        custody.requireNoActiveHandover(order);
         returnReq.setApprovedBy(actorId);
         returnReq.setUpdatedAt(Instant.now());
 
-        // Normal return custody execution
+        // Schedule return task for the responsible driver
         execution.markDeliveryTaskFailed(order, driverId);
         order.setAssignedDriverId(driverId);
-        custody.startReturn(order, actorId);
         DeliveryTask returnTask = execution.createReturnTask(order, driverId);
         returnReq.setReturnTask(returnTask);
         returnReq.setCurrentHolderId(driverId);
@@ -583,7 +595,6 @@ public class ExceptionOperationsService {
         }
 
         Order order = returnReq.getOrder();
-        custody.requireNoActiveHandover(order);
         order.setUpdatedAt(Instant.now());
         returnReq.setStatus("ARRIVED");
         returnReq.setUpdatedAt(Instant.now());
@@ -619,7 +630,6 @@ public class ExceptionOperationsService {
         }
 
         Order order = returnReq.getOrder();
-        custody.requireNoActiveHandover(order);
         order.setUpdatedAt(Instant.now());
         returnReq.setStatus("AWAITING_RECEIPT");
         returnReq.setUpdatedAt(Instant.now());
@@ -658,9 +668,6 @@ public class ExceptionOperationsService {
         }
 
         Order order = returnReq.getOrder();
-
-        // Authoritative custody release: driver is no longer responsible
-        custody.receiveReturn(order, receiverId, cleanedNotes);
 
         returnReq.setStatus("COMPLETED");
         returnReq.setReceivedBy(receiverId);
@@ -737,7 +744,6 @@ public class ExceptionOperationsService {
         }
 
         Order order = returnReq.getOrder();
-        custody.requireNoActiveHandover(order);
         order.setUpdatedAt(Instant.now());
         returnReq.setStatus("DISCREPANCY");
         returnReq.setDiscrepancyType(request.discrepancyType().toUpperCase(Locale.ROOT));

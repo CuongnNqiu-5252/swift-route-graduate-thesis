@@ -58,6 +58,7 @@ def _to_stop_item_schema(proto_stop: routing_pb2.StopItemProto) -> StopItem:
         service_time=proto_stop.service_time if proto_stop.HasField("service_time") else 5.0,
         time_window_start=proto_stop.time_window_start if proto_stop.time_window_start else None,
         time_window_end=proto_stop.time_window_end if proto_stop.time_window_end else None,
+        priority=proto_stop.priority if proto_stop.priority else "NORMAL",
     )
 
 
@@ -71,6 +72,7 @@ def _to_route_stop_state_schema(proto_state: routing_pb2.RouteStopStateProto) ->
         time_window_start=proto_state.time_window_start if proto_state.time_window_start else None,
         time_window_end=proto_state.time_window_end if proto_state.time_window_end else None,
         is_completed=proto_state.is_completed,
+        priority=proto_state.priority if proto_state.priority else "NORMAL",
     )
 
 

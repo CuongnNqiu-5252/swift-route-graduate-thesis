@@ -9,11 +9,13 @@ import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
 import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
+import 'package:swiftroute_app/features/driver/data/models/delivery_proof_config_model.dart';
 import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 /// Streamlined 1-step Proof-of-Delivery (POD) & COD confirmation bottom sheet.
-/// Uploads photo evidence to Cloudinary and completes the delivery in seconds.
+/// Enforces tenant-configured Note and Photo POD policies (REQUIRED / OPTIONAL / DISABLED)
+/// and uploads photo evidence to Cloudinary.
 class DriverDeliveryPodSheet extends ConsumerStatefulWidget {
   const DriverDeliveryPodSheet({super.key, required this.order});
 
@@ -36,7 +38,14 @@ class DriverDeliveryPodSheet extends ConsumerStatefulWidget {
 
 class _DriverDeliveryPodSheetState
     extends ConsumerState<DriverDeliveryPodSheet> {
+  static const List<String> _quickNoteSuggestions = [
+    'Đã giao tận tay người nhận',
+    'Gửi lễ tân / bảo vệ nhận thay',
+    'Người nhà nhận thay',
+  ];
+
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _notesController = TextEditingController();
 
   Uint8List? _photoBytes;
   String? _uploadedUrl;
@@ -47,7 +56,16 @@ class _DriverDeliveryPodSheetState
   bool get _hasCod => widget.order.codAmount > 0;
 
   @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref.read(deliveryProofConfigProvider.notifier).refresh(),
+    );
+  }
+
+  @override
   void dispose() {
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -91,6 +109,29 @@ class _DriverDeliveryPodSheetState
     }
     if (_isUploading) return;
 
+    final proofConfig =
+        ref.read(deliveryProofConfigProvider).valueOrNull ??
+        const DeliveryProofConfigModel();
+    final notePolicy = proofConfig.successNotePolicy;
+    final photoPolicy = proofConfig.successPhotoPolicy;
+    final trimmedNotes = _notesController.text.trim();
+    final hasPhoto = _uploadedUrl != null && _uploadedUrl!.trim().isNotEmpty;
+
+    if (notePolicy.isRequired && trimmedNotes.isEmpty) {
+      setState(() {
+        _errorText =
+            'Doanh nghiệp yêu cầu bắt buộc nhập ghi chú khi hoàn tất giao hàng.';
+      });
+      return;
+    }
+    if (photoPolicy.isRequired && !hasPhoto) {
+      setState(() {
+        _errorText =
+            'Doanh nghiệp yêu cầu bắt buộc đính kèm hình ảnh bằng chứng giao hàng (POD).';
+      });
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _errorText = null;
@@ -102,7 +143,10 @@ class _DriverDeliveryPodSheetState
           .completeDelivery(
             orderId: widget.order.id,
             taskId: taskId,
-            proofUrl: _uploadedUrl,
+            notes: notePolicy.isDisabled || trimmedNotes.isEmpty
+                ? null
+                : trimmedNotes,
+            proofUrl: photoPolicy.isDisabled ? null : _uploadedUrl,
             codAmount: _hasCod ? widget.order.codAmount : null,
             codOutcome: _hasCod ? 'FULL' : null,
             codReason: null,
@@ -113,9 +157,32 @@ class _DriverDeliveryPodSheetState
       if (!mounted) return;
       setState(() {
         _isSubmitting = false;
-        _errorText = 'Chưa hoàn tất được đơn hàng: $e';
+        _errorText =
+            'Chưa hoàn tất được đơn hàng: ${AppFormatters.errorMessage(e)}';
       });
     }
+  }
+
+  Widget _buildPolicyBadge(ProofPolicy policy) {
+    final isReq = policy.isRequired;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isReq ? AppColors.errorSoft : AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(
+          color: isReq ? AppColors.errorBorder : AppColors.divider,
+        ),
+      ),
+      child: Text(
+        isReq ? 'Bắt buộc' : 'Không bắt buộc',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: isReq ? AppColors.errorDark : AppColors.textSecondary,
+        ),
+      ),
+    );
   }
 
   @override
@@ -123,6 +190,12 @@ class _DriverDeliveryPodSheetState
     final bottomInset =
         MediaQuery.viewInsetsOf(context).bottom +
         MediaQuery.paddingOf(context).bottom;
+    final proofConfig =
+        ref.watch(deliveryProofConfigProvider).valueOrNull ??
+        const DeliveryProofConfigModel();
+    final notePolicy = proofConfig.successNotePolicy;
+    final photoPolicy = proofConfig.successPhotoPolicy;
+    final currentNotes = _notesController.text.trim();
 
     return Container(
       decoration: const BoxDecoration(
@@ -180,7 +253,10 @@ class _DriverDeliveryPodSheetState
             // 1. COD Collection Box (Clean Amber Card)
             if (_hasCod) ...[
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.warningSoft,
                   borderRadius: BorderRadius.circular(14),
@@ -221,46 +297,215 @@ class _DriverDeliveryPodSheetState
               const SizedBox(height: 16),
             ],
 
-            // 2. Photo Proof of Delivery (Cloudinary)
-            const Text(
-              'Ảnh bằng chứng giao hàng (POD)',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (_photoBytes != null)
-              Stack(
+            // 2. Delivery Notes (Controlled by success_note_policy)
+            if (notePolicy.isEnabled) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: Image.memory(
-                      _photoBytes!,
-                      height: 168,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.edit_note_rounded,
+                        size: 18,
+                        color: AppColors.textPrimary,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Ghi chú giao hàng',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  _buildPolicyBadge(notePolicy),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _quickNoteSuggestions.map((suggestion) {
+                  final selected = currentNotes == suggestion;
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(99),
+                    onTap: () {
+                      _notesController.text = suggestion;
+                      _notesController.selection = TextSelection.fromPosition(
+                        TextPosition(offset: suggestion.length),
+                      );
+                      setState(() => _errorText = null);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? AppColors.primarySoft
+                            : AppColors.surfaceVariant,
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.primaryBorder
+                              : AppColors.divider,
+                        ),
+                      ),
+                      child: Text(
+                        suggestion,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _notesController,
+                maxLines: 2,
+                textInputAction: TextInputAction.done,
+                onChanged: (_) {
+                  setState(() {
+                    if (_errorText != null) _errorText = null;
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: notePolicy.isRequired
+                      ? 'Nhập ghi chú xác nhận giao hàng (bắt buộc)…'
+                      : 'Nhập ghi chú giao hàng (nếu có)…',
+                  hintStyle: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.surfaceVariant.withValues(alpha: 0.45),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.divider),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.divider),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.5,
                     ),
                   ),
-                  if (_isUploading)
-                    Positioned.fill(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.48),
-                          borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // 3. Photo Proof of Delivery (Cloudinary, controlled by success_photo_policy)
+            if (photoPolicy.isEnabled) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.camera_alt_outlined,
+                        size: 17,
+                        color: AppColors.textPrimary,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Ảnh bằng chứng giao hàng (POD)',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
                         ),
-                        child: const Center(
-                          child: Column(
+                      ),
+                    ],
+                  ),
+                  _buildPolicyBadge(photoPolicy),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_photoBytes != null)
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.memory(
+                        _photoBytes!,
+                        height: 168,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    if (_isUploading)
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.48),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(color: Colors.white),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Đang tải ảnh lên Cloudinary…',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (!_isUploading && _uploadedUrl != null)
+                      Positioned(
+                        left: 10,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.success,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              CircularProgressIndicator(color: Colors.white),
-                              SizedBox(height: 8),
+                              Icon(
+                                Icons.check_circle_rounded,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 5),
                               Text(
-                                'Đang tải ảnh lên Cloudinary…',
+                                'Đã lưu ảnh POD',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 13,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -268,85 +513,110 @@ class _DriverDeliveryPodSheetState
                           ),
                         ),
                       ),
-                    ),
-                  if (!_isUploading && _uploadedUrl != null)
                     Positioned(
-                      left: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.success,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.check_circle_rounded,
-                              size: 14,
-                              color: Colors.white,
+                      right: 8,
+                      top: 8,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton.filledTonal(
+                            onPressed: _isUploading
+                                ? null
+                                : () => _capturePhoto(ImageSource.camera),
+                            icon: const Icon(
+                              Icons.camera_alt_rounded,
+                              size: 18,
                             ),
-                            SizedBox(width: 5),
-                            Text(
-                              'Đã lưu ảnh POD',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                            tooltip: 'Chụp lại',
+                          ),
+                          if (!photoPolicy.isRequired && !_isUploading) ...[
+                            const SizedBox(width: 4),
+                            IconButton.filledTonal(
+                              onPressed: () {
+                                setState(() {
+                                  _photoBytes = null;
+                                  _uploadedUrl = null;
+                                });
+                              },
+                              icon: const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 18,
                               ),
+                              tooltip: 'Xóa ảnh',
                             ),
                           ],
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _capturePhoto(ImageSource.camera),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(54),
+                          backgroundColor: AppColors.primarySoft,
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(
+                            color: AppColors.primaryBorder,
+                          ),
+                        ),
+                        icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                        label: const Text('Chụp ảnh kiện hàng'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _capturePhoto(ImageSource.gallery),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(54),
+                        ),
+                        icon: const Icon(
+                          Icons.photo_library_outlined,
+                          size: 19,
+                        ),
+                        label: const Text('Thư viện'),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+
+            if (notePolicy.isDisabled && photoPolicy.isDisabled) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceVariant.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.divider),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.verified_outlined,
+                      size: 18,
+                      color: AppColors.textSecondary,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Doanh nghiệp không yêu cầu ghi chú hoặc hình ảnh bằng chứng khi hoàn tất đơn.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ),
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: IconButton.filledTonal(
-                      onPressed: _isUploading
-                          ? null
-                          : () => _capturePhoto(ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt_rounded, size: 18),
-                      tooltip: 'Chụp lại',
-                    ),
-                  ),
-                ],
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _capturePhoto(ImageSource.camera),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                        backgroundColor: AppColors.primarySoft,
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primaryBorder),
-                      ),
-                      icon: const Icon(Icons.camera_alt_rounded, size: 20),
-                      label: const Text('Chụp ảnh kiện hàng'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _capturePhoto(ImageSource.gallery),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                      ),
-                      icon: const Icon(Icons.photo_library_outlined, size: 19),
-                      label: const Text('Thư viện'),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+            ],
 
             if (_errorText != null) ...[
               const SizedBox(height: 12),

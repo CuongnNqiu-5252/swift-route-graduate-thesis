@@ -1,11 +1,11 @@
 'use client';
 
-import { reportDispatchPlanning } from '@/application/dispatch-planning';
+import { useAuth } from '@/application/contexts/auth-context';
 import {
   EMPTY_DISPATCH_MAP_FILTERS, filterDispatchMapRoutes, UNASSIGNED_DRIVER, UNKNOWN_WAREHOUSE,
   type DispatchMapFilters,
 } from '@/application/dispatch-map-filters';
-import { useAuth } from '@/application/contexts/auth-context';
+import { reportDispatchPlanning } from '@/application/dispatch-planning';
 import { useDrivers } from '@/application/hooks/use-drivers';
 import { useFleetLiveTracking } from '@/application/hooks/use-fleet-live-tracking';
 import { useOrders } from '@/application/hooks/use-orders';
@@ -15,6 +15,7 @@ import { DispatchStopTimeline } from '@/components/dispatch/dispatch-stop-timeli
 import { PlanApprovalPanel } from '@/components/dispatch/plan-approval-panel';
 import { RouteMap } from '@/components/dispatch/route-map';
 import { RouteMapFilters } from '@/components/dispatch/route-map-filters';
+import { OrdersWorkspace } from '@/components/orders/orders-workspace';
 import { Button } from '@/components/ui/button';
 import { Order } from '@/domain/entities/order.entity';
 import { PickupLocation } from '@/domain/entities/pickup-location.entity';
@@ -27,18 +28,55 @@ import {
   OptimizationStop,
 } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
-import { ApiError } from '@/lib/api';
+import { operationFlowRepository } from '@/infrastructure/repositories/operation-flow.repository';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
-import { ClipboardList, Play, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError } from '@/lib/api';
+import * as Tabs from '@radix-ui/react-tabs';
+import { ChevronDown, ClipboardList, Play, RefreshCw, X } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
 const ROUTE_COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
+const tabClass = 'inline-flex min-h-10 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 border-transparent px-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-teal-700 data-[state=active]:border-teal-700 data-[state=active]:text-slate-950 sm:px-3.5';
+
+function setDispatchTab(tab: string) {
+  const url = new URL(window.location.href);
+  const next = tab === 'orders' ? tab : null;
+  if (url.searchParams.get('tab') === next) return;
+  if (next) url.searchParams.set('tab', next);
+  else url.searchParams.delete('tab');
+  window.history.replaceState(null, '', url);
+}
+
 export default function DispatchPage() {
-  const { t } = useLocale();
   const { hasPermission, user } = useAuth();
-  const { orders, isLoading: isLoadingOrders, refetch: refetchOrders } = useOrders();
+  const canReadOrders = hasPermission('order:read');
+  const canViewRoutes = hasPermission(['dispatch:read', 'dispatch:execute']);
+
+  return (
+    <Suspense fallback={<div className="min-h-40 flex-1 animate-pulse bg-slate-100" />}>
+      {canViewRoutes ? (
+        <DispatchWorkspace
+          canReadOrders={canReadOrders}
+          canExecute={user?.role !== 'DRIVER' && hasPermission('dispatch:execute')}
+        />
+      ) : canReadOrders ? (
+        <div className="p-3 sm:p-4">
+          <OrdersWorkspace />
+        </div>
+      ) : <AccessDeniedNotice requiredPermission="dispatch:read" />}
+    </Suspense>
+  );
+}
+
+function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boolean; canExecute: boolean }) {
+  const { locale, t } = useLocale();
+  const searchParams = useSearchParams();
+  const activeTab = canReadOrders && searchParams.get('tab') === 'orders' ? 'orders' : 'routes';
+  const { orders, isLoading: isLoadingOrders, refetch: fetchOrdersForMap } = useOrders();
   const { drivers } = useDrivers();
   const fleetTracking = useFleetLiveTracking();
   const [pickupLocations, setPickupLocations] = useState<PickupLocation[]>([]);
@@ -47,13 +85,36 @@ export default function DispatchPage() {
   const [isTriggeringPlan, setIsTriggeringPlan] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
-  const [isPlansOpen, setIsPlansOpen] = useState(false);
+  const [isPlanningPanelOpen, setIsPlanningPanelOpen] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
+  const [orderPageRevision, setOrderPageRevision] = useState(0);
+  const isPlansOpen = isPlanningPanelOpen || activeTab === 'orders';
   const [highlightedPlan, setHighlightedPlan] = useState<MapPlanHighlight | null>(null);
   const [mapFilters, setMapFilters] = useState(EMPTY_DISPATCH_MAP_FILTERS);
   const [showDeliveryStops, setShowDeliveryStops] = useState(true);
   const [linkedPlanId, setLinkedPlanId] = useState<string | null>(null);
   const [maxOrdersPerDriver, setMaxOrdersPerDriver] = useState<number | undefined>(undefined);
+  const [isPlanningMenuOpen, setIsPlanningMenuOpen] = useState(false);
+  const planningMenuRef = useRef<HTMLDivElement>(null);
+
   const plansButtonRef = useRef<HTMLButtonElement | null>(null);
+  const planningInProgress = useRef(false);
+
+  const refetchOrders = useCallback(async () => {
+    await fetchOrdersForMap();
+    setOrderPageRevision((revision) => revision + 1);
+  }, [fetchOrdersForMap]);
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (planningMenuRef.current && !planningMenuRef.current.contains(event.target as Node)) {
+        setIsPlanningMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, []);
   const plans = useMemo(() => {
     const ordersById = new Map(orders.map((order) => [order.id, order]));
     return fetchedPlans
@@ -176,10 +237,11 @@ export default function DispatchPage() {
     tenantSettingsRepository
       .getSettings()
       .then((s) => setMaxOrdersPerDriver(s.dispatch_config.max_orders_per_driver))
-      .catch(() => {});
+      .catch(() => { });
     try {
       const list = await orderRepository.getDispatchPlans();
       setPlans(list);
+      return list;
     } catch {
       // Keep existing state when endpoint is unreachable
     } finally {
@@ -193,7 +255,8 @@ export default function DispatchPage() {
       setMapFilters(EMPTY_DISPATCH_MAP_FILTERS);
       setLinkedPlanId(planId);
       setSelectedPlanId(planId);
-      setIsPlansOpen(true);
+      setDispatchTab('routes');
+      setIsPlanningPanelOpen(true);
       if (!plans.some((plan) => plan.plan_id === planId)) {
         void Promise.all([loadPlans(), refetchOrders()]);
       }
@@ -209,7 +272,7 @@ export default function DispatchPage() {
       .then((s) => {
         if (active) setMaxOrdersPerDriver(s.dispatch_config.max_orders_per_driver);
       })
-      .catch(() => {});
+      .catch(() => { });
     pickupLocationRepository
       .getPickupLocations('ACTIVE')
       .then((locations) => {
@@ -226,7 +289,9 @@ export default function DispatchPage() {
         const requested = new URLSearchParams(window.location.search).get('plan');
         if (requested && list.some((plan) => plan.plan_id === requested)) {
           setLinkedPlanId(requested);
-          setIsPlansOpen(true);
+          if (new URLSearchParams(window.location.search).get('tab') !== 'orders') {
+            setIsPlanningPanelOpen(true);
+          }
           setSelectedPlanId((current) => current ?? requested);
         }
       })
@@ -273,22 +338,41 @@ export default function DispatchPage() {
   // Eligible orders for inserting into an active plan.
   const dispatchableOrders = orders.filter((order) => order.status === 'READY_FOR_DISPATCH');
 
-  const handleTriggerPlanning = async () => {
+  const handleTriggerPlanning = async (scope: 'SELECTED' | 'ALL') => {
+    if (planningInProgress.current || (scope === 'SELECTED' && selectedOrderIds.size === 0)) return;
+    setIsPlanningMenuOpen(false);
+    planningInProgress.current = true;
+    const orderIds = Array.from(selectedOrderIds);
+    setHighlightedPlan(null);
     setIsTriggeringPlan(true);
     try {
-      const result = await orderRepository.triggerDispatchPlanning();
-      await Promise.all([loadPlans(), refetchOrders()]);
+      const result = scope === 'SELECTED'
+        ? await orderRepository.triggerDispatchPlanning({ scope, orderIds })
+        : await operationFlowRepository.runPlanning(null);
+      if ('unplanned_order_ids' in result && result.unplanned_order_ids) {
+        setSelectedOrderIds(new Set(result.unplanned_order_ids));
+      }
+      const [refreshedPlans] = await Promise.all([loadPlans(), refetchOrders()]);
+      if (scope === 'ALL' && refreshedPlans && result.plan_ids.length > 0 && orderIds.length > 0) {
+        const newPlanIds = new Set(result.plan_ids);
+        const plannedOrderIds = new Set(refreshedPlans
+          .filter((plan) => newPlanIds.has(plan.plan_id))
+          .flatMap((plan) => plan.ordered_stop_ids ?? []));
+        setSelectedOrderIds((current) => new Set([...current].filter((id) => !plannedOrderIds.has(id))));
+      }
       const planId = reportDispatchPlanning(result, t);
       if (planId) {
-        setSelectedPlanId(planId);
-        return true;
+        selectPlanFromPanel(planId);
+        setLinkedPlanId(planId);
+        setIsPlanningPanelOpen(true);
+        setDispatchTab('routes');
       }
     } catch {
       toast.error(t('Không thể chạy lập kế hoạch. Vui lòng thử lại.'));
     } finally {
+      planningInProgress.current = false;
       setIsTriggeringPlan(false);
     }
-    return false;
   };
 
   const handleReorderStops = async (plan: DispatchPlanRecord, orderedStopIds: string[]) => {
@@ -545,10 +629,17 @@ export default function DispatchPage() {
     ? selectedPlan : null;
   const visibleHighlight = highlightedPlan && overviewRoutes.some((route) => route.id === highlightedPlan.planId)
     ? highlightedPlan : null;
-  if (!hasPermission(['dispatch:read', 'dispatch:execute'])) {
-    return <AccessDeniedNotice requiredPermission="dispatch:read" />;
-  }
-  const canExecute = user?.role !== 'DRIVER' && hasPermission('dispatch:execute');
+  const selectedOrderCount = selectedOrderIds.size;
+  const updatePlanningSelection = (selection: Order[], checked: boolean) => {
+    setSelectedOrderIds((current) => {
+      const next = new Set(current);
+      for (const order of selection) {
+        if (checked) next.add(order.id);
+        else next.delete(order.id);
+      }
+      return next;
+    });
+  };
   const changeMapFilters = (filters: DispatchMapFilters) => {
     setMapFilters(filters);
     setSelectedPlanId(null);
@@ -562,7 +653,9 @@ export default function DispatchPage() {
   };
   const closePlansPanel = () => {
     setHighlightedPlan(null);
-    setIsPlansOpen(false);
+    setIsPlanningMenuOpen(false);
+    setDispatchTab('routes');
+    setIsPlanningPanelOpen(false);
     plansButtonRef.current?.focus();
   };
   const selectedPlanTimeline = selectedPlan && (!mapFilterKey || visibleSelectedPlan) && (
@@ -582,10 +675,52 @@ export default function DispatchPage() {
     />
   );
 
+  const planningButton = canExecute ? (
+    <div ref={planningMenuRef} className="relative inline-block">
+      <Button
+        type="button"
+        size="sm"
+        className="min-h-11 cursor-pointer bg-teal-700 text-white hover:bg-teal-800 sm:min-h-9"
+        aria-expanded={isPlanningMenuOpen}
+        onClick={() => setIsPlanningMenuOpen(prev => !prev)}
+        isLoading={isTriggeringPlan}
+        disabled={isTriggeringPlan}
+      >
+        {!isTriggeringPlan && <Play size={14} />}
+        {t('Lập tuyến')}
+        <ChevronDown size={14} />
+      </Button>
+
+      {isPlanningMenuOpen && (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[250px] rounded-md border border-gray-200 bg-white p-1 shadow-lg">
+          <button
+            type="button"
+            className="w-full cursor-pointer rounded px-4 py-2 text-left text-sm hover:bg-gray-100"
+            onClick={() => { void handleTriggerPlanning('ALL'); }}
+          >
+            {t('Lập tuyến tất cả đơn hàng')}
+          </button>
+
+          <button
+            type="button"
+            disabled={selectedOrderCount === 0}
+            className="w-full cursor-pointer rounded px-4 py-2 text-left text-sm hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => { void handleTriggerPlanning('SELECTED'); }}
+          >
+            {t('Lập tuyến các đơn đã chọn')}
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div className="flex min-w-0 flex-1 flex-col"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !event.defaultPrevented && isPlansOpen) closePlansPanel();
+        if (event.key === 'Escape' && !event.defaultPrevented && isPlansOpen
+          && event.target instanceof Node && event.currentTarget.contains(event.target)) {
+          closePlansPanel();
+        }
       }}>
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-1.5 sm:px-4">
         <h1 className="text-xl font-semibold text-slate-950">{t('Điều phối & bản đồ')}</h1>
@@ -617,15 +752,14 @@ export default function DispatchPage() {
             className="min-h-11 gap-2 rounded-xl px-3.5 shadow-lg backdrop-blur-md transition-all"
             aria-expanded={isPlansOpen}
             aria-controls="dispatch-tool-plans"
-            onClick={isPlansOpen ? closePlansPanel : () => setIsPlansOpen(true)}
+            onClick={isPlansOpen ? closePlansPanel : () => setIsPlanningPanelOpen(true)}
           >
             <ClipboardList size={16} aria-hidden="true" />
-            <span>{t('Kế hoạch')}</span>
+            <span>{t(canReadOrders ? 'Tuyến & đơn hàng' : 'Kế hoạch')}</span>
             {plans.length > 0 && (
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none tabular-nums ${
-                  isPlansOpen ? 'bg-white/20 text-white' : 'bg-[#17766c]/10 text-[#17766c]'
-                }`}
+                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none tabular-nums ${isPlansOpen ? 'bg-white/20 text-white' : 'bg-[#17766c]/10 text-[#17766c]'
+                  }`}
               >
                 {plans.length}
               </span>
@@ -644,21 +778,6 @@ export default function DispatchPage() {
               if (!visible) setHighlightedPlan(null);
             }}
           />}
-          {canExecute && !isPlansOpen && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-11 gap-1.5 rounded-xl border-slate-200/90 bg-white/95 px-3 shadow-lg backdrop-blur-md hover:border-[#17766c]/40 hover:bg-white hover:text-[#17766c]"
-              onClick={() => {
-                void handleTriggerPlanning();
-              }}
-              isLoading={isTriggeringPlan}
-            >
-              {!isTriggeringPlan && <Play size={15} aria-hidden="true" />}
-              <span>{t('Lập kế hoạch')}</span>
-            </Button>
-          )}
         </div>
 
         <div className="absolute inset-0">
@@ -687,40 +806,72 @@ export default function DispatchPage() {
 
         <section
           id="dispatch-tool-plans"
-          aria-hidden={!isPlansOpen}
-          aria-labelledby="dispatch-tool-heading-plans"
-          className={`absolute inset-x-2 bottom-2 z-30 min-w-0 transition-all duration-200 ease-out sm:inset-x-4 sm:bottom-4 ${
-            isPlansOpen
-              ? 'visible translate-y-0 scale-100 opacity-100'
-              : 'pointer-events-none invisible translate-y-4 scale-[0.98] opacity-0'
-          }`}
+          aria-label={t('Kế hoạch điều phối')}
+          className={`absolute inset-x-2 bottom-2 z-30 max-h-[min(65dvh,calc(100%_-_4.5rem))] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white sm:inset-x-4 sm:bottom-4 ${isPlansOpen ? 'flex' : 'hidden'}`}
         >
-          <PlanApprovalPanel
-            key={linkedPlanId ?? 'default'}
-            plans={plans}
-            drivers={drivers}
-            orders={orders}
-            routeColors={routeColors}
-            eligibleOrders={dispatchableOrders}
-            canExecute={canExecute}
-            isLoading={isLoadingPlans}
-            isTriggering={isTriggeringPlan}
-            selectedPlanId={selectedPlanId}
-            highlightedPlan={highlightedPlan}
-            onSelectPlan={selectPlanFromPanel}
-            onHighlightPlan={setHighlightedPlan}
-            onClose={closePlansPanel}
-            onRefresh={loadPlans}
-            onTriggerPlanning={handleTriggerPlanning}
-            onApprovePlan={handleApprovePlan}
-            onDispatchPlan={handleDispatchPlan}
-            onCancelPlan={handleCancelPlan}
-            onInsertOrderIntoPlan={handleInsertOrderIntoPlan}
-            onReorderStops={handleReorderStops}
-            onMoveStop={handleMoveStop}
-            editingPlanId={editingPlanId}
-            maxOrdersPerDriver={maxOrdersPerDriver}
-          />
+          <Tabs.Root value={activeTab} onValueChange={(tab) => {
+            setHighlightedPlan(null);
+            setIsPlanningMenuOpen(false);
+            setIsPlanningPanelOpen(true);
+            setDispatchTab(tab);
+          }} className="flex min-h-0 flex-col">
+            <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 px-2 sm:px-3">
+              <Tabs.List aria-label={t('Kế hoạch điều phối')} className="mr-auto flex items-center gap-1">
+                <Tabs.Trigger value="routes" className={tabClass}>
+                  {locale === 'en' ? 'Routes' : 'Tuyến đường'}
+                  <span className="text-xs tabular-nums text-slate-600">{plans.length}</span>
+                </Tabs.Trigger>
+                {canReadOrders && <Tabs.Trigger value="orders" className={tabClass}>
+                  {t('Đơn hàng')}
+                  {selectedOrderCount > 0 && <span className="text-xs tabular-nums text-teal-800">{selectedOrderCount}</span>}
+                </Tabs.Trigger>}
+              </Tabs.List>
+              <div className="ml-auto flex items-center gap-1 py-1">
+                {activeTab === 'routes' && planningButton}
+                <Button type="button" variant="ghost" size="sm" className="size-9 cursor-pointer px-0"
+                  onClick={closePlansPanel} aria-label={t('Thu gọn')} title={t('Thu gọn')}>
+                  <X size={17} aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
+
+            <Tabs.Content value="routes" forceMount className="min-h-0 overflow-y-auto overscroll-contain data-[state=inactive]:hidden">
+              <PlanApprovalPanel
+                key={linkedPlanId ?? 'default'}
+                plans={plans}
+                drivers={drivers}
+                orders={orders}
+                routeColors={routeColors}
+                eligibleOrders={dispatchableOrders}
+                canExecute={canExecute}
+                isLoading={isLoadingPlans}
+                selectedPlanId={selectedPlanId}
+                highlightedPlan={highlightedPlan}
+                onSelectPlan={selectPlanFromPanel}
+                onHighlightPlan={setHighlightedPlan}
+                onApprovePlan={handleApprovePlan}
+                onDispatchPlan={handleDispatchPlan}
+                onCancelPlan={handleCancelPlan}
+                onInsertOrderIntoPlan={handleInsertOrderIntoPlan}
+                onReorderStops={handleReorderStops}
+                onMoveStop={handleMoveStop}
+                editingPlanId={editingPlanId}
+                maxOrdersPerDriver={maxOrdersPerDriver}
+              />
+            </Tabs.Content>
+            {canReadOrders && isPlansOpen && (
+              <Tabs.Content value="orders" forceMount className="min-h-0 overflow-y-auto overscroll-contain p-2.5 data-[state=inactive]:hidden sm:p-4">
+                <OrdersWorkspace embedded refreshRevision={orderPageRevision} onOrdersChanged={fetchOrdersForMap}
+                  headerActions={activeTab === 'orders' ? planningButton : undefined}
+                  selection={canExecute ? {
+                    ids: selectedOrderIds,
+                    disabled: isTriggeringPlan,
+                    update: updatePlanningSelection,
+                  } : undefined}
+                />
+              </Tabs.Content>
+            )}
+          </Tabs.Root>
         </section>
       </section>
     </div>

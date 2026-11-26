@@ -9,21 +9,28 @@ class AuthInterceptor extends Interceptor {
   final Dio dio;
   final FlutterSecureStorage storage;
   final TokenStorage? tokenStorage;
+  final VoidCallback? onSessionInvalidated;
   Completer<bool>? _refreshCompleter;
 
   AuthInterceptor({
     required this.dio,
     required this.storage,
     this.tokenStorage,
+    this.onSessionInvalidated,
   });
+
+  static const List<String> _publicPaths = [
+    '/auth/login',
+    '/auth/driver/activate',
+    '/auth/refresh',
+  ];
 
   @override
   Future<void> onRequest(
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    const publicPaths = ['/auth/login', '/auth/refresh'];
-    if (publicPaths.any((p) => options.path.contains(p))) {
+    if (_publicPaths.any((p) => options.path.contains(p))) {
       return handler.next(options);
     }
 
@@ -55,24 +62,16 @@ class AuthInterceptor extends Interceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    // If the failed endpoint is refresh or auth endpoint, never retry refresh
-    if (err.requestOptions.path.contains('/auth/refresh') ||
-        err.requestOptions.path.contains('/auth/login')) {
-      if (err.response?.statusCode == 401) {
-        try {
-          if (tokenStorage != null) {
-            await tokenStorage!.clearAll();
-          } else {
-            await storage.deleteAll();
-          }
-        } catch (_) {}
+    if (_publicPaths.any((p) => err.requestOptions.path.contains(p))) {
+      if (err.requestOptions.path.contains('/auth/refresh') &&
+          err.response?.statusCode == 401) {
+        await _clearCredentialsAndNotify();
       }
       return handler.next(err);
     }
 
     if (err.response?.statusCode == 401) {
       if (_refreshCompleter != null) {
-        // Another concurrent request is already refreshing the token -> wait for it
         final refreshed = await _refreshCompleter!.future;
         if (refreshed) {
           final token = tokenStorage != null
@@ -98,30 +97,30 @@ class AuthInterceptor extends Interceptor {
           final response = await dio.fetch(err.requestOptions);
           return handler.resolve(response);
         } else {
-          try {
-            if (tokenStorage != null) {
-              await tokenStorage!.clearAll();
-            } else {
-              await storage.deleteAll();
-            }
-          } catch (_) {}
+          await _clearCredentialsAndNotify();
           return handler.next(err);
         }
       } catch (e) {
         _refreshCompleter?.complete(false);
-        try {
-          if (tokenStorage != null) {
-            await tokenStorage!.clearAll();
-          } else {
-            await storage.deleteAll();
-          }
-        } catch (_) {}
+        await _clearCredentialsAndNotify();
         return handler.next(err);
       } finally {
         _refreshCompleter = null;
       }
     }
     handler.next(err);
+  }
+
+  Future<void> _clearCredentialsAndNotify() async {
+    try {
+      if (tokenStorage != null) {
+        await tokenStorage!.clearAll();
+      } else {
+        await storage.delete(key: 'access_token');
+        await storage.delete(key: 'refresh_token');
+      }
+    } catch (_) {}
+    onSessionInvalidated?.call();
   }
 
   Future<bool> _refreshToken() async {
@@ -137,7 +136,6 @@ class AuthInterceptor extends Interceptor {
           : await storage.read(key: 'refresh_token');
       if (refreshToken == null || refreshToken.isEmpty) return false;
 
-      // Use clean Dio options to avoid interceptor recursion
       final cleanDio = Dio(BaseOptions(baseUrl: dio.options.baseUrl));
       final response = await cleanDio.post(
         '/auth/refresh',
@@ -164,14 +162,15 @@ class AuthInterceptor extends Interceptor {
       if (newAccessToken == null || newAccessToken.isEmpty) return false;
       String effectiveAccessToken = newAccessToken;
 
-      // Preserve tenant-scoped token across refresh when the user held a workspace context
       if (previousTenantId != null &&
           previousTenantId.isNotEmpty &&
           _extractClaim(effectiveAccessToken, 'tenant_id') == null) {
         try {
           final switchResp = await cleanDio.post(
             '/auth/tenants/$previousTenantId/switch',
-            options: Options(headers: {'Authorization': 'Bearer $effectiveAccessToken'}),
+            options: Options(
+              headers: {'Authorization': 'Bearer $effectiveAccessToken'},
+            ),
           );
           final switchBody = switchResp.data;
           final switchData = switchBody is Map<String, dynamic> &&
@@ -184,9 +183,7 @@ class AuthInterceptor extends Interceptor {
           if (switchedToken != null && switchedToken.isNotEmpty) {
             effectiveAccessToken = switchedToken;
           }
-        } catch (_) {
-          // Keep refreshed base token if switch is rejected
-        }
+        } catch (_) {}
       }
 
       if (tokenStorage != null) {

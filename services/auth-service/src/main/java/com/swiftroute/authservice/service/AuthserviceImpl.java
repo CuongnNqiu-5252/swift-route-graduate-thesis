@@ -37,6 +37,9 @@ public class AuthserviceImpl implements AuthService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private TenantPermissionService tenantPermissionService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DriverActivationService driverActivationService;
+
     @Override
     @Transactional
     public void register(RegisterRequestDTO request) {
@@ -85,6 +88,11 @@ public class AuthserviceImpl implements AuthService {
     @Transactional
     public LoginResponseDTO refreshAccessToken(String refreshToken, HttpServletRequest httpRequest) {
         RefreshToken validatedOldToken = jwtService.validateAndRotate(refreshToken, httpRequest);
+        if (validatedOldToken.getSessionId() != null
+                && driverActivationService != null
+                && driverActivationService.isSessionRevoked(validatedOldToken.getSessionId())) {
+            throw new com.swiftroute.authservice.exception.TokenExpiredException(ErrorCode.TOKEN_EXPIRED);
+        }
 
         User user = userRepository.findById(validatedOldToken.getUser().getId())
                 .orElseThrow(() -> new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS));
@@ -97,7 +105,12 @@ public class AuthserviceImpl implements AuthService {
                 ? jwtConfig.getAccessTokenExpiryMinutes()
                 : 15;
 
-        return buildAuthResponse(user, ttlMinutes, httpRequest, validatedOldToken.getActiveTenantId());
+        return buildAuthResponse(
+                user,
+                ttlMinutes,
+                httpRequest,
+                validatedOldToken.getActiveTenantId(),
+                validatedOldToken.getSessionId());
     }
 
     private java.util.UUID extractRequestedTenantId(HttpServletRequest request) {
@@ -135,6 +148,15 @@ public class AuthserviceImpl implements AuthService {
             long ttlMinutes,
             HttpServletRequest httpRequest,
             java.util.UUID fallbackTenantId) {
+        return buildAuthResponse(user, ttlMinutes, httpRequest, fallbackTenantId, null);
+    }
+
+    private LoginResponseDTO buildAuthResponse(
+            User user,
+            long ttlMinutes,
+            HttpServletRequest httpRequest,
+            java.util.UUID fallbackTenantId,
+            java.util.UUID sessionId) {
         java.util.List<com.swiftroute.authservice.entity.TenantMembership> activeMemberships = tenantMembershipRepository
                 .findByUser_IdAndStatus(user.getId(),
                         com.swiftroute.authservice.entity.enums.TenantMembershipStatus.ACTIVE);
@@ -163,7 +185,20 @@ public class AuthserviceImpl implements AuthService {
         if (selectedMembership != null) {
             effectiveRole = selectedMembership.getMembershipRole().name();
             tenantId = selectedMembership.getTenantId();
-            if (tenantPermissionService != null) {
+            if (sessionId != null) {
+                effectivePermissions = tenantPermissionService != null
+                        ? tenantPermissionService.resolveEffectivePermissions(user.getRole(), selectedMembership)
+                        : com.swiftroute.authservice.entity.enums.TenantPermission
+                                .defaultPermissionsForRoleName(effectiveRole, user.getRole());
+                accessToken = jwtService.generateTenantAccessToken(
+                        user,
+                        tenantId,
+                        effectiveRole,
+                        effectivePermissions,
+                        selectedMembership.getPermissionsVersion(),
+                        sessionId,
+                        ttlMinutes);
+            } else if (tenantPermissionService != null) {
                 effectivePermissions = tenantPermissionService.resolveEffectivePermissions(
                         user.getRole(), selectedMembership);
                 accessToken = jwtService.generateTenantAccessToken(
@@ -185,9 +220,14 @@ public class AuthserviceImpl implements AuthService {
             accessToken = jwtService.generateAccessToken(user, ttlMinutes);
         }
 
-        String refreshToken = (tenantPermissionService != null && tenantId != null)
-                ? jwtService.generateAndStoreRefreshToken(user, httpRequest, tenantId)
-                : jwtService.generateAndStoreRefreshToken(user, httpRequest);
+        String refreshToken;
+        if (sessionId != null) {
+            refreshToken = jwtService.generateAndStoreRefreshToken(user, httpRequest, tenantId, sessionId);
+        } else {
+            refreshToken = (tenantPermissionService != null && tenantId != null)
+                    ? jwtService.generateAndStoreRefreshToken(user, httpRequest, tenantId)
+                    : jwtService.generateAndStoreRefreshToken(user, httpRequest);
+        }
 
         return LoginResponseDTO.builder()
                 .accessToken(accessToken)

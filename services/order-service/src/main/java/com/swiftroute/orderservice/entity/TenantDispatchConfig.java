@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
@@ -26,7 +25,8 @@ public class TenantDispatchConfig {
 
     /**
      * Whether automated dispatch evaluation is active for this tenant.
-     * When false, orders remain in READY_FOR_DISPATCH state until manually optimized via Web
+     * When false, orders remain in READY_FOR_DISPATCH state until manually
+     * optimized via Web
      * Admin.
      */
     @JsonProperty("auto_dispatch_enabled")
@@ -64,15 +64,6 @@ public class TenantDispatchConfig {
     @Max(20)
     @Builder.Default
     private Integer maxOrdersPerDriver = 5;
-
-    /**
-     * Preferred optimization algorithm (auto | held_karp | nearest_neighbor |
-     * genetic).
-     */
-    @JsonProperty("algorithm")
-    @NotBlank
-    @Builder.Default
-    private String algorithm = "auto";
 
     /**
      * Whether daily scheduled wave dispatch is enabled for this tenant.

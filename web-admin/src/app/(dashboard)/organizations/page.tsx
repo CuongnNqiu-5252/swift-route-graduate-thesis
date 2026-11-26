@@ -16,7 +16,9 @@ import { authRepository } from '@/infrastructure/repositories/auth.repository';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Modal } from '@/components/ui/modal';
+import { Plus } from 'lucide-react';
 
 const PENDING_TENANT_KEY = 'pending_tenant_id';
 
@@ -29,6 +31,8 @@ export default function OrganizationsPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createError, setCreateError] = useState('');
 
   useEffect(() => {
     tenantWorkflow.memberships().then(async (items) => {
@@ -74,8 +78,10 @@ export default function OrganizationsPage() {
 
   async function create(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy || !user?.emailVerified || waitingForWorkspace) return;
     setBusy(true);
     setError('');
+    setCreateError('');
     setNotice('');
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(form.entries());
@@ -84,9 +90,8 @@ export default function OrganizationsPage() {
     let retry: { signature: string; key: string } | null = null;
     try { retry = JSON.parse(sessionStorage.getItem(cacheKey) || 'null'); } catch { /* replace invalid state */ }
     if (retry?.signature !== signature) retry = { signature, key: crypto.randomUUID() };
-    sessionStorage.setItem(cacheKey, JSON.stringify(retry));
-
     try {
+      sessionStorage.setItem(cacheKey, JSON.stringify(retry));
       const result = await tenantWorkflow.create(payload, retry.key);
       sessionStorage.removeItem(cacheKey);
       if (result.workspace_status === 'READY') {
@@ -103,8 +108,9 @@ export default function OrganizationsPage() {
         });
         setNotice(t("Doanh nghiệp đã được ghi nhận. Hệ thống đang cấp quyền chủ sở hữu doanh nghiệp."));
       }
+      setCreateOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("Không thể tạo tổ chức"));
+      setCreateError(e instanceof Error ? e.message : t("Không thể tạo tổ chức"));
     } finally {
       setBusy(false);
     }
@@ -185,7 +191,38 @@ export default function OrganizationsPage() {
         </Card>
       )}
 
-      <section><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold text-slate-950">{t("Doanh nghiệp của tôi")}</h2><span className="text-xs text-slate-500">{t("Chọn doanh nghiệp để làm việc")}</span></div><div className="grid gap-3 sm:grid-cols-2">
+      <section>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-semibold text-slate-950">{t("Doanh nghiệp của tôi")}</h2>
+          <Modal
+            open={createOpen}
+            onOpenChange={(open) => {
+              if (busy) return;
+              setCreateError('');
+              setCreateOpen(open);
+            }}
+            title={t("Thêm không gian vận hành")}
+            description={t("Thông tin này dùng để lập hồ sơ doanh nghiệp và có thể bổ sung ở bước tiếp theo.")}
+            trigger={
+              <Button type="button" size="sm" className="min-h-11 cursor-pointer" disabled={busy || !user?.emailVerified || Boolean(waitingForWorkspace)}>
+                <Plus size={16} aria-hidden="true" />
+                {t("Thêm không gian vận hành")}
+              </Button>
+            }
+          >
+            <form onSubmit={create} className="space-y-4">
+              <Input label={t("Tên doanh nghiệp")} name="business_name" required minLength={2} maxLength={255} />
+              <Input label={t("Số điện thoại")} name="contact_phone" type="tel" required minLength={9} maxLength={20} />
+              <Input label={t("Mã quốc gia")} name="country_code" defaultValue="VN" required pattern="[A-Z]{2}" />
+              {createError && <p role="alert" className="text-sm text-red-700">{createError}</p>}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={busy}>{t("Hủy")}</Button>
+                <Button type="submit" isLoading={busy}>{t("Tạo và bắt đầu thiết lập")}</Button>
+              </div>
+            </form>
+          </Modal>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
         {memberships.length === 0 && <p className="p-5 text-sm text-gray-600">{t("Bạn chưa tham gia doanh nghiệp nào.")}</p>}
         {memberships.map((membership) => (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4" key={membership.tenant_id}>
@@ -196,19 +233,8 @@ export default function OrganizationsPage() {
             <Button variant="outline" onClick={() => switchTenant(membership.tenant_id).catch((e) => setError(e.message))}>{t("Mở doanh nghiệp")}</Button>
           </div>
         ))}
-      </div></section>
-
-      <Card>
-        <CardHeader><CardTitle>{t("Tạo doanh nghiệp")}</CardTitle><p className="text-sm text-slate-600">{t("Thông tin này dùng để lập hồ sơ doanh nghiệp và có thể bổ sung ở bước tiếp theo.")}</p></CardHeader>
-        <CardContent>
-          <form onSubmit={create} className="space-y-4">
-            <Input label={t("Tên doanh nghiệp")} name="business_name" required minLength={2} maxLength={255}/>
-            <Input label={t("Số điện thoại")} name="contact_phone" required minLength={9} maxLength={20}/>
-            <Input label={t("Mã quốc gia")} name="country_code" defaultValue="VN" required pattern="[A-Z]{2}"/>
-            <Button type="submit" disabled={!user?.emailVerified || Boolean(waitingForWorkspace)} isLoading={busy}>{t("Tạo và bắt đầu thiết lập")}</Button>
-          </form>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { DriveCsvPicker } from '@/components/orders/drive-csv-picker';
 import { OrderImportReview, type ImportReviewRow } from '@/components/orders/order-import-review';
 import LocationMapPicker from '@/components/locations/location-map-picker';
 import { Button } from '@/components/ui/button';
+import type { OrderPriority } from '@/domain/entities/order.entity';
 import { useLocale } from '@/i18n/provider';
 import { goongMapsClient } from '@/infrastructure/maps/goong-maps.client';
 import {
@@ -51,18 +52,20 @@ type PreparedFile = Awaited<ReturnType<typeof readOrderCsv>>;
 type LocationMatch = NonNullable<Awaited<ReturnType<typeof resolveAddress>>>;
 
 export function OrderImportPanel({
-  onImported, onDiscard, prepared, resolveCoordinates = true, stopOnCsvErrors = false,
+  onImported, onDiscard, prepared, resolveCoordinates = true, stopOnCsvErrors = false, inModal = false,
 }: {
   onImported?: () => void;
   onDiscard?: () => void;
   prepared?: PreparedFile;
   resolveCoordinates?: boolean;
   stopOnCsvErrors?: boolean;
+  inModal?: boolean;
 }) {
   const { t } = useLocale();
   const [localPreview, setPreview] = useState<PreparedFile | null>(null);
   const preview = prepared ?? localPreview;
   const [lookups, setLookups] = useState<{ source: PreparedFile; matches: Map<number, LocationMatch> }>();
+  const [priorityOverrides, setPriorityOverrides] = useState<Record<number, OrderPriority>>({});
   const [submission, setSubmission] = useState<{ source: PreparedFile; rows: ImportReviewRow[] }>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -94,6 +97,7 @@ export function OrderImportPanel({
 
   async function choose(file?: File) {
     setPreview(null);
+    setPriorityOverrides({});
     setSubmission(undefined);
     setError('');
     if (!file) return;
@@ -111,6 +115,7 @@ export function OrderImportPanel({
   function discard() {
     setPreview(null);
     setLookups(undefined);
+    setPriorityOverrides({});
     setSubmission(undefined);
     setError('');
     onDiscard?.();
@@ -120,13 +125,15 @@ export function OrderImportPanel({
     ...preview.errors,
     ...preview.rows.map((row): ImportReviewRow => {
       const matched = matches?.get(row.line);
+      const priority = priorityOverrides[row.line] ?? row.priority ?? 'NORMAL';
+      const rowWithPriority = { ...row, priority };
       return {
         line: row.line,
         externalOrderCode: row.externalOrderCode,
         status: matched ? 'GEOCODED' : hasCoordinates(row) && row.deliveryAddress.trim()
           ? 'COORDINATES' : checking && row.deliveryAddress.length >= 3
             && row.deliveryAddress.length <= 500 && !hasCoordinates(row) ? 'CHECKING' : 'NEEDS_ADDRESS',
-        data: matched ? { ...row, deliveryLat: matched.lat, deliveryLng: matched.lng } : row,
+        data: matched ? { ...rowWithPriority, deliveryLat: matched.lat, deliveryLng: matched.lng } : rowWithPriority,
         matchedAddress: matched?.address,
       };
     }),
@@ -154,11 +161,13 @@ export function OrderImportPanel({
   }
 
   return (
-    <section className={panel} aria-labelledby="order-import-heading">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="order-import-heading" className="font-semibold text-slate-950">
-          {t('Nhập vận đơn từ Excel hoặc CSV')}
-        </h2>
+    <section className={inModal ? 'space-y-4' : panel} aria-labelledby={inModal ? undefined : 'order-import-heading'}>
+      <div className={inModal ? 'flex flex-wrap items-center justify-end gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
+        {!inModal && (
+          <h2 id="order-import-heading" className="font-semibold text-slate-950">
+            {t('Nhập vận đơn từ Excel hoặc CSV')}
+          </h2>
+        )}
         <div className="flex items-center gap-3">
           <a href="/templates/order-import.xlsx" download className="text-sm font-medium text-blue-700 underline">{t('Tải file Excel mẫu (.xlsx)')}</a>
           <span className="text-slate-300">|</span>
@@ -194,6 +203,9 @@ export function OrderImportPanel({
         blocked={blocked}
         onSave={() => void submit()}
         onDiscard={discard}
+        onPriorityChange={(line, nextPriority) => {
+          setPriorityOverrides((previous) => ({ ...previous, [line]: nextPriority }));
+        }}
         renderPending={(row) => <PendingRowActions row={row} onResolved={(status, address) => {
           setSubmission((previous) => previous?.source === preview ? {
             ...previous,

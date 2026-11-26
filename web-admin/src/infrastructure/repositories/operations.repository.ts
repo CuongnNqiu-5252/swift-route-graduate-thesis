@@ -104,32 +104,9 @@ export interface CodDashboardDto {
   disputes?: unknown[];
 }
 
-export interface OrderHandoverDto {
-  handover_id: string;
-  order_id: string;
-  order_code: string | null;
-  from_driver_id: string;
-  to_driver_id: string | null;
-  status: 'REQUESTED' | 'ASSIGNED';
-  reason: string;
-}
-
 export const operationsRepository = {
   async getReviewQueue() {
     return (await api.get<unknown>('/operations/review')).data;
-  },
-
-  async getOrderHandovers(): Promise<OrderHandoverDto[]> {
-    const res = await api.get<{ data: OrderHandoverDto[] } | OrderHandoverDto[]>('/custody/handovers/queue');
-    return Array.isArray(res.data) ? res.data : res.data.data;
-  },
-
-  async assignOrderHandover(id: string, driverId: string): Promise<void> {
-    await api.patch(`/custody/handovers/${id}/assign`, { to_driver_id: driverId });
-  },
-
-  async closeOrderHandover(id: string, action: 'reject' | 'cancel', notes: string): Promise<void> {
-    await api.patch(`/custody/handovers/${id}/${action}`, { notes });
   },
 
   async getIncidents(params?: { status?: string; severity?: string; driver_id?: string; order_id?: string }): Promise<IncidentDto[]> {

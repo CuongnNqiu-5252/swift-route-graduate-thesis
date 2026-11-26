@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_chat_screen.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_cod_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/route_assignment_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_notifications_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_status_card.dart';
@@ -23,13 +25,11 @@ class DriverHomeTab extends ConsumerStatefulWidget {
   const DriverHomeTab({
     super.key,
     required this.onNavigateToRoute,
-    this.onNavigateToHandover,
     this.onNavigateToEarnings,
     this.onNavigateToProfile,
   });
 
   final VoidCallback onNavigateToRoute;
-  final VoidCallback? onNavigateToHandover;
   final VoidCallback? onNavigateToEarnings;
   final VoidCallback? onNavigateToProfile;
 
@@ -38,6 +38,12 @@ class DriverHomeTab extends ConsumerStatefulWidget {
 }
 
 class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
+  void _openCod() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const DriverCodScreen()));
+  }
+
   void _openNotificationsSheet(
     BuildContext context,
     List<DriverNotificationModel> notifications,
@@ -53,19 +59,19 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
       backgroundColor: Colors.transparent,
       builder: (_) => DriverNotificationsSheet(
         onNavigateToRoute: widget.onNavigateToRoute,
-        onNavigateToHandover: widget.onNavigateToHandover,
+        onOpenCod: _openCod,
         onNavigateToEarnings: widget.onNavigateToEarnings,
         onNavigateToProfile: widget.onNavigateToProfile,
       ),
     );
   }
 
-  bool _planHasPendingPickup(DispatchPlanModel plan, List<OrderModel> orders) {
+  bool _planHasActiveStops(DispatchPlanModel plan, List<OrderModel> orders) {
     final stopIds = plan.orderedStopIds.toSet();
     final planOrders = stopIds.isEmpty
         ? orders
         : orders.where((o) => stopIds.contains(o.id)).toList();
-    return planOrders.any((o) => o.needsPickup);
+    return planOrders.any((o) => o.isOutForDelivery);
   }
 
   @override
@@ -79,7 +85,10 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
     final user = ref.watch(currentUserProvider);
     final driver = driverState.valueOrNull;
 
-    final pendingCodTotal = codState.valueOrNull?.availableTotal ?? 0;
+    final cod = codState.valueOrNull;
+    final pendingCodTotal = cod?.availableTotal ?? 0;
+    final hasCodToSubmit = cod?.eligibleCollections.isNotEmpty ?? false;
+    final hasCodReceipts = cod?.recentHandovers.isNotEmpty ?? false;
     final notifications = notificationsState.valueOrNull ?? const [];
     final unreadNotificationsCount = notifications
         .where((n) => !readNotificationIds.contains(n.id))
@@ -210,18 +219,18 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
             plansState.maybeWhen(
               data: (plans) {
                 final currentOrders = ordersState.valueOrNull ?? [];
-                final pending = plans
-                    .where((p) => _planHasPendingPickup(p, currentOrders))
+                final activePlan = plans
+                    .where((p) => _planHasActiveStops(p, currentOrders))
                     .firstOrNull;
-                if (pending == null) return const SizedBox.shrink();
+                if (activePlan == null) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 14),
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppColors.warningSoft,
+                      color: AppColors.primarySoft,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.warningBorder),
+                      border: Border.all(color: AppColors.primaryBorder),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,14 +238,14 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
                         Row(
                           children: [
                             const Icon(
-                              Icons.notifications_active_rounded,
-                              color: AppColors.warning,
+                              Icons.route_rounded,
+                              color: AppColors.primary,
                               size: 20,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Lộ trình được giao gồm ${pending.orderCount} điểm giao',
+                                'Lộ trình đang chạy gồm ${activePlan.orderCount} điểm giao',
                                 style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -248,11 +257,11 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Tổng quãng đường ${pending.totalDistanceKm.toStringAsFixed(1)} km · Dự kiến ${pending.estimatedDurationMinutes} phút',
+                          'Tổng quãng đường ${activePlan.totalDistanceKm.toStringAsFixed(1)} km · Dự kiến ${activePlan.estimatedDurationMinutes} phút',
                           style: AppTheme.numStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.warning,
+                            color: AppColors.primaryDark,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -260,7 +269,7 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
                           onPressed: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
                               builder: (_) => RouteAssignmentScreen(
-                                plan: pending,
+                                plan: activePlan,
                                 orders: currentOrders,
                               ),
                             ),
@@ -298,6 +307,19 @@ class _DriverHomeTabState extends ConsumerState<DriverHomeTab> {
               ),
               orElse: () => const SizedBox.shrink(),
             ),
+
+            if (hasCodToSubmit || hasCodReceipts || codState.hasError)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.payments_outlined),
+                  title: Text(hasCodToSubmit ? 'Nộp COD' : 'Xem phiếu nộp COD'),
+                  subtitle: hasCodToSubmit
+                      ? Text(AppFormatters.currency(pendingCodTotal))
+                      : null,
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _openCod,
+                ),
+              ),
 
             // 5. Direct Navigation to Full Route Timeline
             ordersState.maybeWhen(

@@ -3,6 +3,7 @@ package com.swiftroute.orderservice.service.planning;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.scheduling.annotation.Scheduled;
@@ -87,21 +88,22 @@ public class PlanningTriggerScheduler {
     /**
      * Manual trigger — called by {@code POST /api/orders/dispatch/trigger} from Web
      * Admin.
-     * Bypasses eligibility evaluation and fires planning immediately if there are
-     * eligible orders.
+     * Runs planning immediately without waiting for the automatic trigger conditions.
      *
      * @param tenantId UUID of the tenant to trigger planning for
      * @param pickupLocationId optional depot to restrict planning to
+     * @param orderIds selected orders, or null to consider all eligible orders
      */
     @Transactional
-    public DispatchOrchestrationService.CycleResult triggerManual(UUID tenantId, UUID pickupLocationId) {
+    public DispatchOrchestrationService.CycleResult triggerManual(
+            UUID tenantId, UUID pickupLocationId, Set<UUID> orderIds) {
         log.info("Manual planning trigger for tenant {}.", tenantId);
         boolean acquired = advisoryLockHelper.tryLock(tenantId.getMostSignificantBits());
         if (!acquired) {
             log.warn("Manual trigger for tenant {} skipped — concurrent planning already in progress.", tenantId);
             return new DispatchOrchestrationService.CycleResult("IN_PROGRESS", 0, List.of());
         }
-        return orchestrationService.executeFlowCycle(tenantId, PlanTriggerType.MANUAL, pickupLocationId);
+        return orchestrationService.executeFlowCycle(tenantId, PlanTriggerType.MANUAL, pickupLocationId, orderIds);
     }
 
     // -------------------------------------------------------------------------

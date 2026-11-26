@@ -10,6 +10,20 @@ export type OrderStatus =
 
 export type PackageCategory = 'DOCUMENT' | 'PARCEL' | 'FRAGILE' | 'PERISHABLE';
 
+export type OrderPriority = 'NORMAL' | 'HIGH' | 'URGENT';
+
+export const ORDER_PRIORITY_LABEL: Record<OrderPriority, string> = {
+  NORMAL: 'Bình thường',
+  HIGH: 'Ưu tiên cao',
+  URGENT: 'Khẩn cấp',
+};
+
+export const ORDER_PRIORITY_BADGE: Record<OrderPriority, string> = {
+  NORMAL: 'border border-slate-200 bg-slate-100 text-slate-700',
+  HIGH: 'border border-amber-200 bg-amber-50 text-amber-800',
+  URGENT: 'border border-rose-200 bg-rose-50 text-rose-800',
+};
+
 export interface Order {
   id: string;
   order_code: string;
@@ -30,6 +44,7 @@ export interface Order {
   delivery_lat: number;
   delivery_lng: number;
   package_category: PackageCategory;
+  priority: OrderPriority;
   weight_kg: number;
   status: OrderStatus;
   notes?: string;
@@ -71,7 +86,6 @@ export type OrderTimelineCategory =
   | 'STATUS'
   | 'DELIVERY'
   | 'INCIDENT'
-  | 'HANDOVER'
   | 'RETURN'
   | 'COD';
 
@@ -98,7 +112,6 @@ export interface OrderTimeline {
   tracking_token?: string | null;
   current_status: OrderStatus;
   assigned_driver_id?: string | null;
-  custodian_driver_id?: string | null;
   dispatch_plan_id?: string | null;
   latest_proof_url?: string | null;
   created_at: string;

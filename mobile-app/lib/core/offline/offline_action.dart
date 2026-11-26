@@ -8,7 +8,6 @@ enum OfflineActionType {
   codCollection,
   codHandover,
   incident,
-  packageHandover,
   returnProgress,
   locationUpdate,
 }
@@ -104,7 +103,9 @@ class OfflineAction {
 
   factory OfflineAction.fromRow(Map<String, Object?> row) => OfflineAction(
     id: row['id']! as String,
-    type: OfflineActionType.values.byName(row['type']! as String),
+    type:
+        OfflineActionType.values.asNameMap()[row['type']! as String] ??
+        OfflineActionType.deliveryTaskUpdate,
     method: row['method']! as String,
     path: row['path']! as String,
     entityId: row['entity_id'] as String?,

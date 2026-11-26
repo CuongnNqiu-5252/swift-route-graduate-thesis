@@ -6,10 +6,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/offline/offline_action.dart';
 import 'package:swiftroute_app/features/driver/data/datasources/driver_remote_data_source.dart';
+import 'package:swiftroute_app/features/driver/data/models/delivery_proof_config_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_cod_collection_model.dart';
-import 'package:swiftroute_app/features/driver/data/models/package_handover_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_earning_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_notification_model.dart';
 import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
@@ -165,30 +165,7 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
     }
   }
 
-  /// 1-Swipe Depot Pickup: confirms physical package pickup for a group of orders
-  /// and transitions them directly to OUT_FOR_DELIVERY.
-  Future<void> confirmBatchPickup({
-    required List<String> orderIds,
-    String? notes,
-  }) {
-    final idSet = orderIds.toSet();
-    return _runOptimisticOrderUpdate(
-      transform: (order) {
-        if (idSet.contains(order.id)) {
-          return order.copyWith(
-            status: OrderStatus.inTransit,
-            deliveryTaskStatus: DeliveryTaskStatus.outForDelivery,
-          );
-        }
-        return order;
-      },
-      remoteCall: () => ref
-          .read(orderRemoteDataSourceProvider)
-          .batchPickupDeliveryTasks(orderIds: orderIds, notes: notes),
-    );
-  }
-
-  /// Transition order status (PLANNED -> IN_TRANSIT -> DELIVERED / FAILED)
+  /// Transition order status (IN_TRANSIT -> DELIVERED / FAILED)
   /// with optimistic state updating and rollback on error.
   Future<void> updateDeliveryTask({
     required String orderId,
@@ -219,6 +196,7 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
   Future<void> completeDelivery({
     required String orderId,
     required String taskId,
+    String? notes,
     String? proofUrl,
     double? codAmount,
     String? codOutcome,
@@ -229,6 +207,7 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
         .updateDeliveryTaskStatus(
           taskId: taskId,
           status: DeliveryTaskStatus.completed,
+          notes: notes,
           proofUrl: proofUrl,
         );
     try {
@@ -244,6 +223,9 @@ class DriverOrdersNotifier extends AsyncNotifier<List<OrderModel>> {
             );
       }
     } finally {
+      if (codAmount != null && codOutcome != null) {
+        ref.invalidate(driverCodHandoverProvider);
+      }
       await refreshOrders();
     }
   }
@@ -284,32 +266,6 @@ class DriverCodHandoverNotifier extends AsyncNotifier<DriverCodCustodyModel> {
 final driverCodHandoverProvider =
     AsyncNotifierProvider<DriverCodHandoverNotifier, DriverCodCustodyModel>(
       DriverCodHandoverNotifier.new,
-    );
-
-class PackageHandoverNotifier
-    extends AsyncNotifier<List<PackageHandoverModel>> {
-  @override
-  Future<List<PackageHandoverModel>> build() =>
-      ref.read(orderRemoteDataSourceProvider).getMyPackageHandovers();
-  Future<void> refresh() async {
-    state = await AsyncValue.guard(
-      () => ref.read(orderRemoteDataSourceProvider).getMyPackageHandovers(),
-    );
-  }
-
-  Future<void> act(PackageHandoverModel handover, String action) async {
-    await ref
-        .read(orderRemoteDataSourceProvider)
-        .actOnPackageHandover(handoverId: handover.id, action: action);
-    await refresh();
-    await ref.read(driverOrdersProvider.notifier).refreshOrders();
-    await ref.read(driverDispatchPlansProvider.notifier).refresh();
-  }
-}
-
-final packageHandoverProvider =
-    AsyncNotifierProvider<PackageHandoverNotifier, List<PackageHandoverModel>>(
-      PackageHandoverNotifier.new,
     );
 
 class DriverEarningsNotifier extends AsyncNotifier<DriverEarningsBundle> {
@@ -382,3 +338,25 @@ final driverReadNotificationIdsProvider =
     NotifierProvider<DriverReadNotificationsNotifier, Set<String>>(
       DriverReadNotificationsNotifier.new,
     );
+
+class DeliveryProofConfigNotifier
+    extends AsyncNotifier<DeliveryProofConfigModel> {
+  @override
+  Future<DeliveryProofConfigModel> build() =>
+      ref.read(orderRemoteDataSourceProvider).getDeliveryProofConfig();
+
+  Future<void> refresh() async {
+    final result = await AsyncValue.guard(
+      () => ref.read(orderRemoteDataSourceProvider).getDeliveryProofConfig(),
+    );
+    if (result.valueOrNull != null || !state.hasValue) {
+      state = result;
+    }
+  }
+}
+
+final deliveryProofConfigProvider =
+    AsyncNotifierProvider<
+      DeliveryProofConfigNotifier,
+      DeliveryProofConfigModel
+    >(DeliveryProofConfigNotifier.new);

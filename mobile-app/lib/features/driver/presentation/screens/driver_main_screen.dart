@@ -9,7 +9,6 @@ import 'package:swiftroute_app/core/offline/offline_sync_controller.dart';
 import 'package:swiftroute_app/core/utils/location_helper.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
-import 'package:swiftroute_app/features/driver/presentation/screens/driver_cod_handover_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_earnings_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_home_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_profile_tab.dart';
@@ -17,8 +16,8 @@ import 'package:swiftroute_app/features/driver/presentation/screens/driver_route
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 
-/// Master 5-tab operational shell for SwiftRoute Driver:
-/// Hôm nay · Lộ trình · Thu nhập · Bàn giao · Tài khoản
+/// Operational shell for SwiftRoute Driver:
+/// Hôm nay · Lộ trình · Thu nhập · Tài khoản
 class DriverMainScreen extends ConsumerStatefulWidget {
   const DriverMainScreen({super.key});
 
@@ -53,6 +52,7 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
       unawaited(ref.read(authProvider.notifier).getCurrentUser());
       unawaited(ref.read(driverOrdersProvider.notifier).refreshOrders());
       unawaited(ref.read(driverDispatchPlansProvider.notifier).refresh());
+      unawaited(ref.read(driverCodHandoverProvider.notifier).refresh());
     }
   }
 
@@ -161,7 +161,6 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
     });
 
     final ordersState = ref.watch(driverOrdersProvider);
-    final codState = ref.watch(driverCodHandoverProvider);
     final syncState = ref.watch(offlineSyncProvider);
 
     final activeOrdersCount =
@@ -174,9 +173,6 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
             )
             .length ??
         0;
-
-    final pendingCodCount =
-        codState.valueOrNull?.eligibleCollections.length ?? 0;
 
     return Scaffold(
       body: Column(
@@ -203,12 +199,10 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
                 DriverHomeTab(
                   onNavigateToRoute: () => _selectTab(1),
                   onNavigateToEarnings: () => _selectTab(2),
-                  onNavigateToHandover: () => _selectTab(3),
-                  onNavigateToProfile: () => _selectTab(4),
+                  onNavigateToProfile: () => _selectTab(3),
                 ),
                 const DriverRouteTab(),
                 const DriverEarningsTab(),
-                const DriverCodHandoverTab(),
                 const DriverProfileTab(),
               ],
             ),
@@ -247,21 +241,6 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
               icon: Icon(Icons.receipt_long_outlined),
               selectedIcon: Icon(Icons.receipt_long_rounded),
               label: 'Thu nhập',
-            ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: pendingCodCount > 0,
-                backgroundColor: AppColors.accent,
-                label: Text('$pendingCodCount'),
-                child: const Icon(Icons.payments_outlined),
-              ),
-              selectedIcon: Badge(
-                isLabelVisible: pendingCodCount > 0,
-                backgroundColor: AppColors.accent,
-                label: Text('$pendingCodCount'),
-                child: const Icon(Icons.payments_rounded),
-              ),
-              label: 'Bàn giao',
             ),
             const NavigationDestination(
               icon: Icon(Icons.person_outline_rounded),

@@ -89,6 +89,10 @@ public class TenantEmployeeService {
 
     @Transactional
     public InviteMemberResponse inviteMember(UUID tenantId, UUID inviterUserId, InviteMemberRequest request) {
+        if (request.role() == TenantMembershipRole.DRIVER) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR,
+                    "Tài xế sử dụng mã kích hoạt ứng dụng 12 chữ số thay vì lời mời đăng ký qua email.");
+        }
         // Enforce inviter has invite permission and sufficient role hierarchy
         TenantMembership inviterMembership = verifyInviteAccess(tenantId, inviterUserId);
         if (inviterMembership.getMembershipRole() != TenantMembershipRole.OWNER) {

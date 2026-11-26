@@ -64,8 +64,9 @@ public class DriverService {
         Driver driver = Driver.builder()
                 .tenantId(request.tenantId())
                 .userId(request.userId())
-                .fullName(request.fullName())
-                .phone(request.phone())
+                .fullName(request.fullName().trim())
+                .phone(request.phone().trim())
+                .email(normalizeOptionalEmail(request.email()))
                 .licensePlate(plate)
                 .vehicleType(request.vehicleType())
                 .capacity(request.capacity())
@@ -146,18 +147,29 @@ public class DriverService {
 
         if (request.fullName() != null && request.fullName().isBlank()) throw new AppException(ErrorCode.VALIDATION_ERROR);
         if (request.fullName() != null)
-            driver.setFullName(request.fullName());
-        if (request.phone() != null && !request.phone().equals(driver.getPhone())) {
-            if (driverRepository.existsByPhone(request.phone())) {
-                throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+            driver.setFullName(request.fullName().trim());
+        if (request.phone() != null) {
+            String normalizedPhone = request.phone().trim();
+            if (!normalizedPhone.equals(driver.getPhone())) {
+                if (driverRepository.existsByPhone(normalizedPhone)) {
+                    throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+                }
+                driver.setPhone(normalizedPhone);
             }
-            driver.setPhone(request.phone());
         }
-        if (request.licensePlate() != null && !request.licensePlate().equals(driver.getLicensePlate())) {
-            if (driverRepository.existsByLicensePlate(request.licensePlate())) {
-                throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+        if (request.email() != null) {
+            driver.setEmail(normalizeOptionalEmail(request.email()));
+        }
+        if (request.licensePlate() != null) {
+            String normalizedPlate = request.licensePlate().isBlank()
+                    ? null
+                    : request.licensePlate().trim().toUpperCase(Locale.ROOT);
+            if (normalizedPlate != null && !normalizedPlate.equalsIgnoreCase(driver.getLicensePlate())) {
+                if (driverRepository.existsByLicensePlate(normalizedPlate)) {
+                    throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+                }
             }
-            driver.setLicensePlate(request.licensePlate());
+            driver.setLicensePlate(normalizedPlate);
         }
         if (request.vehicleType() != null)
             driver.setVehicleType(request.vehicleType());
@@ -176,9 +188,17 @@ public class DriverService {
         if (request.bankAccountName() != null)
             driver.setBankAccountName(normalizeAccountName(request.bankAccountName()));
 
-        if (driver.getStatus() != DriverStatus.SUSPENDED) driver.setStatus(DriverStatus.INACTIVE);
-        driver.setIsAvailable(false);
-        driver.setReviewNote(null);
+        boolean completeLinked = hasCompleteLinkedProfile(driver);
+        boolean keepActive = driver.getStatus() == DriverStatus.ACTIVE && completeLinked;
+        if (!keepActive && driver.getStatus() != DriverStatus.SUSPENDED) {
+            if (completeLinked && !"DRIVER".equalsIgnoreCase(requesterRole)) {
+                driver.setStatus(DriverStatus.ACTIVE);
+            } else if (driver.getStatus() != DriverStatus.PENDING_APPROVAL || !completeLinked) {
+                driver.setStatus(DriverStatus.INACTIVE);
+            }
+            driver.setIsAvailable(false);
+        }
+        driver.setUpdatedAt(Instant.now());
         driverRepository.save(driver);
         publishAvailability(driver);
         return toResponse(driver);
@@ -345,6 +365,7 @@ public class DriverService {
                 .userId(driver.getUserId())
                 .fullName(driver.getFullName())
                 .phone(driver.getPhone())
+                .email(driver.getEmail())
                 .licensePlate(driver.getLicensePlate())
                 .vehicleType(driver.getVehicleType())
                 .capacity(driver.getCapacity())
@@ -411,6 +432,13 @@ public class DriverService {
             return null;
         }
         return value.trim();
+    }
+
+    private static String normalizeOptionalEmail(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 
     /** Bank apps expect the holder name as uppercase ASCII without Vietnamese diacritics. */

@@ -34,6 +34,30 @@ public class NotificationAuthorization {
     private static final Set<String> OPERATOR_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR", "VIEWER");
     private static final Set<String> MEMBER_ROLES = Set.of("OWNER", "TENANT_ADMIN", "OPERATOR", "DRIVER");
     private static final Map<String, LivePermissionSnapshot> LIVE_CACHE = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> REVOKED_SESSION_CACHE = new ConcurrentHashMap<>();
+
+    public static void recordRevokedSession(UUID sessionId, long expiresAtEpochSec) {
+        if (sessionId == null) {
+            return;
+        }
+        long nowSec = System.currentTimeMillis() / 1000L;
+        REVOKED_SESSION_CACHE.put(sessionId, Math.max(expiresAtEpochSec, nowSec + 7200L));
+    }
+
+    public static boolean isSessionRevoked(UUID sessionId) {
+        if (sessionId == null) {
+            return false;
+        }
+        Long exp = REVOKED_SESSION_CACHE.get(sessionId);
+        if (exp == null) {
+            return false;
+        }
+        if (exp <= System.currentTimeMillis() / 1000L) {
+            REVOKED_SESSION_CACHE.remove(sessionId);
+            return false;
+        }
+        return true;
+    }
 
     public record LivePermissionSnapshot(
             String membershipRole,
@@ -133,7 +157,12 @@ public class NotificationAuthorization {
         }
 
         try {
-            return jwtParser.parseSignedClaims(token).getPayload();
+            Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+            String sid = claims.get("sid", String.class);
+            if (sid != null && !sid.isBlank() && isSessionRevoked(UUID.fromString(sid.trim()))) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Session has been revoked");
+            }
+            return claims;
         } catch (JwtException | IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired token");
         }

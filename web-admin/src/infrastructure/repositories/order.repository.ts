@@ -1,5 +1,6 @@
 import {
   Order,
+  OrderPriority,
   OrderStatus,
   OrderTimeline,
   OrderTimelineEvent,
@@ -26,6 +27,7 @@ export interface OrderFilters {
 export interface DispatchPlanningResult {
   outcome: 'PLANNED' | 'NO_ORDERS' | 'NO_ROUTES' | 'IN_PROGRESS';
   plan_ids: string[];
+  unplanned_order_ids?: string[];
 }
 
 export interface OrderListPage {
@@ -61,6 +63,18 @@ export interface CreateOrderPayload {
   recipientName:string; recipientPhone:string; pickupLocationId:string; pickupLat:number; pickupLng:number; pickupAddress:string;
   deliveryLat:number; deliveryLng:number; deliveryAddress:string; timeWindowStart:string | null; timeWindowEnd:string | null; weightKg:number;
   packageCategory:string; priority:string; codAmount:number;
+}
+
+export interface UpdateOrderPayload {
+  externalOrderCode?: string | null;
+  recipientName?: string;
+  recipientPhone?: string;
+  timeWindowStart?: string | null;
+  timeWindowEnd?: string | null;
+  weightKg?: number;
+  packageDescription?: string | null;
+  notes?: string | null;
+  priority?: OrderPriority;
 }
 
 interface CreateOrderRequest {
@@ -124,6 +138,7 @@ function mapOrder(raw: any): Order {
     delivery_lat: raw.deliveryLat ?? raw.delivery_lat ?? 0,
     delivery_lng: raw.deliveryLng ?? raw.delivery_lng ?? 0,
     package_category: raw.packageCategory || raw.package_category || 'PARCEL',
+    priority: ((raw.priority || 'NORMAL').toString().toUpperCase() as OrderPriority),
     weight_kg: raw.weightKg ?? raw.weight_kg ?? 0,
     status: raw.status as OrderStatus,
     notes: raw.notes || raw.note || undefined,
@@ -171,7 +186,6 @@ function mapTimeline(raw: any): OrderTimeline {
     tracking_token: raw?.trackingToken ?? raw?.tracking_token ?? null,
     current_status: (raw?.currentStatus ?? raw?.current_status) as OrderStatus,
     assigned_driver_id: raw?.assignedDriverId ?? raw?.assigned_driver_id ?? null,
-    custodian_driver_id: raw?.custodianDriverId ?? raw?.custodian_driver_id ?? null,
     dispatch_plan_id: raw?.dispatchPlanId ?? raw?.dispatch_plan_id ?? null,
     latest_proof_url: raw?.latestProofUrl ?? raw?.latest_proof_url ?? null,
     created_at: String(raw?.createdAt ?? raw?.created_at ?? ''),
@@ -325,6 +339,25 @@ export const orderRepository = {
     return mapOrder((response.data as { data?: unknown })?.data ?? response.data);
   },
 
+  async updateOrder(orderId: string, payload: UpdateOrderPayload): Promise<Order> {
+    const body: Record<string, unknown> = {};
+    if (payload.externalOrderCode !== undefined) body.external_order_code = payload.externalOrderCode;
+    if (payload.recipientName !== undefined) body.recipient_name = payload.recipientName;
+    if (payload.recipientPhone !== undefined) body.recipient_phone = payload.recipientPhone;
+    if (payload.timeWindowStart !== undefined) body.time_window_start = payload.timeWindowStart;
+    if (payload.timeWindowEnd !== undefined) body.time_window_end = payload.timeWindowEnd;
+    if (payload.weightKg !== undefined) body.weight_kg = payload.weightKg;
+    if (payload.packageDescription !== undefined) body.package_description = payload.packageDescription;
+    if (payload.notes !== undefined) body.notes = payload.notes;
+    if (payload.priority !== undefined) body.priority = payload.priority;
+    const response = await api.patch<Order>(`/orders/${encodeURIComponent(orderId)}`, body);
+    return mapOrder((response.data as { data?: unknown })?.data ?? response.data);
+  },
+
+  async updateOrderPriority(orderId: string, priority: OrderPriority): Promise<Order> {
+    return this.updateOrder(orderId, { priority });
+  },
+
   async assignBatch(payload: {
     driver_id?: string;
     order_ids?: string[];
@@ -360,15 +393,18 @@ export const orderRepository = {
     return response.data?.data ?? [];
   },
 
-  async triggerDispatchPlanning(options?: {
-    depotId: string;
-    tenantId: string;
-    signal: AbortSignal;
-  }): Promise<DispatchPlanningResult> {
-    const response = await api.post<DispatchPlanningResult>('/orders/dispatch/trigger', undefined, options && {
-      params: { depot_id: options.depotId },
-      headers: { 'X-Tenant-Id': options.tenantId },
-      signal: options.signal,
+  async triggerDispatchPlanning(options:
+    | { scope: 'SELECTED'; orderIds: string[] }
+    | { scope: 'DEPOT'; depotId: string; tenantId: string; signal: AbortSignal }
+  ): Promise<DispatchPlanningResult> {
+    if (options.scope === 'SELECTED' && options.orderIds.length === 0) {
+      throw new Error('Selecting orders is required for scoped planning');
+    }
+    const payload = options.scope === 'SELECTED' ? { scope: options.scope, order_ids: options.orderIds } : undefined;
+    const response = await api.post<DispatchPlanningResult>('/orders/dispatch/trigger', payload, {
+      params: options.scope === 'DEPOT' ? { depot_id: options.depotId } : undefined,
+      headers: options.scope === 'DEPOT' ? { 'X-Tenant-Id': options.tenantId } : undefined,
+      signal: options.scope === 'DEPOT' ? options.signal : undefined,
     });
     return response.data;
   },

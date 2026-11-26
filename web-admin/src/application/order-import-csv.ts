@@ -1,3 +1,4 @@
+import type { OrderPriority } from '@/domain/entities/order.entity';
 import type { ImportResult, ImportRow } from '@/infrastructure/repositories/order-import.repository';
 
 import { CSV_MAX_BYTES } from './order-import-limits.mjs';
@@ -14,7 +15,7 @@ export async function readOrderCsv(file: File) {
 }
 
 const required = ['externalOrderCode', 'recipientName', 'recipientPhone', 'weightKg'];
-const columns = [...required, 'timeWindowStart', 'timeWindowEnd', 'deliveryAddress', 'deliveryLat', 'deliveryLng', 'codAmount', 'notes'];
+const columns = [...required, 'timeWindowStart', 'timeWindowEnd', 'deliveryAddress', 'deliveryLat', 'deliveryLng', 'codAmount', 'notes', 'priority'];
 
 function records(csv: string) {
   const input = csv.replace(/^\uFEFF/, '');
@@ -85,12 +86,25 @@ export function parseOrderCsv(csv: string) {
           || (timeWindowStart && timeWindowEnd && Date.parse(timeWindowEnd) <= Date.parse(timeWindowStart))) {
         throw new Error('Chọn đủ giờ hẹn và đặt giờ kết thúc sau giờ bắt đầu.');
       }
+      const rawPriority = value('priority').toUpperCase();
+      let priority: OrderPriority = 'NORMAL';
+      if (rawPriority) {
+        if (rawPriority === 'NORMAL' || rawPriority === 'BÌNH THƯỜNG' || rawPriority === 'BINH THUONG') {
+          priority = 'NORMAL';
+        } else if (rawPriority === 'HIGH' || rawPriority === 'CAO' || rawPriority === 'ƯU TIÊN CAO' || rawPriority === 'UU TIEN CAO') {
+          priority = 'HIGH';
+        } else if (rawPriority === 'URGENT' || rawPriority === 'KHẨN CẤP' || rawPriority === 'KHAN CAP' || rawPriority === 'KHẨN' || rawPriority === 'KHAN') {
+          priority = 'URGENT';
+        } else {
+          throw new Error('priority');
+        }
+      }
       rows.push({
         line, externalOrderCode, recipientName: value('recipientName'), recipientPhone: value('recipientPhone'),
         deliveryAddress: value('deliveryAddress'), deliveryLat: validPoint ? deliveryLat : null,
         deliveryLng: validPoint ? deliveryLng : null, timeWindowStart,
         timeWindowEnd, weightKg: number('weightKg'), codAmount: codAmount || null,
-        notes: value('notes'),
+        notes: value('notes'), priority,
       });
     } catch (error) {
       errors.push({ line, externalOrderCode, status: 'INVALID', message: (error as Error).message });

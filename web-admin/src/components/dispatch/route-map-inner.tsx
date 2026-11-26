@@ -15,6 +15,12 @@ import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, Navigatio
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RouteMapLayers, TRAFFIC_LAYER_ID } from './route-map-layers';
+import {
+  ensureRouteDirectionArrowImage,
+  ROUTE_ARROW_IMAGE_ID,
+  resolveBasemapStyle,
+  type MapBasemapId,
+} from './route-map-styles';
 
 
 if (typeof window !== 'undefined') {
@@ -149,10 +155,12 @@ function popupContent(title: string, body: string, meta: string) {
 const EMPTY_FLEET_DRIVERS: MapDriverMarker[] = [];
 interface OverviewRoadLineProps {
   map: MapLibreMap;
+  styleVersion: number;
   route: MapOverviewRoute;
   isSelected: boolean;
   hasSelection: boolean;
   showDeliveryStops: boolean;
+  showRouteDirection: boolean;
   highlightedStopId?: string;
   onSelect?: (planId: string) => void;
   onHover?: (highlight: MapPlanHighlight | null) => void;
@@ -160,10 +168,12 @@ interface OverviewRoadLineProps {
 
 function OverviewRoadLine({
   map,
+  styleVersion,
   route,
   isSelected,
   hasSelection,
   showDeliveryStops,
+  showRouteDirection,
   highlightedStopId,
   onSelect,
   onHover,
@@ -182,6 +192,7 @@ function OverviewRoadLine({
   const glowLayerId = `overview-glow-${route.id}`;
   const layerId = `overview-layer-${route.id}`;
   const casingLayerId = `overview-casing-${route.id}`;
+  const arrowLayerId = `overview-arrow-${route.id}`;
   const hitLayerId = `overview-hit-${route.id}`;
 
   const onSelectRef = useRef(onSelect);
@@ -309,6 +320,30 @@ function OverviewRoadLine({
       });
     }
 
+    ensureRouteDirectionArrowImage(map);
+    if (!map.getLayer(arrowLayerId) && map.hasImage(ROUTE_ARROW_IMAGE_ID)) {
+      map.addLayer({
+        id: arrowLayerId,
+        type: 'symbol',
+        source: sourceId,
+        layout: {
+          'symbol-placement': 'line',
+          'symbol-spacing': 60,
+          'icon-image': ROUTE_ARROW_IMAGE_ID,
+          'icon-size': 0.72,
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'map',
+          'icon-keep-upright': false,
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          visibility: 'visible',
+        },
+        paint: {
+          'icon-opacity': 0.95,
+        },
+      });
+    }
+
     if (!map.getLayer(hitLayerId)) {
       map.addLayer({
         id: hitLayerId,
@@ -352,6 +387,9 @@ function OverviewRoadLine({
       if (map.getLayer(hitLayerId)) {
         map.removeLayer(hitLayerId);
       }
+      if (map.getLayer(arrowLayerId)) {
+        map.removeLayer(arrowLayerId);
+      }
       if (map.getLayer(layerId)) {
         map.removeLayer(layerId);
       }
@@ -365,7 +403,7 @@ function OverviewRoadLine({
         map.removeSource(sourceId);
       }
     };
-  }, [map, sourceId, glowLayerId, layerId, casingLayerId, hitLayerId, route.id, route.color]);
+  }, [map, styleVersion, sourceId, glowLayerId, layerId, casingLayerId, arrowLayerId, hitLayerId, route.id, route.color]);
 
   // 4. Update color, glow, width & opacity when route.color or selection/hover changes
   useEffect(() => {
@@ -382,13 +420,19 @@ function OverviewRoadLine({
       map.setPaintProperty(casingLayerId, 'line-width', isSelected ? 11.5 : hasSelection ? 5.5 : 8);
       map.setPaintProperty(casingLayerId, 'line-opacity', isSelected ? 0.96 : hasSelection ? 0.28 : 0.9);
     }
+    if (map.getLayer(arrowLayerId)) {
+      map.setLayoutProperty(arrowLayerId, 'visibility', showRouteDirection ? 'visible' : 'none');
+      map.setLayoutProperty(arrowLayerId, 'icon-size', isSelected ? 0.88 : hasSelection ? 0.62 : 0.72);
+      map.setPaintProperty(arrowLayerId, 'icon-opacity', isSelected ? 1 : hasSelection ? 0.3 : 0.95);
+    }
     if (isSelected) {
       if (map.getLayer(glowLayerId)) map.moveLayer(glowLayerId);
       if (map.getLayer(casingLayerId)) map.moveLayer(casingLayerId);
       map.moveLayer(layerId);
+      if (map.getLayer(arrowLayerId)) map.moveLayer(arrowLayerId);
       if (map.getLayer(hitLayerId)) map.moveLayer(hitLayerId);
     }
-  }, [map, glowLayerId, layerId, casingLayerId, hitLayerId, route.color, isSelected, hasSelection]);
+  }, [map, styleVersion, glowLayerId, layerId, casingLayerId, arrowLayerId, hitLayerId, route.color, isSelected, hasSelection, showRouteDirection]);
 
   // 5. Update GeoJSON using street coordinates or straight-line fallback
   useEffect(() => {
@@ -421,7 +465,7 @@ function OverviewRoadLine({
     if (map.getLayer(layerId)) {
       map.setPaintProperty(layerId, 'line-dasharray', hasStreetRoute ? [1, 0] : [2, 2]);
     }
-  }, [map, sourceId, layerId, route.id, points, road.coordinates, road.error]);
+  }, [map, styleVersion, sourceId, layerId, route.id, points, road.coordinates, road.error]);
 
   return null;
 }
@@ -455,6 +499,14 @@ export default function RouteMapInner({
   const framedViewRef = useRef('');
   const [readyMap, setReadyMap] = useState<MapLibreMap | null>(null);
   const [mapError, setMapError] = useState('');
+  const [basemap, setBasemap] = useState<MapBasemapId>('streets');
+  const [showRouteDirection, setShowRouteDirection] = useState(true);
+  const [styleVersion, setStyleVersion] = useState(0);
+  const appliedBasemapRef = useRef<MapBasemapId>('streets');
+  const translateRef = useRef(t);
+  useEffect(() => {
+    translateRef.current = t;
+  }, [t]);
   const mapKey = process.env.NEXT_PUBLIC_GOONG_MAP_KEY;
   const firstFleetDriver = fleetOrigin ?? fleetDrivers[0];
   const firstOverviewDepot = overviewRoutes[0]?.depot;
@@ -479,14 +531,17 @@ export default function RouteMapInner({
     framedViewRef.current = '';
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: `https://tiles.goong.io/assets/goong_map_web.json?api_key=${encodeURIComponent(mapKey)}`,
+      style: resolveBasemapStyle(appliedBasemapRef.current, mapKey),
       center: initialCenter, zoom: 13, attributionControl: false,
     });
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(new AttributionControl({ compact: true, customAttribution: '© Goong' }), 'bottom-right');
     map.on('style.load', () => {
       styleReadyRef.current = true;
+      ensureRouteDirectionArrowImage(map);
+      setMapError('');
       setReadyMap(map);
+      setStyleVersion((version) => version + 1);
     });
     map.on('styleimagemissing', (e) => {
       if (!e.id || map.hasImage(e.id)) return;
@@ -501,7 +556,11 @@ export default function RouteMapInner({
     map.on('error', (e) => {
       if ('sourceId' in e && e.sourceId === TRAFFIC_LAYER_ID) return;
       console.error('[MapLibre error]', e);
-      setMapError('Không tải được nền bản đồ Goong. Kiểm tra Map Key và kết nối mạng.');
+      setMapError(
+        appliedBasemapRef.current === 'osm'
+          ? translateRef.current('Không tải được nền bản đồ OpenStreetMap. Kiểm tra kết nối mạng hoặc chuyển sang nền khác.')
+          : 'Không tải được nền bản đồ Goong. Kiểm tra Map Key và kết nối mạng.',
+      );
     });
     mapRef.current = map;
     const resize = new ResizeObserver(() => map.resize());
@@ -530,6 +589,15 @@ export default function RouteMapInner({
       mapRef.current = null;
     };
   }, [hasMapOrigin, mapKey]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapKey || appliedBasemapRef.current === basemap) return;
+    appliedBasemapRef.current = basemap;
+    styleReadyRef.current = false;
+    setMapError('');
+    map.setStyle(resolveBasemapStyle(basemap, mapKey));
+  }, [basemap, mapKey]);
 
   // Static depot + delivery stop markers & camera bounds (supports both single selected plan and multi-plan overview)
   useEffect(() => {
@@ -779,6 +847,11 @@ export default function RouteMapInner({
       </div>
       {readyMap && <RouteMapLayers
         map={readyMap}
+        styleVersion={styleVersion}
+        basemap={basemap}
+        onBasemapChange={setBasemap}
+        showRouteDirection={showRouteDirection}
+        onShowRouteDirectionChange={setShowRouteDirection}
         stops={layerStops}
         plannedLegs={EMPTY_LEGS}
         firstStopIndex={0}
@@ -789,10 +862,12 @@ export default function RouteMapInner({
       <OverviewRoadLine
         key={overviewRoute.id}
         map={readyMap}
+        styleVersion={styleVersion}
         route={overviewRoute}
         isSelected={(highlightedPlan?.planId ?? selectedOverviewRouteId) === overviewRoute.id}
         hasSelection={Boolean(highlightedPlan || selectedOverviewRoute)}
         showDeliveryStops={showDeliveryStops}
+        showRouteDirection={showRouteDirection}
         highlightedStopId={highlightedPlan?.planId === overviewRoute.id ? highlightedPlan.stopId : undefined}
         onSelect={onSelectOverviewRoute}
         onHover={onHoverOverviewPlan}

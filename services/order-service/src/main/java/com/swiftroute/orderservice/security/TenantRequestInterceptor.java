@@ -24,6 +24,31 @@ import lombok.RequiredArgsConstructor;
 public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfigurer {
     private final JwtTokenValidator tokens;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+
+    private boolean isSessionRevoked(UUID sessionId) {
+        if (sessionId == null) {
+            return false;
+        }
+        if (TenantPermissionRegistry.isSessionRevoked(sessionId)) {
+            return true;
+        }
+        if (redisTemplate != null) {
+            try {
+                if (Boolean.TRUE.equals(redisTemplate.hasKey("auth:revoked-session:" + sessionId))) {
+                    TenantPermissionRegistry.recordRevokedSession(
+                            sessionId,
+                            (System.currentTimeMillis() / 1000L) + 3600L);
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // Fall back to RabbitMQ-synchronized cache if Redis is transiently unreachable
+            }
+        }
+        return false;
+    }
+
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(this)
@@ -42,6 +67,19 @@ public class TenantRequestInterceptor implements HandlerInterceptor, WebMvcConfi
         var claims = tokens.parseAndValidate(auth);
         if (claims == null || claims.getSubject() == null || claims.getSubject().isBlank())
             throw new AppException(ErrorCode.UNAUTHENTICATED);
+
+        if (claims.containsKey("sid")) {
+            String sidClaim = claims.get("sid", String.class);
+            if (sidClaim != null && !sidClaim.isBlank()) {
+                try {
+                    if (isSessionRevoked(UUID.fromString(sidClaim.trim()))) {
+                        throw new AppException(ErrorCode.UNAUTHENTICATED);
+                    }
+                } catch (IllegalArgumentException ex) {
+                    throw new AppException(ErrorCode.UNAUTHENTICATED);
+                }
+            }
+        }
 
         UUID userId;
         try {

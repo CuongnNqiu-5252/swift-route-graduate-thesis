@@ -50,4 +50,6 @@ public class RefreshToken {
     private String ipAddress;
     @Column(name = "active_tenant_id")
     private UUID activeTenantId;
+    @Column(name = "session_id")
+    private UUID sessionId;
 }

@@ -36,9 +36,9 @@ class DriverStopCard extends ConsumerWidget {
         ? AppColors.success
         : isFailed
         ? AppColors.error
-        : (stop.needsPickup ? AppColors.accent : AppColors.primary);
+        : AppColors.primary;
 
-    final address = stop.isReturnTask || stop.needsPickup
+    final address = stop.isReturnTask
         ? stop.pickupAddress
         : stop.deliveryAddress;
     final title = stop.isReturnTask
@@ -158,7 +158,7 @@ class DriverStopCard extends ConsumerWidget {
                 Row(
                   children: [
                     PhoneCallButton(
-                      phone: stop.needsPickup || stop.isReturnTask
+                      phone: stop.isReturnTask
                           ? stop.senderPhone
                           : stop.recipientPhone,
                       compact: true,
@@ -214,15 +214,11 @@ class DriverStopCard extends ConsumerWidget {
                                 style: OutlinedButton.styleFrom(
                                   minimumSize: const Size.fromHeight(48),
                                 ),
-                                icon: Icon(
-                                  stop.needsPickup
-                                      ? Icons.warehouse_outlined
-                                      : Icons.more_horiz_rounded,
+                                icon: const Icon(
+                                  Icons.more_horiz_rounded,
                                   size: 19,
                                 ),
-                                label: Text(
-                                  stop.needsPickup ? 'Lấy tại kho' : 'Chi tiết',
-                                ),
+                                label: const Text('Chi tiết'),
                               ),
                       ),
                     ),

@@ -23,6 +23,7 @@ import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ManualAssignmentRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
+import com.swiftroute.orderservice.dto.request.UpdateOrderRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
 import com.swiftroute.orderservice.dto.response.OrderListPageResponse;
@@ -209,6 +210,28 @@ public class OrderController {
         }
         OrderResponse response = orderService.cancelOrder(orderId,
                 request != null ? request : new CancelOrderRequest(null), userId, userRole);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * PATCH /api/orders/{orderId}
+     * Partially updates order attributes (priority, notes, recipient info, weight, time window)
+     * before the order enters transit.
+     */
+    @Operation(summary = "Partially update an order before it enters transit")
+    @PatchMapping("/{orderId}")
+    public ResponseEntity<ApiResponse<OrderResponse>> updateOrder(
+            @PathVariable UUID orderId,
+            @Valid @RequestBody UpdateOrderRequest request,
+            @RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String userRole) {
+        if (!com.swiftroute.orderservice.security.TenantRequestInterceptor.isAuthorizedForPermission(
+                userRole,
+                "order:create",
+                java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR", "USER"))) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        OrderResponse response = orderService.updateOrder(orderId, request, userId, userRole);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

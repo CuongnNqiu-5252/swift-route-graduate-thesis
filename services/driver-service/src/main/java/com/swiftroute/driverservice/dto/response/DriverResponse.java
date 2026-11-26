@@ -17,6 +17,7 @@ public record DriverResponse(
         UUID userId,
         String fullName,
         String phone,
+        String email,
         String licensePlate,
         VehicleType vehicleType,
         Integer capacity,
@@ -38,6 +39,7 @@ public record DriverResponse(
                 .userId(driver.getUserId())
                 .fullName(driver.getFullName())
                 .phone(driver.getPhone())
+                .email(driver.getEmail())
                 .licensePlate(driver.getLicensePlate())
                 .vehicleType(driver.getVehicleType())
                 .capacity(driver.getCapacity())

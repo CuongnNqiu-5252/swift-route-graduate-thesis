@@ -6,35 +6,56 @@ import java.util.UUID;
 import com.swiftroute.driverservice.entity.enums.DriverType;
 import com.swiftroute.driverservice.entity.enums.VehicleType;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record RegisterDriverRequest(
-                UUID userId,
+        UUID userId,
 
-                @NotNull(message = "tenant_id is required") UUID tenantId,
+        @NotNull(message = "tenant_id is required") UUID tenantId,
 
-                @NotBlank(message = "full_name is required") @Size(max = 255) String fullName,
+        @NotBlank(message = "full_name is required") @Size(max = 255) String fullName,
 
-                @NotBlank(message = "phone is required") @Pattern(regexp = "^\\+?[0-9]{9,15}$", message = "phone format is invalid") String phone,
+        @NotBlank(message = "phone is required") @Pattern(regexp = "^\\+?[0-9]{9,15}$", message = "phone format is invalid") String phone,
 
-                @Size(max = 20) String licensePlate,
+        @Email(message = "email format is invalid") @Size(max = 255) String email,
 
-                @NotNull(message = "vehicle_type is required") VehicleType vehicleType,
+        @Size(max = 20) String licensePlate,
 
-                @jakarta.validation.constraints.Positive Integer capacity,
+        @NotNull(message = "vehicle_type is required") VehicleType vehicleType,
 
-                @NotNull(message = "driver_type is required") DriverType driverType,
+        @jakarta.validation.constraints.Positive Integer capacity,
 
-                LocalTime shiftStart,
+        @NotNull(message = "driver_type is required") DriverType driverType,
 
-                LocalTime shiftEnd,
+        LocalTime shiftStart,
 
-                @Pattern(regexp = "^[A-Za-z0-9]{2,20}$", message = "bank_code format is invalid") String bankCode,
+        LocalTime shiftEnd,
 
-                @Pattern(regexp = "^[0-9A-Za-z]{4,40}$", message = "bank_account_number format is invalid") String bankAccountNumber,
+        @Pattern(regexp = "^[A-Za-z0-9]{2,20}$", message = "bank_code format is invalid") String bankCode,
 
-                @Size(max = 120) String bankAccountName) {
+        @Pattern(regexp = "^[0-9A-Za-z]{4,40}$", message = "bank_account_number format is invalid") String bankAccountNumber,
+
+        @Size(max = 120) String bankAccountName) {
+
+    public RegisterDriverRequest(
+            UUID userId,
+            UUID tenantId,
+            String fullName,
+            String phone,
+            String licensePlate,
+            VehicleType vehicleType,
+            Integer capacity,
+            DriverType driverType,
+            LocalTime shiftStart,
+            LocalTime shiftEnd,
+            String bankCode,
+            String bankAccountNumber,
+            String bankAccountName) {
+        this(userId, tenantId, fullName, phone, null, licensePlate, vehicleType, capacity, driverType,
+                shiftStart, shiftEnd, bankCode, bankAccountNumber, bankAccountName);
+    }
 }

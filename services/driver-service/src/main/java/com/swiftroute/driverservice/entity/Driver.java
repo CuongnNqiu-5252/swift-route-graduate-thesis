@@ -48,6 +48,9 @@ public class Driver {
     @Column(name = "phone", unique = true, length = 20)
     private String phone;
 
+    @Column(name = "email", length = 255)
+    private String email;
+
     @Column(name = "license_plate", unique = true, length = 20)
     private String licensePlate;
 

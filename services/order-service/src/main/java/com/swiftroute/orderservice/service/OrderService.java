@@ -21,6 +21,7 @@ import com.swiftroute.orderservice.config.TenantEventConfig;
 import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
+import com.swiftroute.orderservice.dto.request.UpdateOrderRequest;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
 import com.swiftroute.orderservice.dto.response.OrderListPageResponse;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
@@ -57,7 +58,6 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final PackageCustodyService custody;
     private final TenantRepository tenantRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final RabbitTemplate rabbitTemplate;
@@ -535,9 +535,6 @@ public class OrderService {
         }
 
         OrderStatus previous = order.getStatus();
-        if (custody.holdsOrder(order)) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
         order.setStatus(OrderStatus.CANCELLED);
         String reason = request != null && request.reason() != null && !request.reason().isBlank()
                 ? request.reason().trim()
@@ -550,6 +547,70 @@ public class OrderService {
         recordStatusChange(saved, previous, OrderStatus.CANCELLED, requesterId, requesterRole, reason);
         emitOrderStatusEvent(saved, previous, OrderStatus.CANCELLED);
         log.info("Order cancelled: orderId={}, reason={}", orderId, cancelNote);
+        return OrderResponse.fromEntity(saved);
+    }
+
+    @Transactional
+    public OrderResponse updateOrder(UUID orderId, UpdateOrderRequest request, UUID requesterId, String requesterRole) {
+        if ("DRIVER".equalsIgnoreCase(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        if (request == null) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
+
+        if (order.getStatus() != OrderStatus.READY_FOR_DISPATCH && order.getStatus() != OrderStatus.PLANNED) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+
+        if (request.externalOrderCode() != null) {
+            order.setExternalOrderCode(request.externalOrderCode().isBlank() ? null : request.externalOrderCode().trim());
+        }
+        if (request.recipientName() != null) {
+            if (request.recipientName().isBlank()) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR, "Tên người nhận không được để trống");
+            }
+            order.setRecipientName(request.recipientName().trim());
+        }
+        if (request.recipientPhone() != null) {
+            if (request.recipientPhone().isBlank()) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR, "Số điện thoại người nhận không được để trống");
+            }
+            order.setRecipientPhone(request.recipientPhone().trim());
+        }
+        if (request.weightKg() != null) {
+            if (!Double.isFinite(request.weightKg()) || request.weightKg() <= 0) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR, "Khối lượng phải lớn hơn 0");
+            }
+            order.setWeightKg(request.weightKg());
+        }
+        if (request.packageDescription() != null) {
+            order.setPackageDescription(request.packageDescription().isBlank() ? null : request.packageDescription().trim());
+        }
+        if (request.notes() != null) {
+            order.setNotes(request.notes().isBlank() ? null : request.notes().trim());
+        }
+        if (request.priority() != null) {
+            order.setPriority(request.priority());
+        }
+        if (request.timeWindowStart() != null || request.timeWindowEnd() != null) {
+            var nextStart = request.timeWindowStart() != null ? request.timeWindowStart() : order.getTimeWindowStart();
+            var nextEnd = request.timeWindowEnd() != null ? request.timeWindowEnd() : order.getTimeWindowEnd();
+            if (nextStart == null || nextEnd == null || !nextEnd.isAfter(nextStart)) {
+                throw new AppException(ErrorCode.VALIDATION_ERROR,
+                        "Khung giờ hẹn cần đủ hai mốc và giờ kết thúc phải sau giờ bắt đầu");
+            }
+            order.setTimeWindowStart(nextStart);
+            order.setTimeWindowEnd(nextEnd);
+        }
+
+        order.setUpdatedAt(Instant.now());
+        Order saved = orderRepository.save(order);
+        log.info("Order updated: orderId={}, priority={}, actor={}", orderId, saved.getPriority(), requesterId);
         return OrderResponse.fromEntity(saved);
     }
 

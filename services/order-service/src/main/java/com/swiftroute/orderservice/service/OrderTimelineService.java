@@ -18,7 +18,6 @@ import com.swiftroute.orderservice.entity.DeliveryAttempt;
 import com.swiftroute.orderservice.entity.DeliveryIncident;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OrderStatusHistory;
-import com.swiftroute.orderservice.entity.PackageHandover;
 import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
@@ -27,14 +26,13 @@ import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryIncidentRepository;
 import com.swiftroute.orderservice.repository.OrderRepository;
 import com.swiftroute.orderservice.repository.OrderStatusHistoryRepository;
-import com.swiftroute.orderservice.repository.PackageHandoverRepository;
 import com.swiftroute.orderservice.repository.ReturnRequestRepository;
 import com.swiftroute.orderservice.security.TenantRequestInterceptor;
 
 import lombok.RequiredArgsConstructor;
 
 /**
- * Aggregates status history, delivery attempts, incidents, driver handovers,
+ * Aggregates status history, delivery attempts, incidents,
  * return requests, and COD collection milestones into a chronological order timeline.
  */
 @Service
@@ -48,7 +46,6 @@ public class OrderTimelineService {
     private final OrderStatusHistoryRepository statusHistoryRepository;
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final DeliveryIncidentRepository deliveryIncidentRepository;
-    private final PackageHandoverRepository packageHandoverRepository;
     private final ReturnRequestRepository returnRequestRepository;
 
     /**
@@ -69,7 +66,6 @@ public class OrderTimelineService {
         addStatusEvents(order, events);
         String latestProofUrl = addDeliveryAttemptEvents(orderId, events);
         addIncidentEvents(orderId, events);
-        addHandoverEvents(orderId, events);
         addReturnEvents(orderId, events);
         addCodEvent(order, events);
 
@@ -85,7 +81,6 @@ public class OrderTimelineService {
                 order.getTrackingToken(),
                 order.getStatus(),
                 order.getAssignedDriverId(),
-                order.getCustodianDriverId(),
                 order.getPlanId(),
                 latestProofUrl,
                 order.getCreatedAt(),
@@ -262,82 +257,6 @@ public class OrderTimelineService {
                         List.of(),
                         incident.getResolvedAt(),
                         resolveMeta));
-            }
-        }
-    }
-
-    private void addHandoverEvents(UUID orderId, List<OrderTimelineEventResponse> events) {
-        for (PackageHandover handover : packageHandoverRepository.findAllByOrder_IdOrderByCreatedAtDesc(orderId)) {
-            Map<String, Object> reqMeta = new LinkedHashMap<>();
-            reqMeta.put("from_driver_id", handover.getFromDriverId());
-            if (handover.getToDriverId() != null) {
-                reqMeta.put("to_driver_id", handover.getToDriverId());
-            }
-
-            events.add(new OrderTimelineEventResponse(
-                    "handover-req-" + handover.getId(),
-                    "HANDOVER_REQUESTED",
-                    "HANDOVER",
-                    "Yêu cầu bàn giao đơn hàng",
-                    trimToNull(handover.getReason()),
-                    handover.getStatus(),
-                    null,
-                    null,
-                    handover.getFromDriverId(),
-                    "DRIVER",
-                    null,
-                    List.of(),
-                    handover.getCreatedAt(),
-                    reqMeta));
-
-            if (handover.getCompletedAt() != null) {
-                events.add(new OrderTimelineEventResponse(
-                        "handover-done-" + handover.getId(),
-                        "HANDOVER_COMPLETED",
-                        "HANDOVER",
-                        "Hoàn tất bàn giao cho tài xế mới",
-                        trimToNull(handover.getReceiverNotes()),
-                        handover.getStatus(),
-                        null,
-                        null,
-                        handover.getToDriverId(),
-                        "DRIVER",
-                        null,
-                        List.of(),
-                        handover.getCompletedAt(),
-                        reqMeta));
-            } else if (handover.getRejectedAt() != null) {
-                events.add(new OrderTimelineEventResponse(
-                        "handover-rejected-" + handover.getId(),
-                        "HANDOVER_REJECTED",
-                        "HANDOVER",
-                        "Từ chối yêu cầu bàn giao",
-                        trimToNull(handover.getAdminNotes()),
-                        handover.getStatus(),
-                        null,
-                        null,
-                        handover.getRejectedBy(),
-                        "OPERATOR",
-                        null,
-                        List.of(),
-                        handover.getRejectedAt(),
-                        reqMeta));
-            } else if (handover.getCancelledAt() != null) {
-                events.add(new OrderTimelineEventResponse(
-                        "handover-cancelled-" + handover.getId(),
-                        "HANDOVER_CANCELLED",
-                        "HANDOVER",
-                        "Huỷ yêu cầu bàn giao",
-                        trimToNull(handover.getAdminNotes()),
-                        handover.getStatus(),
-                        null,
-                        null,
-                        handover.getCancelledBy(),
-                        null,
-                        null,
-                        List.of(),
-                        handover.getCancelledAt(),
-                        reqMeta));
             }
         }
     }

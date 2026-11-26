@@ -6,7 +6,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
-import type { Order, OrderTimeline } from '@/domain/entities/order.entity';
+import {
+  ORDER_PRIORITY_BADGE,
+  ORDER_PRIORITY_LABEL,
+  type Order,
+  type OrderPriority,
+  type OrderTimeline,
+} from '@/domain/entities/order.entity';
 import { useLocale } from '@/i18n/provider';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { OrderStatusBadge } from './order-status-badge';
@@ -30,23 +36,15 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-function custodyLabelKey(order: Order, timeline?: OrderTimeline): string {
-  if (timeline?.custodian_driver_id) {
-    return 'Tài xế đang giữ kiện hàng';
-  }
-  if (order.status === 'DELIVERED' || order.status === 'RETURNED' || order.status === 'CANCELLED') {
-    return 'Đã hoàn tất lưu ký';
-  }
-  return 'Tại kho / Chưa giao tài xế';
-}
-
 function OrderDetail({ orderId }: { orderId: string }) {
   const { user, hasPermission } = useAuth();
   const canReadRecipientNotifications = hasPermission('order:read')
     && ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? '');
+  const canEditPriority = hasPermission('order:create');
   const { t, intlLocale } = useLocale();
   const [attempt, setAttempt] = useState(0);
   const [timelineAttempt, setTimelineAttempt] = useState(0);
+  const [updatingPriority, setUpdatingPriority] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [result, setResult] = useState<{ order: Order } | { error: true }>();
@@ -157,8 +155,6 @@ function OrderDetail({ orderId }: { orderId: string }) {
     }
   }
 
-  const isHeldByDriver = Boolean(timeline?.custodian_driver_id);
-
   return (
     <Tabs.Root defaultValue="details" className="space-y-4 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -254,14 +250,38 @@ function OrderDetail({ orderId }: { orderId: string }) {
             <DetailField label={t('Tài xế phụ trách')}>
               {driverLabel || t('Chưa phân công')}
             </DetailField>
-            <DetailField label={t('Trạng thái giữ hàng')}>
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className={`h-2 w-2 rounded-full ${isHeldByDriver ? 'bg-emerald-500' : 'bg-slate-400'}`}
-                />
-                <span>{t(custodyLabelKey(order, timeline))}</span>
-              </span>
+            <DetailField label={t('Mức độ ưu tiên')}>
+              {canEditPriority && (order.status === 'READY_FOR_DISPATCH' || order.status === 'PLANNED') ? (
+                <select
+                  aria-label={t('Mức độ ưu tiên')}
+                  disabled={updatingPriority}
+                  value={order.priority || 'NORMAL'}
+                  onChange={async (event) => {
+                    const nextPriority = event.target.value as OrderPriority;
+                    setUpdatingPriority(true);
+                    try {
+                      const updated = await orderRepository.updateOrderPriority(order.id, nextPriority);
+                      setResult({ order: updated });
+                      toast.success(t('Đã cập nhật mức độ ưu tiên'));
+                    } catch {
+                      toast.error(t('Không thể cập nhật mức độ ưu tiên'));
+                    } finally {
+                      setUpdatingPriority(false);
+                    }
+                  }}
+                  className={`h-7 cursor-pointer rounded-md px-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 ${ORDER_PRIORITY_BADGE[order.priority || 'NORMAL']}`}
+                >
+                  {(['NORMAL', 'HIGH', 'URGENT'] as OrderPriority[]).map((item) => (
+                    <option key={item} value={item} className="bg-white text-slate-900">
+                      {t(ORDER_PRIORITY_LABEL[item])}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold ${ORDER_PRIORITY_BADGE[order.priority || 'NORMAL']}`}>
+                  {t(ORDER_PRIORITY_LABEL[order.priority || 'NORMAL'])}
+                </span>
+              )}
             </DetailField>
             {timeWindowText && (
               <DetailField label={t('Khung giờ giao')}>{timeWindowText}</DetailField>

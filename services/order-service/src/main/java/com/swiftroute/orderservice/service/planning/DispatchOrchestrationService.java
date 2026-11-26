@@ -149,7 +149,8 @@ public class DispatchOrchestrationService {
             double distanceKm = routeOpt.map(BatchOptimizationResponse::totalDistanceKm)
                     .orElseGet(() -> estimateRouteDistanceKm(tenant, driverOrders));
             int durationMin = routeOpt.map(r -> (int) Math.ceil(r.totalDurationMinutes()))
-                    .orElseGet(() -> Math.max(5, (int) Math.ceil((distanceKm / 28.0) * 60.0 + driverOrders.size() * 5.0)));
+                    .orElseGet(
+                            () -> Math.max(5, (int) Math.ceil((distanceKm / 28.0) * 60.0 + driverOrders.size() * 5.0)));
             String waypointsJson = routeOpt.map(r -> serializeStopWaypoints(r.orderedStops()))
                     .orElseGet(() -> serializeOrdersAsWaypoints(tenant, driverOrders, 0.0));
 
@@ -186,7 +187,7 @@ public class DispatchOrchestrationService {
      */
     @Transactional
     public Optional<DispatchPlan> executePlanningCycle(UUID tenantId, PlanTriggerType triggerType) {
-        return plan(tenantId, triggerType, null).plans().stream().findFirst();
+        return plan(tenantId, triggerType, null, null).plans().stream().findFirst();
     }
 
     public record CycleResult(String outcome, int eligibleOrders, List<DispatchPlan> plans) {
@@ -194,21 +195,26 @@ public class DispatchOrchestrationService {
 
     @Transactional
     public CycleResult executeFlowCycle(UUID tenantId, PlanTriggerType triggerType, UUID pickupLocationId) {
-        return plan(tenantId, triggerType, pickupLocationId);
+        return plan(tenantId, triggerType, pickupLocationId, null);
     }
 
-    private CycleResult plan(UUID tenantId, PlanTriggerType triggerType, UUID pickupLocationId) {
+    @Transactional
+    public CycleResult executeFlowCycle(
+            UUID tenantId, PlanTriggerType triggerType, UUID pickupLocationId, Set<UUID> orderIds) {
+        return plan(tenantId, triggerType, pickupLocationId, orderIds);
+    }
+
+    private CycleResult plan(UUID tenantId, PlanTriggerType triggerType, UUID pickupLocationId, Set<UUID> orderIds) {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
 
         Instant now = Instant.now();
         List<Order> allEligible = eligibilityEvaluator.getEligibleOrders(tenantId, now);
-        if (pickupLocationId != null) {
-            allEligible = allEligible.stream()
-                    .filter(order -> order.getPickupLocation() != null
-                            && pickupLocationId.equals(order.getPickupLocation().getId()))
-                    .toList();
-        }
+        allEligible = allEligible.stream()
+                .filter(order -> orderIds == null || orderIds.contains(order.getId()))
+                .filter(order -> pickupLocationId == null || (order.getPickupLocation() != null
+                        && pickupLocationId.equals(order.getPickupLocation().getId())))
+                .toList();
 
         if (allEligible.isEmpty()) {
             log.info("Tenant {} planning cycle skipped — no eligible orders.", tenantId);
@@ -363,11 +369,14 @@ public class DispatchOrchestrationService {
         }
 
         for (Order order : plan.getOrders()) {
-            if (!driverId.equals(order.getAssignedDriverId()) && deliveryExecutionService.holdsOrder(order)) {
-                throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-            }
+            OrderStatus previous = order.getStatus();
             order.setAssignedDriverId(driverId);
+            order.setStatus(OrderStatus.IN_TRANSIT);
             order.setUpdatedAt(Instant.now());
+            if (previous != OrderStatus.IN_TRANSIT) {
+                recordStatusChange(order, previous, OrderStatus.IN_TRANSIT, driverId, "SYSTEM",
+                        "Xuất phát giao hàng theo lộ trình điều phối");
+            }
             orderRepository.save(order);
 
             DeliveryTask task = deliveryExecutionService.assign(order, driverId);
@@ -553,15 +562,14 @@ public class DispatchOrchestrationService {
     @Transactional
     public DispatchPlan cancelPlan(UUID planId, String reason) {
         DispatchPlan plan = loadPlan(planId);
-        requireNoHeldOrders(plan);
         discardPlan(plan, true);
         log.info("Plan {} cancelled and removed. Reason={}", planId, reason);
         return plan;
     }
 
     /**
-     * Records driver acknowledgement for a DISPATCHED plan and transitions
-     * associated ASSIGNED delivery tasks to ACCEPTED.
+     * Records driver acknowledgement for a DISPATCHED plan and ensures
+     * associated delivery tasks are active in OUT_FOR_DELIVERY.
      */
     @Transactional
     public DispatchPlan acknowledgeByDriver(UUID planId) {
@@ -575,8 +583,8 @@ public class DispatchOrchestrationService {
         for (Order order : plan.getOrders()) {
             deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                     .ifPresent(task -> {
-                        if (task.getStatus() == DeliveryTaskStatus.ASSIGNED) {
-                            task.setStatus(DeliveryTaskStatus.ACCEPTED);
+                        if (task.getStatus().ordinal() < DeliveryTaskStatus.OUT_FOR_DELIVERY.ordinal()) {
+                            task.setStatus(DeliveryTaskStatus.OUT_FOR_DELIVERY);
                             task.setUpdatedAt(Instant.now());
                             deliveryTaskRepository.save(task);
                         }
@@ -643,22 +651,6 @@ public class DispatchOrchestrationService {
             log.warn("Discarded unreadable route waypoints for plan {}", plan.getId());
         }
         plan.setRouteWaypoints(retained.toString());
-    }
-
-    private void requireNoHeldOrders(DispatchPlan plan) {
-        if (plan.getOrders().stream().anyMatch(deliveryExecutionService::holdsOrder)) {
-            throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
-        }
-    }
-
-    private boolean hasClaimedDeliveryExecution(DispatchPlan plan) {
-        return plan.getOrders().stream()
-                .map(Order::getId)
-                .map(orderId -> deliveryTaskRepository.findByOrder_IdAndTaskType(orderId, "DELIVERY"))
-                .flatMap(Optional::stream)
-                .map(DeliveryTask::getStatus)
-                .anyMatch(status -> status != DeliveryTaskStatus.ASSIGNED
-                        && status != DeliveryTaskStatus.CANCELLED);
     }
 
     /**
@@ -791,7 +783,8 @@ public class DispatchOrchestrationService {
                     new LocationPoint(order.getDeliveryLat(), order.getDeliveryLng(), order.getDeliveryAddress()),
                     order.getWeightKg() != null ? order.getWeightKg() : 0.0,
                     order.getTimeWindowStart() != null ? order.getTimeWindowStart().toInstant().toString() : null,
-                    order.getTimeWindowEnd() != null ? order.getTimeWindowEnd().toInstant().toString() : null);
+                    order.getTimeWindowEnd() != null ? order.getTimeWindowEnd().toInstant().toString() : null,
+                    resolveOrderPriority(order));
             double[] weights = optimizationWeights(plan.getTenant());
             Optional<RouteInsertResponse> result = routingEngineClient.optimizeInsert(
                     new RouteInsertRequest(driverLoc, currentStops, newStop, 45.0, weights[0], weights[1]));
@@ -908,7 +901,8 @@ public class DispatchOrchestrationService {
                 new LocationPoint(newOrder.getDeliveryLat(), newOrder.getDeliveryLng(), newOrder.getDeliveryAddress()),
                 newOrder.getWeightKg() != null ? newOrder.getWeightKg() : 0.0,
                 newOrder.getTimeWindowStart() != null ? newOrder.getTimeWindowStart().toInstant().toString() : null,
-                newOrder.getTimeWindowEnd() != null ? newOrder.getTimeWindowEnd().toInstant().toString() : null);
+                newOrder.getTimeWindowEnd() != null ? newOrder.getTimeWindowEnd().toInstant().toString() : null,
+                resolveOrderPriority(newOrder));
 
         double timeW = tenant.getOptimizationWeights() != null
                 && tenant.getOptimizationWeights().getTimeWeight() != null
@@ -940,14 +934,18 @@ public class DispatchOrchestrationService {
         plan.setUpdatedAt(now);
 
         OrderStatus previous = newOrder.getStatus();
-        newOrder.setStatus(OrderStatus.PLANNED);
-        recordStatusChange(newOrder, previous, OrderStatus.PLANNED, null, "SYSTEM",
-                "Chèn bổ sung vào tuyến điều phối");
         if (plan.getDriverId() != null) {
+            newOrder.setStatus(OrderStatus.IN_TRANSIT);
             newOrder.setAssignedDriverId(plan.getDriverId());
+            recordStatusChange(newOrder, previous, OrderStatus.IN_TRANSIT, plan.getDriverId(), "SYSTEM",
+                    "Chèn bổ sung vào tuyến đang giao");
             DeliveryTask task = deliveryExecutionService.assign(newOrder, plan.getDriverId());
             task.setDispatchPlanId(plan.getId());
             deliveryTaskRepository.save(task);
+        } else {
+            newOrder.setStatus(OrderStatus.PLANNED);
+            recordStatusChange(newOrder, previous, OrderStatus.PLANNED, null, "SYSTEM",
+                    "Chèn bổ sung vào tuyến điều phối");
         }
         orderRepository.save(newOrder);
 
@@ -1031,9 +1029,16 @@ public class DispatchOrchestrationService {
                             o.getWeightKg() != null ? o.getWeightKg() : 0.0,
                             o.getTimeWindowStart() != null ? o.getTimeWindowStart().toInstant().toString() : null,
                             o.getTimeWindowEnd() != null ? o.getTimeWindowEnd().toInstant().toString() : null,
-                            completed);
+                            completed,
+                            resolveOrderPriority(o));
                 })
                 .toList();
+    }
+
+    private String resolveOrderPriority(Order order) {
+        return order != null && order.getPriority() != null
+                ? order.getPriority().name()
+                : "NORMAL";
     }
 
     private boolean isOrderCompleted(Order order) {
@@ -1043,12 +1048,15 @@ public class DispatchOrchestrationService {
                         .orElse(false);
     }
 
-    private record ExistingWaypointTiming(double cumulativeDistanceKm, double estimatedArrivalMinutes, int lateByMinutes) {
+    private record ExistingWaypointTiming(double cumulativeDistanceKm, double estimatedArrivalMinutes,
+            int lateByMinutes) {
     }
 
     /**
-     * Aligns dynamic remaining-stop timings (computed relative to {@code now} from the driver's
-     * current origin) back onto the plan's authoritative start clock ({@code dispatchedAt}),
+     * Aligns dynamic remaining-stop timings (computed relative to {@code now} from
+     * the driver's
+     * current origin) back onto the plan's authoritative start clock
+     * ({@code dispatchedAt}),
      * preserving completed stop metrics and recomputing time-window lateness.
      */
     private void synchronizeActivePlanStops(
@@ -1095,8 +1103,10 @@ public class DispatchOrchestrationService {
                 lateByMinutes = prevSnapshot != null ? Math.max(0, prevSnapshot.lateByMinutes()) : 0;
                 completedDistanceOffsetKm = distKm;
             } else {
-                distKm = Math.max(prevDist, roundThreeDecimals(completedDistanceOffsetKm + Math.max(0.0, stop.cumulativeDistanceKm())));
-                etaMinutes = Math.max(prevEta, roundOneDecimal(anchorOffsetMinutes + Math.max(0.0, stop.estimatedArrivalMinutes())));
+                distKm = Math.max(prevDist,
+                        roundThreeDecimals(completedDistanceOffsetKm + Math.max(0.0, stop.cumulativeDistanceKm())));
+                etaMinutes = Math.max(prevEta,
+                        roundOneDecimal(anchorOffsetMinutes + Math.max(0.0, stop.estimatedArrivalMinutes())));
                 Instant arrivalAt = planStart.plusMillis(Math.round(etaMinutes * 60_000.0));
                 if (order != null && order.getTimeWindowEnd() != null) {
                     long lateMillis = Duration.between(order.getTimeWindowEnd().toInstant(), arrivalAt).toMillis();
@@ -1117,7 +1127,8 @@ public class DispatchOrchestrationService {
             prevEta = etaMinutes;
         }
 
-        double totalDistKm = Math.max(prevDist, roundThreeDecimals(completedDistanceOffsetKm + Math.max(0.0, remainingDistanceKm)));
+        double totalDistKm = Math.max(prevDist,
+                roundThreeDecimals(completedDistanceOffsetKm + Math.max(0.0, remainingDistanceKm)));
         int totalDurationMin = Math.max(
                 (int) Math.ceil(prevEta),
                 (int) Math.ceil(anchorOffsetMinutes + Math.max(0.0, remainingDurationMinutes)));
@@ -1378,7 +1389,8 @@ public class DispatchOrchestrationService {
                 new LocationPoint(o.getDeliveryLat(), o.getDeliveryLng(), o.getDeliveryAddress()),
                 o.getWeightKg() != null ? o.getWeightKg() : 0.0,
                 o.getTimeWindowStart() != null ? o.getTimeWindowStart().toInstant().toString() : null,
-                o.getTimeWindowEnd() != null ? o.getTimeWindowEnd().toInstant().toString() : null)).toList();
+                o.getTimeWindowEnd() != null ? o.getTimeWindowEnd().toInstant().toString() : null,
+                resolveOrderPriority(o))).toList();
 
         double timeWeight = 0.5;
         double costWeight = 0.5;

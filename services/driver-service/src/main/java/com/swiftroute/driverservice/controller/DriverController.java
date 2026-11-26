@@ -69,6 +69,18 @@ public class DriverController {
                         resolveRole(authentication))));
     }
 
+    @Operation(summary = "Update a driver's profile, vehicle, capacity, and shift details")
+    @PutMapping("/{driverId}")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'TENANT_ADMIN', 'OPERATOR', 'OWNER')")
+    public ResponseEntity<ApiResponse<DriverResponse>> updateDriver(
+            @PathVariable UUID driverId,
+            @Valid @RequestBody UpdateDriverRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.updateDriver(driverId, request, resolveUserId(authentication),
+                        resolveRole(authentication))));
+    }
+
     /**
      * GET /api/drivers
      * List all drivers (scoped to authorized tenant, or filtered by tenant_id for SYSTEM_ADMIN / internal calls).

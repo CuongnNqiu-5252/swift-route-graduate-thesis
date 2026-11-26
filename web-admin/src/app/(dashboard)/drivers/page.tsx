@@ -2,24 +2,23 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { RefreshCw, UserPlus } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { useDrivers } from '@/application/hooks/use-drivers';
-import { TenantInvitation } from '@/domain/entities/member.entity';
 import { DriverEarning, DriverSettlement, EarningPolicy } from '@/domain/entities/earning.entity';
-import { memberRepository } from '@/infrastructure/repositories/member.repository';
 import { earningRepository } from '@/infrastructure/repositories/earning.repository';
 import { Button } from '@/components/ui/button';
-import { AddDriverMode, DriverProfilesPanel } from '@/components/drivers/driver-profiles-panel';
+import { DriverActivationPanel } from '@/components/drivers/driver-activation-panel';
+import { DriverProfilesPanel } from '@/components/drivers/driver-profiles-panel';
 import { DriverSettlementsPanel } from '@/components/drivers/driver-settlements-panel';
 import { DriverEarningPolicyPanel } from '@/components/drivers/driver-earning-policy-panel';
 import { useAuth } from '@/application/contexts/auth-context';
-import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
+import { AccessDeniedNotice } from '@/components/auth/permission-guard';
 
-type DriversTab = 'profiles' | 'settlements' | 'policy';
+type DriversTab = 'profiles' | 'activation' | 'settlements' | 'policy';
 
 function parseTab(value: string | null): DriversTab {
-  if (value === 'settlements' || value === 'policy') return value;
+  if (value === 'activation' || value === 'settlements' || value === 'policy') return value;
   return 'profiles';
 }
 
@@ -49,24 +48,14 @@ function DriversWorkspace() {
   const searchParams = useSearchParams();
   const activeTab = parseTab(searchParams.get('tab'));
 
-  const { drivers, isLoading, error, createDriver, reviewDriver, refetch } = useDrivers();
-  const [mode, setMode] = useState<AddDriverMode | null>(null);
-  const [invitations, setInvitations] = useState<TenantInvitation[]>([]);
+  const { drivers, isLoading, error, createDriver, updateDriver, reviewDriver, refetch } = useDrivers();
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const [earnings, setEarnings] = useState<DriverEarning[]>([]);
   const [settlements, setSettlements] = useState<DriverSettlement[]>([]);
   const [policy, setPolicy] = useState<EarningPolicy | null>(null);
   const [settlementLoading, setSettlementLoading] = useState(true);
   const [settlementError, setSettlementError] = useState<string | null>(null);
-
-  const loadInvitations = useCallback(async () => {
-    try {
-      const rows = await memberRepository.getInvitations();
-      setInvitations(rows.filter((item) => item.role === 'DRIVER'));
-    } catch {
-      // Keep profile view functional even if invitation listing fails transiently.
-    }
-  }, []);
 
   const loadSettlementData = useCallback(async () => {
     setSettlementLoading(true);
@@ -89,15 +78,6 @@ function DriversWorkspace() {
 
   useEffect(() => {
     let active = true;
-    memberRepository
-      .getInvitations()
-      .then((rows) => {
-        if (active) setInvitations(rows.filter((item) => item.role === 'DRIVER'));
-      })
-      .catch(() => {
-        // Ignore transient invitation fetch error on initial mount.
-      });
-
     Promise.all([
       earningRepository.listEarnings(),
       earningRepository.listSettlements(),
@@ -153,7 +133,6 @@ function DriversWorkspace() {
   function handleRefresh() {
     if (activeTab === 'profiles') {
       void refetch();
-      void loadInvitations();
       return;
     }
     void loadSettlementData();
@@ -161,6 +140,7 @@ function DriversWorkspace() {
 
   const tabs: Array<{ key: DriversTab; label: string; count?: number }> = [
     { key: 'profiles', label: t('Hồ sơ & Duyệt'), count: reviewCount },
+    { key: 'activation', label: t('Kích hoạt ứng dụng') },
     { key: 'settlements', label: t('Đối soát & Thu nhập'), count: pendingSettlementCount },
     { key: 'policy', label: t('Chính sách thu nhập') },
   ];
@@ -170,32 +150,21 @@ function DriversWorkspace() {
   }
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">{t('Tài xế')}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {t('Quản lý hồ sơ, đối soát thu nhập và chính sách chi trả cho đội ngũ tài xế.')}
-          </p>
-        </div>
-        <div className="flex gap-2">
+    <div className="space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">{t('Tài xế')}</h1>
+        {(activeTab === 'settlements' || activeTab === 'policy') && (
           <Button
             variant="outline"
+            size="sm"
+            className="cursor-pointer"
             onClick={handleRefresh}
-            disabled={activeTab === 'profiles' ? isLoading : settlementLoading}
+            disabled={settlementLoading}
           >
-            <RefreshCw size={15} />
+            <RefreshCw size={15} aria-hidden="true" />
             {t('Làm mới')}
           </Button>
-          {activeTab === 'profiles' && (
-            <PermissionGuard permission="driver:manage">
-              <Button onClick={() => setMode('choose')}>
-                <UserPlus size={16} />
-                {t('Thêm tài xế')}
-              </Button>
-            </PermissionGuard>
-          )}
-        </div>
+        )}
       </header>
 
       <div className="border-b border-slate-200">
@@ -209,7 +178,7 @@ function DriversWorkspace() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => selectTab(tab.key)}
-                className={`flex shrink-0 items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+                className={`flex shrink-0 cursor-pointer items-center gap-2 border-b-2 py-3 text-sm font-medium transition-colors ${
                   active
                     ? 'border-slate-950 text-slate-950'
                     : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
@@ -236,17 +205,19 @@ function DriversWorkspace() {
           drivers={drivers}
           isLoading={isLoading}
           error={error}
-          invitations={invitations}
-          mode={mode}
-          onModeChange={setMode}
+          isCreateOpen={isCreateOpen}
+          onCreateOpenChange={setIsCreateOpen}
           onCreateDriver={createDriver}
+          onUpdateDriver={updateDriver}
           onReviewDriver={reviewDriver}
-          onReloadInvitations={loadInvitations}
+          onRefresh={handleRefresh}
           onBankAccountUpdated={async () => {
             await Promise.all([refetch(), loadSettlementData()]);
           }}
         />
       )}
+
+      {activeTab === 'activation' && <DriverActivationPanel onDriversMutated={refetch} />}
 
       {activeTab === 'settlements' && (
         <DriverSettlementsPanel

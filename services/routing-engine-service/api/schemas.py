@@ -18,6 +18,17 @@ class LocationPoint(BaseModel):
     address: Optional[str] = Field(None, max_length=500)
 
 
+def _normalize_priority(v: Optional[str]) -> str:
+    """Normalize optional priority string to NORMAL | HIGH | URGENT (defaults to NORMAL)."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return "NORMAL"
+    normalized = str(v).strip().upper()
+    allowed = {"NORMAL", "HIGH", "URGENT"}
+    if normalized not in allowed:
+        raise ValueError(f"priority must be one of {allowed}")
+    return normalized
+
+
 class StopItem(BaseModel):
     id: str = Field(..., description="Client-side stop identifier (e.g. order UUID)")
     name: Optional[str] = None
@@ -26,6 +37,12 @@ class StopItem(BaseModel):
     service_time: float = Field(5.0, ge=0.0, allow_inf_nan=False, description="Service duration in minutes")
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
+    priority: str = Field("NORMAL", description="Order delivery priority: NORMAL | HIGH | URGENT")
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def validate_priority(cls, v: Optional[str]) -> str:
+        return _normalize_priority(v)
 
 
 class BatchOptimizationRequest(BaseModel):
@@ -87,6 +104,12 @@ class RouteStopState(BaseModel):
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
     is_completed: bool = Field(False, description="True if driver already completed this stop")
+    priority: str = Field("NORMAL", description="Order delivery priority: NORMAL | HIGH | URGENT")
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def validate_priority(cls, v: Optional[str]) -> str:
+        return _normalize_priority(v)
 
 
 class RouteInsertRequest(BaseModel):

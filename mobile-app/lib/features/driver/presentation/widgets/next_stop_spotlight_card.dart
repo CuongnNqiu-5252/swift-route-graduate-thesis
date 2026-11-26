@@ -1,58 +1,24 @@
 // features/driver/presentation/widgets/next_stop_spotlight_card.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
-import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 /// Dominant "Next Action First" operational card on the Today screen.
-/// Shows grouped depot pickup or the next delivery.
-class NextStopSpotlightCard extends ConsumerStatefulWidget {
+/// Shows the immediate next customer delivery or return-to-warehouse stop.
+class NextStopSpotlightCard extends StatelessWidget {
   const NextStopSpotlightCard({super.key, required this.orders});
 
   final List<OrderModel> orders;
 
   @override
-  ConsumerState<NextStopSpotlightCard> createState() =>
-      _NextStopSpotlightCardState();
-}
-
-class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
-  Future<void> _swipeBatchPickup(List<OrderModel> depotGroup) async {
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .confirmBatchPickup(orderIds: depotGroup.map((o) => o.id).toList());
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.success,
-          content: Text('Đã lấy ${depotGroup.length} đơn. Sẵn sàng đi giao!'),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(
-            'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
-          ),
-        ),
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final active = widget.orders
+    final active = orders
         .where(
           (o) =>
               o.deliveryTaskStatus != DeliveryTaskStatus.completed &&
@@ -62,7 +28,7 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
         .toList();
 
     if (active.isEmpty) {
-      final completedCount = widget.orders
+      final completedCount = orders
           .where(
             (o) =>
                 o.status == OrderStatus.delivered ||
@@ -86,94 +52,7 @@ class _NextStopSpotlightCardState extends ConsumerState<NextStopSpotlightCard> {
       return _ActiveDeliverySpotlight(order: nextDelivery);
     }
 
-    final firstPickup = active.where((o) => o.needsPickup).firstOrNull;
-    if (firstPickup != null) {
-      final depotGroup = active
-          .where(
-            (o) =>
-                o.needsPickup && o.pickupGroupKey == firstPickup.pickupGroupKey,
-          )
-          .toList();
-      final totalPackages = depotGroup.length;
-
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.warningBorder, width: 1.4),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: StatusPill(
-                    label:
-                        'Trạm lấy hàng · ${depotGroup.length} đơn ($totalPackages kiện)',
-                    foreground: AppColors.warning,
-                    background: AppColors.warningSoft,
-                    icon: Icons.warehouse_rounded,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                PhoneCallButton(phone: firstPickup.senderPhone, compact: true),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              firstPickup.pickupDisplayName,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              firstPickup.pickupAddress,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13.5,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => DriverNavigationScreen(order: firstPickup),
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: AppColors.primarySoft,
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primaryBorder),
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                icon: const Icon(Icons.navigation_rounded, size: 18),
-                label: const Text('Mở Bản đồ Dẫn đường tới Kho'),
-              ),
-            ),
-            const SizedBox(height: 10),
-            SlideToConfirmButton(
-              label: depotGroup.length > 1
-                  ? 'Vuốt đã lấy $totalPackages kiện (${depotGroup.length} đơn)'
-                  : 'Vuốt xác nhận Đã lấy hàng',
-              backgroundColor: AppColors.accent,
-              icon: Icons.inventory_2_rounded,
-              onConfirmed: () => _swipeBatchPickup(depotGroup),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Case 3: Return-to-Sender task
+    // Return-to-Sender task
     final returnOrder = active.first;
     return _ActiveDeliverySpotlight(order: returnOrder);
   }

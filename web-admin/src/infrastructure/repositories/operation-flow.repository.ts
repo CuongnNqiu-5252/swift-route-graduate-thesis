@@ -50,6 +50,6 @@ export const operationFlowRepository = {
     return (await api.get<PlanningRunPage>(runsPath, { params: { page }, signal })).data;
   },
   async runPlanning(pickupLocationId: string | null) {
-    await api.post(runsPath, { pickup_location_id: pickupLocationId });
+    return (await api.post<PlanningRun>(runsPath, { pickup_location_id: pickupLocationId })).data;
   },
 };

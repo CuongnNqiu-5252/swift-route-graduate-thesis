@@ -37,4 +37,40 @@ public class DriverOnboardingClient {
         client.post().uri("/internal/fleet/" + tenantId + "/profiles/provision")
                 .header("X-Service-Key", key).body(body).retrieve().toBodilessEntity();
     }
+
+    public record ActivateDevicePayload(
+            UUID userId,
+            String installationId,
+            UUID sessionId,
+            String deviceOs,
+            String osVersion,
+            String appVersion,
+            String deviceModel) {
+    }
+
+    @SuppressWarnings("unchecked")
+    public UUID activateDevice(UUID tenantId, UUID driverId, ActivateDevicePayload payload) {
+        if (key.isBlank()) throw new IllegalStateException("Driver onboarding credential is not configured");
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("user_id", payload.userId());
+        body.put("installation_id", payload.installationId());
+        body.put("session_id", payload.sessionId());
+        body.put("device_os", payload.deviceOs());
+        body.put("os_version", payload.osVersion());
+        body.put("app_version", payload.appVersion());
+        body.put("device_model", payload.deviceModel());
+        Map<String, Object> response = client.post()
+                .uri("/internal/fleet/" + tenantId + "/drivers/" + driverId + "/activate-device")
+                .header("X-Service-Key", key)
+                .body(body)
+                .retrieve()
+                .body(Map.class);
+        if (response != null && response.get("revoked_session_id") != null) {
+            String raw = response.get("revoked_session_id").toString();
+            if (!raw.isBlank()) {
+                return UUID.fromString(raw);
+            }
+        }
+        return null;
+    }
 }

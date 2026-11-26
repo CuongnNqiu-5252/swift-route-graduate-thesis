@@ -524,6 +524,7 @@ public final class RoutingGrpcProtocol {
         if (item.serviceTime() != null) {
             w.writePresentDouble(7, item.serviceTime());
         }
+        w.writeString(8, item.priority());
         return w.toByteArray();
     }
 
@@ -541,6 +542,7 @@ public final class RoutingGrpcProtocol {
         if (item.serviceTime() != null) {
             w.writePresentDouble(8, item.serviceTime());
         }
+        w.writeString(9, item.priority());
         return w.toByteArray();
     }
 

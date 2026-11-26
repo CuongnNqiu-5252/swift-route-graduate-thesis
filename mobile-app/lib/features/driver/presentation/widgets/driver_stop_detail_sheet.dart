@@ -11,15 +11,13 @@ import 'package:swiftroute_app/features/driver/application/driver_provider.dart'
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
-import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 /// Waybill detail sheet for a stop (D06).
 ///
-/// Exposes exactly one primary action per phase:
-/// - package still at depot → swipe to confirm pickup (fast-track to OUT_FOR_DELIVERY)
-/// - package on the vehicle → "Giao xong" opening the POD/COD sheet
-/// - return task → confirm handover at the warehouse
+/// Exposes one clear primary action per phase:
+/// - customer delivery stop → "Giao xong" opening the POD/COD sheet
+/// - return task → confirm handover back at the warehouse
 class DriverStopDetailSheet extends ConsumerStatefulWidget {
   const DriverStopDetailSheet({
     super.key,
@@ -49,35 +47,12 @@ class DriverStopDetailSheet extends ConsumerStatefulWidget {
 }
 
 class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
-  bool _isBusy = false;
-
   OrderModel get _order => widget.order;
 
   void _showSnack(String message, {Color? color}) {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
-  }
-
-  Future<void> _confirmPickup() async {
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .confirmBatchPickup(orderIds: [_order.id]);
-      if (!mounted) return;
-      Navigator.of(context).pop();
-      _showSnack(
-        'Đã lấy ${_order.displayCode}. Sẵn sàng đi giao.',
-        color: AppColors.success,
-      );
-    } catch (e) {
-      if (mounted) {
-        _showSnack(
-          'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
-          color: AppColors.error,
-        );
-      }
-    }
   }
 
   Future<void> _completeDelivery() async {
@@ -125,50 +100,26 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
     );
   }
 
-  Future<void> _createPackageHandover() async {
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (context) => const _HandoverReasonDialog(),
-    );
-    if (reason == null || !mounted) return;
-    setState(() => _isBusy = true);
-    try {
-      await ref
-          .read(orderRemoteDataSourceProvider)
-          .createPackageHandover(orderId: _order.id, reason: reason);
-      await ref.read(packageHandoverProvider.notifier).refresh();
-      if (mounted) {
-        _showSnack('Đã gửi yêu cầu bàn giao.', color: AppColors.success);
-      }
-    } catch (_) {
-      if (mounted) _showSnack('Không gửi được yêu cầu bàn giao.');
-    } finally {
-      if (mounted) setState(() => _isBusy = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final order = _order;
-    final status = order.deliveryTaskStatus ?? DeliveryTaskStatus.assigned;
+    final status = order.deliveryTaskStatus ?? DeliveryTaskStatus.outForDelivery;
     final isClosed =
         status == DeliveryTaskStatus.completed ||
         status == DeliveryTaskStatus.failed ||
         status == DeliveryTaskStatus.cancelled;
-    final atDepotPhase = order.needsPickup || order.isReturnTask;
+    final isReturn = order.isReturnTask;
     final bottom = MediaQuery.paddingOf(context).bottom;
 
-    final placeTitle = order.isReturnTask
+    final placeTitle = isReturn
         ? 'Hoàn về ${order.pickupDisplayName}'
-        : order.needsPickup
-        ? 'Lấy hàng tại ${order.pickupDisplayName}'
         : (order.recipientName?.trim().isNotEmpty == true
               ? order.recipientName!.trim()
               : 'Khách nhận hàng');
-    final placeAddress = atDepotPhase
+    final placeAddress = isReturn
         ? order.pickupAddress
         : order.deliveryAddress;
-    final contactPhone = atDepotPhase
+    final contactPhone = isReturn
         ? order.senderPhone
         : order.recipientPhone;
 
@@ -254,7 +205,7 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
                 Expanded(
                   child: PhoneCallButton(
                     phone: contactPhone,
-                    label: atDepotPhase ? 'Gọi kho' : 'Gọi khách',
+                    label: isReturn ? 'Gọi kho' : 'Gọi khách',
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -296,28 +247,20 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
                 value: order.notes!.trim(),
                 emphasize: true,
               ),
-            if (!order.isReturnTask) ...[
+            if (!isReturn) ...[
               const SizedBox(height: 4),
               CodBadge(amount: order.codAmount, large: true),
             ],
             if (!isClosed) ...[
               const SizedBox(height: 20),
-              if (order.isReturnTask)
+              if (isReturn)
                 SlideToConfirmButton(
                   label: 'Vuốt xác nhận đã bàn giao tại kho',
                   subtitle: 'Kho sẽ kiểm nhận để hoàn tất yêu cầu',
                   icon: Icons.assignment_return_rounded,
                   onConfirmed: _advanceReturn,
                 )
-              else if (order.needsPickup)
-                SlideToConfirmButton(
-                  label: 'Vuốt đã lấy 1 kiện',
-                  subtitle: 'Đơn chuyển thẳng sang đang giao',
-                  backgroundColor: AppColors.accent,
-                  icon: Icons.inventory_2_rounded,
-                  onConfirmed: _confirmPickup,
-                )
-              else
+              else ...[
                 SizedBox(
                   width: double.infinity,
                   height: 56,
@@ -333,45 +276,23 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (!order.isReturnTask)
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: _isBusy ? null : _reportIncident,
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.error,
-                          minimumSize: const Size.fromHeight(48),
-                        ),
-                        icon: const Icon(
-                          Icons.report_problem_outlined,
-                          size: 18,
-                        ),
-                        label: const Text('Báo sự cố'),
-                      ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: _reportIncident,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      minimumSize: const Size.fromHeight(48),
                     ),
-                  if (order.isOutForDelivery || order.isReturnTask)
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: _isBusy ? null : _createPackageHandover,
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                        ),
-                        icon: _isBusy
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.swap_horiz_rounded, size: 18),
-                        label: const Text('Bàn giao kiện'),
-                      ),
+                    icon: const Icon(
+                      Icons.report_problem_outlined,
+                      size: 18,
                     ),
-                ],
-              ),
+                    label: const Text('Báo sự cố'),
+                  ),
+                ),
+              ],
             ],
           ],
         ),
@@ -424,41 +345,6 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _HandoverReasonDialog extends StatefulWidget {
-  const _HandoverReasonDialog();
-
-  @override
-  State<_HandoverReasonDialog> createState() => _HandoverReasonDialogState();
-}
-
-class _HandoverReasonDialogState extends State<_HandoverReasonDialog> {
-  String _reason = '';
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Yêu cầu bàn giao đơn'),
-      content: TextField(
-        maxLength: 1000,
-        onChanged: (value) => setState(() => _reason = value.trim()),
-        decoration: const InputDecoration(labelText: 'Lý do bàn giao'),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Hủy'),
-        ),
-        FilledButton(
-          onPressed: _reason.isEmpty
-              ? null
-              : () => Navigator.pop(context, _reason),
-          child: const Text('Gửi yêu cầu'),
-        ),
-      ],
     );
   }
 }

@@ -1,6 +1,17 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { Driver } from '@/domain/entities/driver.entity';
+import {
+  Order,
+  ORDER_PRIORITY_BADGE,
+  ORDER_PRIORITY_LABEL,
+  type OrderPriority,
+} from '@/domain/entities/order.entity';
+import { useLocale } from '@/i18n/provider';
+import { OrderSortDirection, OrderSortField } from '@/infrastructure/repositories/order.repository';
+import { formatVNDate } from '@/lib/utils';
 import {
   createColumnHelper,
   flexRender,
@@ -10,16 +21,10 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { ArrowDown, ArrowUp, ArrowUpDown, MapPin, Navigation } from 'lucide-react';
-import { useLocale } from '@/i18n/provider';
-import { Order } from '@/domain/entities/order.entity';
-import { Driver } from '@/domain/entities/driver.entity';
-import { OrderSortDirection, OrderSortField } from '@/infrastructure/repositories/order.repository';
-import { formatVNDate } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { OrderStatusBadge } from './order-status-badge';
-import { OrderPaginationBar } from './order-pagination-bar';
+import { useMemo, useState } from 'react';
 import { OrderDetailModal } from './order-detail-modal';
+import { OrderPaginationBar } from './order-pagination-bar';
+import { OrderStatusBadge } from './order-status-badge';
 
 interface OrderTablePaginationProps {
   page: number;
@@ -31,13 +36,18 @@ interface OrderTablePaginationProps {
   onClearSelection?: () => void;
 }
 
+export interface OrderPlanningSelection {
+  ids: ReadonlySet<string>;
+  disabled: boolean;
+  update: (orders: Order[], checked: boolean) => void;
+}
+
 interface OrderTableProps {
   orders: Order[];
   isLoading: boolean;
   onCancelOrder?: (orderId: string, reason?: string) => void | boolean | Promise<void | boolean>;
-  selectable?: boolean;
-  selectedIds?: Set<string>;
-  onToggleSelect?: (order: Order) => void;
+  onUpdatePriority?: (orderId: string, priority: OrderPriority) => void | Promise<void>;
+  planningSelection?: OrderPlanningSelection;
   drivers?: Driver[];
   selectedId?: string;
   onViewRoute?: (order: Order) => void;
@@ -57,14 +67,17 @@ export function formatShortOrderCode(orderCode?: string, fallbackId?: string): s
 
 const columnHelper = createColumnHelper<Order>();
 
+function canSelectForPlanning(order: Order) {
+  return order.status === 'READY_FOR_DISPATCH';
+}
+
 /** Order table powered by TanStack Table with manual server-side sorting and pagination. */
 export function OrderTable({
   orders,
   isLoading,
   onCancelOrder,
-  selectable = false,
-  selectedIds,
-  onToggleSelect,
+  onUpdatePriority,
+  planningSelection,
   drivers = [],
   selectedId,
   onViewRoute,
@@ -100,27 +113,46 @@ export function OrderTable({
   );
 
   const columns = useMemo(() => {
+    const selectableOrders = orders.filter(canSelectForPlanning);
     const list = [
-      ...(selectable
-        ? [
-            columnHelper.display({
-              id: 'select',
-              header: () => <span className="sr-only">{t('Chọn')}</span>,
-              cell: (info) => {
-                const order = info.row.original;
-                return (
-                  <input
-                    type="checkbox"
-                    checked={selectedIds?.has(order.id) ?? false}
-                    onChange={() => onToggleSelect?.(order)}
-                    onClick={(event) => event.stopPropagation()}
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
-                  />
-                );
-              },
-            }),
-          ]
-        : []),
+      ...(planningSelection ? [
+        columnHelper.display({
+          id: 'select',
+          size: 48,
+          header: () => {
+            const selectedCount = selectableOrders.filter(({ id }) => planningSelection.ids.has(id)).length;
+            const allSelected = selectableOrders.length > 0 && selectedCount === selectableOrders.length;
+            return (
+              <input
+                type="checkbox"
+                aria-label={t('Chọn tất cả đơn chờ trên trang này')}
+                checked={allSelected}
+                disabled={planningSelection.disabled || selectableOrders.length === 0}
+                ref={(element) => {
+                  if (element) element.indeterminate = selectedCount > 0 && !allSelected;
+                }}
+                onChange={(event) => planningSelection.update(selectableOrders, event.target.checked)}
+                className="size-4 cursor-pointer accent-teal-700 disabled:cursor-not-allowed"
+              />
+            );
+          },
+          cell: ({ row }) => {
+            const order = row.original;
+            if (!canSelectForPlanning(order)) return null;
+            return (
+              <input
+                type="checkbox"
+                aria-label={t('Chọn đơn {code}').replace('{code}', order.order_code)}
+                checked={planningSelection.ids.has(order.id)}
+                disabled={planningSelection.disabled}
+                onChange={(event) => planningSelection.update([order], event.target.checked)}
+                onClick={(event) => event.stopPropagation()}
+                className="size-4 cursor-pointer accent-teal-700 disabled:cursor-not-allowed"
+              />
+            );
+          },
+        }),
+      ] : []),
       columnHelper.accessor('created_at', {
         id: 'created_at',
         enableSorting: Boolean(onSortChange),
@@ -200,13 +232,12 @@ export function OrderTable({
               </div>
               {order.notes && (
                 <span
-                  className={`mt-1.5 inline-block rounded px-2 py-0.5 text-[11px] font-medium ${
-                    order.status === 'FAILED'
-                      ? 'border border-rose-200 bg-rose-50 text-rose-700'
-                      : order.status === 'CANCELLED'
-                        ? 'bg-slate-100 text-slate-600'
-                        : 'border border-amber-200 bg-amber-50 text-amber-700'
-                  }`}
+                  className={`mt-1.5 inline-block rounded px-2 py-0.5 text-[11px] font-medium ${order.status === 'FAILED'
+                    ? 'border border-rose-200 bg-rose-50 text-rose-700'
+                    : order.status === 'CANCELLED'
+                      ? 'bg-slate-100 text-slate-600'
+                      : 'border border-amber-200 bg-amber-50 text-amber-700'
+                    }`}
                 >
                   {order.notes}
                 </span>
@@ -219,9 +250,35 @@ export function OrderTable({
         header: () => <span>{t('Trạng thái')}</span>,
         cell: (info) => {
           const order = info.row.original;
+          const currentPriority: OrderPriority = order.priority || 'NORMAL';
+          const canEditPriority = Boolean(
+            onUpdatePriority && (order.status === 'READY_FOR_DISPATCH' || order.status === 'PLANNED'),
+          );
           return (
-            <div className="whitespace-nowrap">
-              <OrderStatusBadge status={order.status} />
+            <div className="space-y-1.5 whitespace-nowrap">
+              <div>
+                <OrderStatusBadge status={order.status} />
+              </div>
+              <div onClick={(event) => event.stopPropagation()}>
+                {canEditPriority ? (
+                  <select
+                    aria-label={`${t('Mức độ ưu tiên')} ${formatShortOrderCode(order.order_code, order.id)}`}
+                    value={currentPriority}
+                    onChange={(event) => void onUpdatePriority?.(order.id, event.target.value as OrderPriority)}
+                    className={`h-6 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 ${ORDER_PRIORITY_BADGE[currentPriority]}`}
+                  >
+                    {(['NORMAL', 'HIGH', 'URGENT'] as OrderPriority[]).map((item) => (
+                      <option key={item} value={item} className="bg-white text-slate-900">
+                        {t(ORDER_PRIORITY_LABEL[item])}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className={`inline-block rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${ORDER_PRIORITY_BADGE[currentPriority]}`}>
+                    {t(ORDER_PRIORITY_LABEL[currentPriority])}
+                  </span>
+                )}
+              </div>
             </div>
           );
         },
@@ -267,46 +324,46 @@ export function OrderTable({
       }),
       ...(onCancelOrder || onViewRoute
         ? [
-            columnHelper.display({
-              id: 'actions',
-              header: () => <span className="block text-right">{t('Thao tác')}</span>,
-              cell: (info) => {
-                const order = info.row.original;
-                const isSelected = selectedId === order.id;
-                const canCancel = order.status === 'READY_FOR_DISPATCH' || order.status === 'PLANNED';
-                const shortCode = formatShortOrderCode(order.order_code, order.id);
-                return (
-                  <div
-                    className="inline-flex w-full items-center justify-end gap-1.5 whitespace-nowrap"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {onViewRoute && (
-                      <Button
-                        size="sm"
-                        variant={isSelected ? 'default' : 'outline'}
-                        className="h-8 px-2.5 text-xs font-medium"
-                        onClick={() => onViewRoute(order)}
-                        aria-label={`Xem lộ trình đơn ${shortCode}`}
-                      >
-                        <Navigation size={13} />
-                        {isSelected ? t('Đang xem') : t('Lộ trình')}
-                      </Button>
-                    )}
-                    {onCancelOrder && canCancel && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 px-2 text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                        onClick={() => setCancelTarget(order)}
-                      >
-                        {t('Huỷ')}
-                      </Button>
-                    )}
-                  </div>
-                );
-              },
-            }),
-          ]
+          columnHelper.display({
+            id: 'actions',
+            header: () => <span className="block text-right">{t('Thao tác')}</span>,
+            cell: (info) => {
+              const order = info.row.original;
+              const isSelected = selectedId === order.id;
+              const canCancel = order.status === 'READY_FOR_DISPATCH' || order.status === 'PLANNED';
+              const shortCode = formatShortOrderCode(order.order_code, order.id);
+              return (
+                <div
+                  className="inline-flex w-full items-center justify-end gap-1.5 whitespace-nowrap"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {onViewRoute && (
+                    <Button
+                      size="sm"
+                      variant={isSelected ? 'default' : 'outline'}
+                      className="h-8 px-2.5 text-xs font-medium"
+                      onClick={() => onViewRoute(order)}
+                      aria-label={`Xem lộ trình đơn ${shortCode}`}
+                    >
+                      <Navigation size={13} />
+                      {isSelected ? t('Đang xem') : t('Lộ trình')}
+                    </Button>
+                  )}
+                  {onCancelOrder && canCancel && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 px-2 text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      onClick={() => setCancelTarget(order)}
+                    >
+                      {t('Huỷ')}
+                    </Button>
+                  )}
+                </div>
+              );
+            },
+          }),
+        ]
         : []),
     ];
     return list;
@@ -314,12 +371,12 @@ export function OrderTable({
     driverByKey,
     intlLocale,
     onCancelOrder,
+    onUpdatePriority,
+    orders,
     onSortChange,
-    onToggleSelect,
     onViewRoute,
-    selectable,
+    planningSelection,
     selectedId,
-    selectedIds,
     showOrderDetails,
     sortBy,
     sortDir,
@@ -413,9 +470,8 @@ export function OrderTable({
                   <tr
                     key={row.id}
                     onClick={() => onViewRoute?.(order)}
-                    className={`transition-colors ${
-                      onViewRoute ? 'cursor-pointer' : ''
-                    } ${isSelected ? 'bg-blue-50/75 hover:bg-blue-50' : 'hover:bg-slate-50/90'}`}
+                    className={`transition-colors ${onViewRoute ? 'cursor-pointer' : ''
+                      } ${isSelected ? 'bg-blue-50/75 hover:bg-blue-50' : 'hover:bg-slate-50/90'}`}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td

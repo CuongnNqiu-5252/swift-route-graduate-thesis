@@ -241,7 +241,6 @@ class _OfflineConflictSheetState extends State<OfflineConflictSheet> {
     OfflineActionType.codHandover => 'Bàn giao COD',
     OfflineActionType.routeAcknowledgement => 'Xác nhận nhận tuyến',
     OfflineActionType.routeDecline => 'Từ chối tuyến',
-    OfflineActionType.packageHandover => 'Bàn giao kiện hàng',
     OfflineActionType.returnProgress => 'Cập nhật hoàn hàng',
     OfflineActionType.incident => 'Báo sự cố',
     OfflineActionType.locationUpdate => 'Cập nhật vị trí',

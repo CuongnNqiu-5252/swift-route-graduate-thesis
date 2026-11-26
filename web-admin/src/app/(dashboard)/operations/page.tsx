@@ -46,9 +46,8 @@ import {
 
 import { driverRepository } from '@/infrastructure/repositories/driver.repository';
 import type { Driver } from '@/domain/entities/driver.entity';
-import type { OrderHandoverDto } from '@/infrastructure/repositories/operations.repository';
 
-type TabKey = 'incidents' | 'returns' | 'cod' | 'handovers';
+type TabKey = 'incidents' | 'returns' | 'cod';
 
 type CodItem = {
   id: string;
@@ -139,132 +138,6 @@ const returnStatusBadge = (status: string, t: Translator) => {
       return <Badge className="bg-slate-100 text-slate-700">{t("Chưa xác định")}</Badge>;
   }
 };
-
-function OrderHandoverQueue() {
-  const { t } = useLocale();
-  const [requests, setRequests] = useState<OrderHandoverDto[] | null>(null);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [selected, setSelected] = useState<OrderHandoverDto | null>(null);
-  const [driverId, setDriverId] = useState('');
-  const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const driverDirectory = useMemo(
-    () => buildOperationsPersonDirectory(drivers, []),
-    [drivers],
-  );
-
-  const refresh = useCallback(async () => {
-    try {
-      const [queue, roster] = await Promise.all([
-        operationsRepository.getOrderHandovers(),
-        driverRepository.getDrivers(),
-      ]);
-      setRequests(queue);
-      setDrivers(roster);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("Không tải được yêu cầu bàn giao."));
-    }
-  }, [t]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void refresh(), 0);
-    return () => window.clearTimeout(timer);
-  }, [refresh]);
-
-  async function submit(action: 'assign' | 'reject' | 'cancel') {
-    if (!selected) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (action === 'assign') {
-        await operationsRepository.assignOrderHandover(selected.handover_id, driverId);
-      } else {
-        await operationsRepository.closeOrderHandover(selected.handover_id, action, notes.trim());
-      }
-      setSelected(null);
-      await refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("Không cập nhật được yêu cầu."));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className="space-y-3">
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {!requests && !error && <p>{t("Đang tải yêu cầu bàn giao…")}</p>}
-      {requests?.length === 0 && <p>{t("Hiện chưa có yêu cầu bàn giao.")}</p>}
-      {requests?.map((request) => (
-        <article key={request.handover_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
-          <div>
-            <p className="font-semibold">{request.order_code ?? request.order_id}</p>
-            <p className="text-sm">{request.reason}</p>
-            <p className="text-sm text-slate-600">
-              {t("Tài xế gửi:")}{" "}{resolveDriverDisplayName(request.from_driver_id, driverDirectory, t)}
-              {request.to_driver_id && (
-                <>{" "}{t("· Tài xế nhận:")}{" "}{resolveDriverDisplayName(request.to_driver_id, driverDirectory, t)}</>
-              )}
-            </p>
-            <p className="text-sm text-slate-600">
-              {request.status === 'REQUESTED' ? t("Chờ chọn tài xế nhận") : t("Chờ tài xế nhận xác nhận")}
-            </p>
-          </div>
-          <Button variant="outline" onClick={() => {
-            setSelected(request);
-            setDriverId('');
-            setNotes('');
-            setError(null);
-          }}>{t("Xử lý")}</Button>
-        </article>
-      ))}
-      {selected && (
-        <div className="space-y-3 rounded-lg border p-4">
-          <p className="font-semibold">{selected.order_code ?? selected.order_id}</p>
-          {selected.status === 'REQUESTED' && (
-            <div className="space-y-1 text-sm">
-              <span>{t("Tài xế nhận")}</span>
-              <CustomSelect
-                value={driverId}
-                placeholder={t("Chọn tài xế")}
-                onValueChange={setDriverId}
-                className="max-w-sm"
-                options={drivers
-                  .filter(
-                    (driver) =>
-                      driver.onboarding_status === 'ACTIVE' &&
-                      driver.user_id &&
-                      driver.user_id !== selected.from_driver_id,
-                  )
-                  .map((driver) => ({
-                    value: driver.user_id!,
-                    label: driver.name,
-                  }))}
-              />
-            </div>
-          )}
-          <label className="block text-sm">
-            {t("Lý do từ chối hoặc hủy")}
-            <textarea className="mt-1 block w-full rounded border p-2" maxLength={1000}
-              value={notes} onChange={(event) => setNotes(event.target.value)} />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {selected.status === 'REQUESTED' ? (
-              <>
-                <Button disabled={busy || !driverId} onClick={() => void submit('assign')}>{t("Chỉ định tài xế")}</Button>
-                <Button variant="outline" disabled={busy || !notes.trim()} onClick={() => void submit('reject')}>{t("Từ chối")}</Button>
-              </>
-            ) : (
-              <Button variant="outline" disabled={busy || !notes.trim()} onClick={() => void submit('cancel')}>{t("Hủy bàn giao")}</Button>
-            )}
-            <Button variant="ghost" disabled={busy} onClick={() => setSelected(null)}>{t("Đóng")}</Button>
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
 
 export default function OperationsPage() {
   const { t, intlLocale } = useLocale();
@@ -704,18 +577,12 @@ export default function OperationsPage() {
               </span>
             )}
           </button>
-          <button type="button" onClick={() => setActiveTab('handovers')}
-            className={`shrink-0 border-b-2 px-1 py-4 text-sm font-medium ${activeTab === 'handovers' ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-600'}`}>
-            {t("Bàn giao đơn")}
-          </button>
         </nav>
       </div>
 
       {/* ========================================================================= */}
       {/* TAB 1: EXCEPTION CENTER (INCIDENTS) */}
       {/* ========================================================================= */}
-      {activeTab === 'handovers' && <OrderHandoverQueue />}
-
       {activeTab === 'incidents' && (
         <div className="space-y-4">
           {/* Filters Bar */}

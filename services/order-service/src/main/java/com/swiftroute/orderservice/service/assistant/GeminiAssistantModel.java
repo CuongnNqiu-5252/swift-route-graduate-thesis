@@ -8,6 +8,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions.ToolChoice;
+import org.springframework.ai.google.genai.common.GoogleGenAiThinkingLevel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -37,6 +38,13 @@ public class GeminiAssistantModel {
         return defaults.mutate().toolCallbacks(tools)
                 .toolChoice(new ToolChoice(ToolChoice.Mode.AUTO, List.of()))
                 .maxOutputTokens(512)
+                .build();
+    }
+
+    static GoogleGenAiChatOptions answerRetryOptions() {
+        return GoogleGenAiChatOptions.builder()
+                .thinkingLevel(GoogleGenAiThinkingLevel.LOW)
+                .maxOutputTokens(4096)
                 .build();
     }
 

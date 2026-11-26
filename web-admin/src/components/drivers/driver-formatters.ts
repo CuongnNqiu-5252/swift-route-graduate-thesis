@@ -7,6 +7,21 @@ export function formatVnd(amount: number, locale: string): string {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+export function formatDriverShift(start?: string, end?: string): string {
+  const begin = start?.match(/^\d{2}:\d{2}/)?.[0];
+  const finish = end?.match(/^\d{2}:\d{2}/)?.[0];
+  return begin || finish ? `${begin ?? '—'} – ${finish ?? '—'}` : '—';
+}
+
+export function driverVehicleLabel(type: string): string {
+  switch (type) {
+    case 'MOTORCYCLE': return 'Xe máy';
+    case 'CAR': return 'Ô tô';
+    case 'VAN': return 'Xe van';
+    default: return type;
+  }
+}
+
 /** Format an ISO timestamp as dd/MM/yyyy in Vietnam local time (UTC+7). */
 export function formatPeriodDate(isoString: string, locale: string): string {
   const date = new Date(isoString);

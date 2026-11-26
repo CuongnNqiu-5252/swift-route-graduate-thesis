@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { CustomSelect } from '@/components/ui/select';
 import LocationMapPicker from '@/components/locations/location-map-picker';
 import type { DeliveryZoneCheckResult, TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
+import { ORDER_PRIORITY_LABEL, type OrderPriority } from '@/domain/entities/order.entity';
 import { PickupLocation } from '@/domain/entities/pickup-location.entity';
 import { deliveryZoneRepository } from '@/infrastructure/repositories/delivery-zone.repository';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
@@ -61,7 +62,15 @@ function numberToVietnameseWords(num: number): string {
   return full.charAt(0).toUpperCase() + full.slice(1);
 }
 
-export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void; onClose: () => void }) {
+export function OrderCreatePanel({
+  onCreated,
+  onClose,
+  inModal = false,
+}: {
+  onCreated: () => void;
+  onClose: () => void;
+  inModal?: boolean;
+}) {
   const { t, intlLocale } = useLocale();
   const [locations, setLocations] = useState<PickupLocation[]>([]);
   const [pickupId, setPickupId] = useState('');
@@ -71,6 +80,7 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
   const [lat, setLat] = useState(10.03);
   const [lng, setLng] = useState(105.78);
   const [weight, setWeight] = useState('1');
+  const [priority, setPriority] = useState<OrderPriority>('NORMAL');
   const [appointmentStart, setAppointmentStart] = useState('');
   const [appointmentEnd, setAppointmentEnd] = useState('');
   const [hasCod, setHasCod] = useState(false);
@@ -202,7 +212,7 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
         timeWindowEnd: hasAppointment ? new Date(end).toISOString() : null,
         weightKg: Number(weight),
         packageCategory: 'PARCEL',
-        priority: 'NORMAL',
+        priority,
         codAmount: finalCodAmount,
       });
       if (activeZone && zoneCheck && !zoneCheck.in_zone && zoneCheck.allowed) {
@@ -218,12 +228,14 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
     }
   }
 
-  return <form onSubmit={submit} className="grid gap-5 border-y border-slate-200 bg-slate-50 p-5 lg:grid-cols-[0.8fr_1.2fr]">
+  return <form onSubmit={submit} className={inModal ? 'grid gap-5 lg:grid-cols-[0.85fr_1.15fr]' : 'grid gap-5 border-y border-slate-200 bg-slate-50 p-5 lg:grid-cols-[0.8fr_1.2fr]'}>
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-bold text-slate-950">{t("Tạo đơn hàng")}</h2>
-        <p className="mt-1 text-sm text-slate-600">{t("Nhập người nhận, sau đó tìm hoặc đặt ghim tại điểm giao.")}</p>
-      </div>
+      {!inModal && (
+        <div>
+          <h2 className="text-lg font-bold text-slate-950">{t("Tạo đơn hàng")}</h2>
+          <p className="mt-1 text-sm text-slate-600">{t("Nhập người nhận, sau đó tìm hoặc đặt ghim tại điểm giao.")}</p>
+        </div>
+      )}
       <label className="block text-xs font-semibold text-slate-700">{t("Điểm lấy hàng")}
         <CustomSelect
           required
@@ -348,6 +360,17 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-xs font-semibold text-slate-700">{t("Tổng khối lượng (kg)")}<input required min="0.1" step="0.1" type="number" value={weight} onChange={(event) => setWeight(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+        <label className="block text-xs font-semibold text-slate-700">{t("Mức độ ưu tiên")}
+          <CustomSelect
+            value={priority}
+            onValueChange={(next) => setPriority(next as OrderPriority)}
+            className="mt-1"
+            options={(['NORMAL', 'HIGH', 'URGENT'] as OrderPriority[]).map((item) => ({
+              value: item,
+              label: t(ORDER_PRIORITY_LABEL[item]),
+            }))}
+          />
+        </label>
       </div>
       <div className={`flex items-center gap-2 text-xs ${locationSelected ? 'text-emerald-700' : 'text-amber-700'}`}>
         {locationSelected ? <CheckCircle2 className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
@@ -401,6 +424,7 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
       <div className="flex gap-2">
         <Button
           type="submit"
+          className="cursor-pointer"
           disabled={busy || resolvingAddress || checkingZone || !locationSelected || isBlockedByZone}
         >
           {busy
@@ -411,10 +435,10 @@ export function OrderCreatePanel({ onCreated, onClose }: { onCreated: () => void
                 ? t("Đang kiểm tra vùng…")
                 : t("Tạo đơn")}
         </Button>
-        <Button type="button" variant="outline" onClick={onClose}>{t("Đóng")}</Button>
+        <Button type="button" variant="outline" className="cursor-pointer" onClick={onClose}>{t("Đóng")}</Button>
       </div>
     </div>
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className={inModal ? 'self-start overflow-hidden rounded-xl border border-slate-200 bg-white lg:sticky lg:top-0' : 'overflow-hidden rounded-xl border border-slate-200 bg-white'}>
       <LocationMapPicker
         lat={lat}
         lng={lng}

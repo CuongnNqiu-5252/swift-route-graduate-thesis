@@ -1,14 +1,18 @@
 package com.swiftroute.orderservice.controller;
 
+import java.util.UUID;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.swiftroute.orderservice.dto.request.DeliveryProofConfigRequest;
 import com.swiftroute.orderservice.dto.request.UpdateTenantSettingsRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.TenantSettingsResponse;
@@ -53,5 +57,24 @@ public class TenantController {
                 tenantIdHeader, authHeader, "tenant:settings:manage", java.util.Set.of("OWNER", "TENANT_ADMIN"));
         TenantSettingsResponse response = tenantSettingsService.updateSettings(tenant.getId(), request);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "Get delivery proof configuration")
+    @GetMapping("/me/delivery-proof-config")
+    public ResponseEntity<ApiResponse<DeliveryProofConfigRequest>> getConfig(
+            @RequestAttribute("authorizedTenantId") UUID tenantId) {
+
+        return ResponseEntity.ok(
+                ApiResponse.success(tenantSettingsService.getConfig(tenantId)));
+    }
+
+    @Operation(summary = "Update delivery proof configuration")
+    @PutMapping("/me/delivery-proof-config")
+    public ResponseEntity<ApiResponse<DeliveryProofConfigRequest>> updateConfig(
+            @RequestAttribute("authorizedTenantId") UUID tenantId,
+            @Valid @RequestBody DeliveryProofConfigRequest request) {
+
+        return ResponseEntity.ok(
+                ApiResponse.success(tenantSettingsService.updateConfig(tenantId, request)));
     }
 }

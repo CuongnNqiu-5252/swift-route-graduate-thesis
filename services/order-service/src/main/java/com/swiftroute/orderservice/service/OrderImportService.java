@@ -29,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
+import com.swiftroute.orderservice.entity.enums.OrderPriority;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 
@@ -43,11 +44,26 @@ public class OrderImportService {
     public record Row(int line, String externalOrderCode, String recipientName, String recipientPhone,
             String deliveryAddress, Double deliveryLat, Double deliveryLng,
             OffsetDateTime timeWindowStart, OffsetDateTime timeWindowEnd, Double weightKg,
-            BigDecimal codAmount, String notes) {
+            BigDecimal codAmount, String notes, OrderPriority priority) {
+        public Row {
+            if (priority == null) {
+                priority = OrderPriority.NORMAL;
+            }
+        }
+
+        public Row(int line, String externalOrderCode, String recipientName, String recipientPhone,
+                String deliveryAddress, Double deliveryLat, Double deliveryLng,
+                OffsetDateTime timeWindowStart, OffsetDateTime timeWindowEnd, Double weightKg,
+                BigDecimal codAmount, String notes) {
+            this(line, externalOrderCode, recipientName, recipientPhone, deliveryAddress,
+                    deliveryLat, deliveryLng, timeWindowStart, timeWindowEnd, weightKg,
+                    codAmount, notes, OrderPriority.NORMAL);
+        }
+
         CreateOrderRequest withAddress(String address, Double lat, Double lng) {
             return new CreateOrderRequest(externalOrderCode.trim(), null, null, recipientName, recipientPhone,
                     null, null, null, null, lat, lng, address, timeWindowStart, timeWindowEnd,
-                    weightKg, null, null, notes, null, codAmount);
+                    weightKg, null, null, notes, priority, codAmount);
         }
     }
 
@@ -184,11 +200,11 @@ public class OrderImportService {
         if (pending) {
             int inserted = jdbc.update("""
                     INSERT INTO order_import_rows (tenant_id, source_code, recipient_name, recipient_phone,
-                        original_address, window_start, window_end, weight_kg, cod_amount, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING
+                        original_address, window_start, window_end, weight_kg, cod_amount, notes, priority)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING
                     """, tenant, request.externalOrderCode(), row.recipientName(), row.recipientPhone(),
                     row.deliveryAddress(), row.timeWindowStart(), row.timeWindowEnd(), row.weightKg(),
-                    request.codAmount(), row.notes());
+                    request.codAmount(), row.notes(), request.priority().name());
             if (inserted == 0)
                 return DUPLICATE;
             if (!orderExists(tenant, request.externalOrderCode()))
@@ -226,7 +242,8 @@ public class OrderImportService {
                     rs.getString("recipient_phone"), null, null, null,
                     rs.getObject("window_start", OffsetDateTime.class),
                     rs.getObject("window_end", OffsetDateTime.class), rs.getObject("weight_kg", Double.class),
-                    rs.getBigDecimal("cod_amount"), rs.getString("notes")), tenant, code);
+                    rs.getBigDecimal("cod_amount"), rs.getString("notes"),
+                    parsePriority(rs.getString("priority"))), tenant, code);
             if (rows.isEmpty())
                 throw new AppException(ErrorCode.ORDER_NOT_FOUND);
             UUID existing = jdbc.queryForObject("""
@@ -261,7 +278,7 @@ public class OrderImportService {
         jdbc.update("""
                 UPDATE order_import_rows SET order_id = ?, recipient_name = NULL, recipient_phone = NULL,
                     original_address = NULL, window_start = NULL, window_end = NULL, weight_kg = NULL,
-                    cod_amount = NULL, notes = NULL WHERE tenant_id = ? AND source_code = ?
+                    cod_amount = NULL, notes = NULL, priority = NULL WHERE tenant_id = ? AND source_code = ?
                 """, orderId, tenant, request.externalOrderCode());
         return orderId;
     }
@@ -335,6 +352,9 @@ public class OrderImportService {
         String notes = readCell(
                 excelRow, columns, "notes", formatter);
 
+        OrderPriority priority = parsePriority(
+                readCell(excelRow, columns, "priority", formatter));
+
         if (externalOrderCode.isBlank()) {
             throw new IllegalArgumentException(
                     "externalOrderCode không được để trống");
@@ -352,7 +372,22 @@ public class OrderImportService {
                 timeWindowEnd,
                 weightKg,
                 codAmount,
-                notes);
+                notes,
+                priority);
+    }
+
+    private OrderPriority parsePriority(String value) {
+        if (value == null || value.isBlank()) {
+            return OrderPriority.NORMAL;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "NORMAL", "BÌNH THƯỜNG", "BINH THUONG" -> OrderPriority.NORMAL;
+            case "HIGH", "CAO", "ƯU TIÊN CAO", "UU TIEN CAO" -> OrderPriority.HIGH;
+            case "URGENT", "KHẨN CẤP", "KHAN CAP", "KHẨN", "KHAN" -> OrderPriority.URGENT;
+            default -> throw new IllegalArgumentException(
+                    "priority phải là NORMAL, HIGH hoặc URGENT");
+        };
     }
 
     private String readCell(

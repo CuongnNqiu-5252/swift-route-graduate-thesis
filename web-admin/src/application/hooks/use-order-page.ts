@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { orderRepository, type OrderListPage, type OrderPageFilters } from '@/infrastructure/repositories/order.repository';
 
-export function useOrderPage(filters: OrderPageFilters) {
+export function useOrderPage(filters: OrderPageFilters, refreshRevision = 0) {
   const [result, setResult] = useState<{ filters: OrderPageFilters; data?: OrderListPage; error?: boolean }>();
   const [revision, setRevision] = useState(0);
   const refetch = useCallback(() => setRevision((current) => current + 1), []);
@@ -22,7 +22,7 @@ export function useOrderPage(filters: OrderPageFilters) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [filters, revision]);
+  }, [filters, refreshRevision, revision]);
 
   useEffect(() => {
     window.addEventListener('swiftroute:realtime-update', refetch);

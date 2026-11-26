@@ -1,3 +1,4 @@
+import type { OrderPriority } from '@/domain/entities/order.entity';
 import api from '@/lib/api';
 
 export interface ImportAddress {
@@ -16,6 +17,7 @@ export interface ImportRow extends ImportAddress {
   weightKg: number | null;
   codAmount: string | null;
   notes: string;
+  priority?: OrderPriority;
 }
 
 export interface ImportResult {
@@ -44,6 +46,7 @@ type ImportedRowPayload = {
   weight_kg: number | null;
   cod_amount: string | number | null;
   notes: string;
+  priority?: string | null;
 };
 
 type ImportResultPayload = Omit<ImportResult, 'externalOrderCode'> & { external_order_code: string };
@@ -82,6 +85,7 @@ export const orderImportRepository = {
         weightKg: row.weight_kg,
         codAmount: row.cod_amount == null ? null : String(row.cod_amount),
         notes: row.notes,
+        priority: ((row.priority || 'NORMAL').toString().toUpperCase() as OrderPriority),
       })),
       errors: data.errors.map(importResult),
     };
@@ -98,6 +102,7 @@ export const orderImportRepository = {
       weight_kg: row.weightKg,
       cod_amount: row.codAmount,
       notes: row.notes,
+      priority: row.priority ?? 'NORMAL',
     })));
     return response.data.map(importResult);
   },

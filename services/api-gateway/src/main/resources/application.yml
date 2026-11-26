@@ -71,12 +71,6 @@ spring:
               predicates:
                 - Path=/api/cod/**
 
-            # --- Package custody and dual-confirmation handovers ---
-            - id: custody-service
-              uri: ${ORDER_SERVICE_URL:http://localhost:8082}
-              predicates:
-                - Path=/api/custody/**
-
             # --- File and Image Uploads (Cloudinary) ---
             - id: upload-service
               uri: ${ORDER_SERVICE_URL:http://localhost:8082}

@@ -44,6 +44,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtParser jwtParser;
     private final String internalServiceKey;
 
+    @Autowired(required = false)
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+
+    private boolean isSessionRevoked(UUID sessionId) {
+        if (sessionId == null) {
+            return false;
+        }
+        if (TenantPermissionRegistry.isSessionRevoked(sessionId)) {
+            return true;
+        }
+        if (redisTemplate != null) {
+            try {
+                if (Boolean.TRUE.equals(redisTemplate.hasKey("auth:revoked-session:" + sessionId))) {
+                    TenantPermissionRegistry.recordRevokedSession(
+                            sessionId,
+                            (System.currentTimeMillis() / 1000L) + 3600L);
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // Fall back to in-memory revocation registry if Redis is unavailable
+            }
+        }
+        return false;
+    }
+
     @Autowired
     public JwtAuthenticationFilter(
             @Value("${jwt.secret:your_super_secret_key_change_in_production}") String jwtSecret,
@@ -97,6 +122,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } catch (JwtException | IllegalArgumentException ex) {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
             return;
+        }
+
+        String sidClaim = claims.get("sid", String.class);
+        if (sidClaim != null && !sidClaim.isBlank()) {
+            UUID parsedSessionId;
+            try {
+                parsedSessionId = UUID.fromString(sidClaim.trim());
+            } catch (IllegalArgumentException ex) {
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
+            if (isSessionRevoked(parsedSessionId)) {
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
+            request.setAttribute("authorizedSessionId", parsedSessionId);
         }
 
         String userId = claims.getSubject();

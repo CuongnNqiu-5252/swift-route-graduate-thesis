@@ -10,13 +10,13 @@ class DriverNotificationsSheet extends ConsumerStatefulWidget {
   const DriverNotificationsSheet({
     super.key,
     required this.onNavigateToRoute,
-    this.onNavigateToHandover,
+    required this.onOpenCod,
     this.onNavigateToEarnings,
     this.onNavigateToProfile,
   });
 
   final VoidCallback onNavigateToRoute;
-  final VoidCallback? onNavigateToHandover;
+  final VoidCallback onOpenCod;
   final VoidCallback? onNavigateToEarnings;
   final VoidCallback? onNavigateToProfile;
 
@@ -84,10 +84,10 @@ class _DriverNotificationsSheetState
               ? Icons.warning_amber_rounded
               : Icons.payments_rounded,
           color: isDiscrepancy ? AppColors.error : AppColors.success,
-          actionLabel: 'Mở bàn giao COD',
+          actionLabel: 'Xem phiếu nộp COD',
           onTap: () {
             Navigator.of(context).pop();
-            widget.onNavigateToHandover?.call();
+            widget.onOpenCod();
           },
         );
       case 'EARNINGS':
@@ -299,7 +299,7 @@ class _DriverNotificationsSheetState
                           ),
                           SizedBox(height: 6),
                           Text(
-                            'Khi có lộ trình mới, phản hồi xử lý sự cố từ điều phối viên, kết quả bàn giao COD hoặc thanh toán thu nhập, bạn sẽ nhận thông báo tại đây.',
+                            'Khi có lộ trình mới, phản hồi xử lý sự cố từ điều phối viên, kết quả đối soát COD hoặc thanh toán thu nhập, bạn sẽ nhận thông báo tại đây.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,

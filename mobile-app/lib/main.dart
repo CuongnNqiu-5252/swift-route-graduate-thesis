@@ -12,17 +12,14 @@ import 'package:swiftroute_app/features/driver/presentation/screens/driver_main_
 import 'package:swiftroute_app/firebase_options.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 import 'package:swiftroute_app/presentation/screens/driver_activation_screen.dart';
-import 'package:swiftroute_app/presentation/screens/login_screen.dart';
 import 'package:swiftroute_app/presentation/screens/forgot_password_screen.dart';
+import 'package:swiftroute_app/presentation/screens/login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = true;
   runApp(const ProviderScope(child: SwiftRouteApp()));
 
-  // Firebase is an optional integration for the driver app at the moment.
-  // It must never block the first Flutter frame, especially on web when the
-  // Firebase bootstrap request is unavailable or slow.
   unawaited(_initializeFirebase());
 }
 
@@ -37,14 +34,48 @@ Future<void> _initializeFirebase() async {
   }
 }
 
-class SwiftRouteApp extends ConsumerWidget {
+class SwiftRouteApp extends ConsumerStatefulWidget {
   const SwiftRouteApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SwiftRouteApp> createState() => _SwiftRouteAppState();
+}
+
+class _SwiftRouteAppState extends ConsumerState<SwiftRouteApp>
+    with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(authProvider.notifier).onAppResumed();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
 
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      if (previous?.isAuthenticated == true && !next.isAuthenticated) {
+        _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      }
+    });
+
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'SwiftRoute Driver',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
@@ -128,7 +159,7 @@ class _UnsupportedRoleScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Tài khoản hiện tại không thuộc vai trò tài xế (DRIVER). Vui lòng đăng xuất và đăng nhập bằng tài khoản tài xế được cấp.',
+                    'Tài khoản hiện tại không thuộc vai trò tài xế (DRIVER). Vui lòng đăng xuất và đăng nhập bằng tài khoản tài xế hoặc kích hoạt bằng mã 12 chữ số.',
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.45,

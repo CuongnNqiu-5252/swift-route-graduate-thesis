@@ -31,7 +31,15 @@ public enum ErrorCode {
     CANNOT_SUSPEND_LAST_OWNER(400, "Không thể khóa chủ sở hữu (Owner) duy nhất của doanh nghiệp", HttpStatus.BAD_REQUEST),
     INVITATION_NOT_FOUND(404, "Lời mời không tồn tại hoặc token không hợp lệ", HttpStatus.NOT_FOUND),
     INVITATION_EXPIRED(400, "Lời mời đã hết hạn", HttpStatus.BAD_REQUEST),
-    INVITATION_ALREADY_PROCESSED(400, "Lời mời này đã được chấp nhận hoặc đã bị thu hồi", HttpStatus.BAD_REQUEST);
+    INVITATION_ALREADY_PROCESSED(400, "Lời mời này đã được chấp nhận hoặc đã bị thu hồi", HttpStatus.BAD_REQUEST),
+
+    // ===== Driver App Activation Errors =====
+    INVALID_ACTIVATION_KEY(401, "Mã kích hoạt không hợp lệ. Vui lòng kiểm tra lại.", HttpStatus.UNAUTHORIZED),
+    ACTIVATION_KEY_EXPIRED(400, "Mã kích hoạt đã hết hạn (quá 24 giờ). Vui lòng liên hệ quản trị viên cấp mã mới.", HttpStatus.BAD_REQUEST),
+    ACTIVATION_KEY_ALREADY_USED(400, "Mã kích hoạt này đã được sử dụng.", HttpStatus.BAD_REQUEST),
+    ACTIVATION_KEY_REVOKED(400, "Mã kích hoạt đã bị thu hồi hoặc đã được thay bằng mã mới.", HttpStatus.BAD_REQUEST),
+    ACTIVATION_RATE_LIMITED(429, "Quá nhiều lần thử kích hoạt. Vui lòng thử lại sau ít phút.", HttpStatus.TOO_MANY_REQUESTS),
+    DRIVER_NOT_ACTIVE(403, "Hồ sơ tài xế chưa sẵn sàng hoạt động hoặc đã bị tạm ngưng.", HttpStatus.FORBIDDEN);
     
     private final int code;
     private final String message;

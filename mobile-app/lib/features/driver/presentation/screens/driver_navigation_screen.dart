@@ -20,7 +20,7 @@ import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/features/order/presentation/widgets/goong_map_widget.dart';
 
 /// Zero-Switch Active Trip Cockpit.
-/// Drivers stay on this single map screen from depot batch pickup through sequential customer stops.
+/// Drivers stay on this single map screen across sequential customer stops and return trips.
 class DriverNavigationScreen extends ConsumerStatefulWidget {
   const DriverNavigationScreen({super.key, required this.order});
 
@@ -70,20 +70,15 @@ class _DriverNavigationScreenState
     final exact = activeStops.where((o) => o.id == _activeOrderId).firstOrNull;
     if (exact != null) return exact;
 
-    // Auto-advance: prioritize remaining in-transit deliveries, then pending pickups, then returns
     final nextInTransit = activeStops
         .where((o) => o.isOutForDelivery)
         .firstOrNull;
     if (nextInTransit != null) return nextInTransit;
 
-    final nextPickup = activeStops.where((o) => o.needsPickup).firstOrNull;
-    if (nextPickup != null) return nextPickup;
-
     return activeStops.firstOrNull;
   }
 
-  bool _isNavigatingToDepot(OrderModel order) =>
-      order.isReturnTask || order.needsPickup;
+  bool _isNavigatingToDepot(OrderModel order) => order.isReturnTask;
 
   LatLngPoint _destinationFor(OrderModel order) {
     final toDepot = _isNavigatingToDepot(order);
@@ -152,34 +147,6 @@ class _DriverNavigationScreenState
         _routeError =
             'Không tải được đường đi. Kiểm tra mạng hoặc quyền vị trí rồi thử lại.';
       });
-    }
-  }
-
-  Future<void> _handleBatchPickup(List<OrderModel> depotGroup) async {
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .confirmBatchPickup(orderIds: depotGroup.map((o) => o.id).toList());
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.success,
-          content: Text(
-            'Đã nhận ${depotGroup.length} đơn tại kho. Chuyển sang dẫn đường giao khách!',
-          ),
-        ),
-      );
-      await _syncRouteForCurrentStop(force: true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(
-            'Không xác nhận được lấy hàng: ${AppFormatters.errorMessage(e)}',
-          ),
-        ),
-      );
     }
   }
 
@@ -258,7 +225,6 @@ class _DriverNavigationScreenState
     final allOrders = ordersAsync.valueOrNull ?? [widget.order];
     final current = _resolveActiveOrder(allOrders);
 
-    // If all stops finished externally, show clean completion card
     if (current == null) {
       return Scaffold(
         backgroundColor: AppColors.background,
@@ -270,7 +236,7 @@ class _DriverNavigationScreenState
               icon: Icons.check_circle_rounded,
               title: 'Đã hoàn thành mọi điểm dừng!',
               message:
-                  'Tất cả đơn trong chuyến hiện tại đã được xử lý. Kiểm tra tab Bàn giao nếu bạn có thu tiền mặt COD.',
+                  'Tất cả đơn trong chuyến hiện tại đã được xử lý. Nếu có tiền mặt COD cần nộp, mở mục Nộp COD trên màn Hôm nay.',
               actionLabel: 'Quay về lộ trình',
               onAction: () => Navigator.of(context).pop(),
             ),
@@ -279,7 +245,6 @@ class _DriverNavigationScreenState
       );
     }
 
-    // Trigger route refresh seamlessly when active order or phase changes
     final dest = _destinationFor(current);
     final destKey =
         '${current.id}:${_isNavigatingToDepot(current)}:${dest.latitude.toStringAsFixed(5)},${dest.longitude.toStringAsFixed(5)}';
@@ -290,14 +255,6 @@ class _DriverNavigationScreenState
     }
 
     final toDepot = _isNavigatingToDepot(current);
-    final depotGroup = toDepot && !current.isReturnTask
-        ? allOrders
-              .where(
-                (o) =>
-                    o.needsPickup && o.pickupGroupKey == current.pickupGroupKey,
-              )
-              .toList()
-        : <OrderModel>[current];
 
     final activeRemainingCount = allOrders
         .where(
@@ -386,12 +343,9 @@ class _DriverNavigationScreenState
                   ),
                   const SizedBox(height: 10),
                   _TopTurnBanner(
-                    toDepot: toDepot,
                     isReturn: current.isReturnTask,
                     title: toDepot
-                        ? (current.isReturnTask
-                              ? 'Hoàn kiện về ${current.pickupDisplayName}'
-                              : 'Đến lấy hàng · ${current.pickupDisplayName}')
+                        ? 'Hoàn kiện về ${current.pickupDisplayName}'
                         : 'Điểm giao · ${current.recipientName ?? current.displayCode}',
                     subtitle: toDepot
                         ? current.pickupAddress
@@ -431,7 +385,6 @@ class _DriverNavigationScreenState
             alignment: Alignment.bottomCenter,
             child: _BottomTripCockpit(
               order: current,
-              depotGroup: depotGroup,
               toDepot: toDepot,
               isNearStop: isNearStop,
               direction: _direction,
@@ -445,7 +398,6 @@ class _DriverNavigationScreenState
                 order: current,
                 sequenceNumber: 1,
               ),
-              onSwipePickup: () => _handleBatchPickup(depotGroup),
               onCompleteDelivery: () => _handleCompleteDelivery(current),
               onReportIncident: () async {
                 await DriverIncidentSheet.show(context, current);
@@ -462,14 +414,12 @@ class _DriverNavigationScreenState
 
 class _TopTurnBanner extends StatelessWidget {
   const _TopTurnBanner({
-    required this.toDepot,
     required this.isReturn,
     required this.title,
     required this.subtitle,
     required this.distanceText,
   });
 
-  final bool toDepot;
   final bool isReturn;
   final String title;
   final String subtitle;
@@ -477,9 +427,7 @@ class _TopTurnBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = isReturn
-        ? AppColors.errorDark
-        : (toDepot ? AppColors.primaryDark : AppColors.primary);
+    final bgColor = isReturn ? AppColors.errorDark : AppColors.primary;
 
     return Container(
       constraints: const BoxConstraints(maxWidth: 560),
@@ -507,9 +455,7 @@ class _TopTurnBanner extends StatelessWidget {
             child: Icon(
               isReturn
                   ? Icons.assignment_return_rounded
-                  : (toDepot
-                        ? Icons.warehouse_rounded
-                        : Icons.location_on_rounded),
+                  : Icons.location_on_rounded,
               color: Colors.white,
               size: 24,
             ),
@@ -562,7 +508,6 @@ class _TopTurnBanner extends StatelessWidget {
 class _BottomTripCockpit extends StatelessWidget {
   const _BottomTripCockpit({
     required this.order,
-    required this.depotGroup,
     required this.toDepot,
     required this.isNearStop,
     required this.direction,
@@ -572,14 +517,12 @@ class _BottomTripCockpit extends StatelessWidget {
     required this.bottomInset,
     required this.onRefreshRoute,
     required this.onOpenDetails,
-    required this.onSwipePickup,
     required this.onCompleteDelivery,
     required this.onReportIncident,
     required this.onSwipeReturn,
   });
 
   final OrderModel order;
-  final List<OrderModel> depotGroup;
   final bool toDepot;
   final bool isNearStop;
   final GoongDirection? direction;
@@ -589,14 +532,12 @@ class _BottomTripCockpit extends StatelessWidget {
   final double bottomInset;
   final VoidCallback onRefreshRoute;
   final VoidCallback onOpenDetails;
-  final Future<void> Function() onSwipePickup;
   final VoidCallback onCompleteDelivery;
   final VoidCallback onReportIncident;
   final Future<void> Function() onSwipeReturn;
 
   @override
   Widget build(BuildContext context) {
-    final totalPackages = depotGroup.length;
     final contactPhone = toDepot ? order.senderPhone : order.recipientPhone;
 
     return Container(
@@ -630,7 +571,6 @@ class _BottomTripCockpit extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // Header row: Badges + Quick Actions (Call / Details / Refresh)
           Row(
             children: [
               if (isNearStop) ...[
@@ -646,10 +586,8 @@ class _BottomTripCockpit extends StatelessWidget {
               if (!toDepot)
                 CodBadge(amount: order.codAmount)
               else
-                StatusPill(
-                  label: order.isReturnTask
-                      ? 'Trả kiện hoàn về kho'
-                      : '${depotGroup.length} đơn · $totalPackages kiện',
+                const StatusPill(
+                  label: 'Trả kiện hoàn về kho',
                   foreground: AppColors.warning,
                   background: AppColors.warningSoft,
                   borderColor: AppColors.warningBorder,
@@ -677,7 +615,6 @@ class _BottomTripCockpit extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
-          // Primary stop address & customer/depot name
           Text(
             toDepot
                 ? '${order.pickupDisplayName} — ${order.pickupAddress}'
@@ -712,7 +649,6 @@ class _BottomTripCockpit extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          // Distance & ETA compact strip
           if (routeError != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -777,7 +713,6 @@ class _BottomTripCockpit extends StatelessWidget {
               ),
             ),
 
-          // Zero-Switch Primary Operational CTA
           if (order.isReturnTask)
             SlideToConfirmButton(
               label: 'Vuốt xác nhận đã bàn giao tại kho',
@@ -785,16 +720,6 @@ class _BottomTripCockpit extends StatelessWidget {
               backgroundColor: AppColors.primary,
               icon: Icons.assignment_return_rounded,
               onConfirmed: onSwipeReturn,
-            )
-          else if (toDepot)
-            SlideToConfirmButton(
-              label: depotGroup.length > 1
-                  ? 'Vuốt đã lấy $totalPackages kiện (${depotGroup.length} đơn)'
-                  : 'Vuốt xác nhận Đã lấy hàng',
-              subtitle: 'Tự động chuyển sang dẫn đường giao khách',
-              backgroundColor: AppColors.accent,
-              icon: Icons.inventory_2_rounded,
-              onConfirmed: onSwipePickup,
             )
           else
             Row(

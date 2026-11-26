@@ -87,6 +87,11 @@ def _trace_open_route(
     return ordered, cum_dist, cum_time, total_load
 
 
+def _has_priority_stops(stops: Sequence[Union[StopItem, RouteStopState]]) -> bool:
+    """Return True if any stop in the sequence has HIGH or URGENT delivery priority."""
+    return any(getattr(stop, "priority", "NORMAL") in {"HIGH", "URGENT"} for stop in stops)
+
+
 def _delivery_windows(request: BatchOptimizationRequest) -> List[Tuple[int, int] | None] | None:
     departure = request.planned_departure_at
     if departure is None:
@@ -175,9 +180,13 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
     logger.info("📐 [RoutingEngine] Đã xây dựng ma trận chi phí đa mục tiêu %dx%d (%s, W_time=%.2f, W_cost=%.2f)", n_total, n_total, distance_source, time_w, cost_w)
 
     windows = _delivery_windows(request)
+    has_priority = _has_priority_stops(request.stops)
+    use_time_dimension = windows is not None or has_priority
     start_ns = time.perf_counter_ns()
 
-    if effective_vehicles > 1 or (windows is not None and n_stops > 1):
+    # Use ortools_vrp when partitioning across multiple vehicles OR when single-vehicle
+    # routing needs the ArrivalTime dimension (for appointment windows or HIGH/URGENT priorities).
+    if effective_vehicles > 1 or (use_time_dimension and n_stops > 1):
         logger.info("🧠 [RoutingEngine] Giải bài toán CVRP nhiều tài xế (%d xe) bằng Google OR-Tools", effective_vehicles)
         demands = [0.0] + [max(0.0, s.demand_kg) for s in request.stops]
         total_demand = sum(demands)
@@ -196,9 +205,10 @@ def solve_batch(request: BatchOptimizationRequest) -> BatchOptimizationResponse:
             num_vehicles=effective_vehicles,
             start=0,
             max_stops_per_vehicle=request.max_stops_per_vehicle,
-            time_matrix=time_matrix if windows is not None else None,
+            time_matrix=time_matrix if use_time_dimension else None,
             delivery_windows=windows,
             service_times=[0.0] + [stop.service_time for stop in request.stops],
+            priorities=["NORMAL"] + [stop.priority for stop in request.stops],
         )
         elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
@@ -294,6 +304,7 @@ def solve_insert(request: RouteInsertRequest) -> RouteInsertResponse:
             service_time=s.service_time,
             time_window_start=s.time_window_start,
             time_window_end=s.time_window_end,
+            priority=s.priority,
         )
         for s in request.current_stops
         if not s.is_completed
@@ -434,6 +445,7 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
             service_time=s.service_time,
             time_window_start=s.time_window_start,
             time_window_end=s.time_window_end,
+            priority=s.priority,
         )
         for s in remaining_states
     ]
@@ -444,8 +456,9 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
             planned_departure_at=now_utc,
         )
     )
+    has_priority = _has_priority_stops(remaining_states)
 
-    if windows is not None and len(remaining_states) > 1:
+    if (windows is not None or has_priority) and len(remaining_states) > 1:
         demands = [0.0] + [max(0.0, s.demand_kg) for s in remaining_states]
         total_demand = sum(demands)
         vrp_sol = ortools_vrp(
@@ -457,6 +470,7 @@ def solve_reoptimize(request: RouteReoptimizeRequest) -> RouteReoptimizeResponse
             time_matrix=seq_time_matrix,
             delivery_windows=windows,
             service_times=[0.0] + [s.service_time for s in remaining_states],
+            priorities=["NORMAL"] + [s.priority for s in remaining_states],
         )
         route = vrp_sol["routes"].get(0, list(range(len(remaining_states) + 1)))
     else:

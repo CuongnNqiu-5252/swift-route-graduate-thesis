@@ -532,7 +532,6 @@ export default function MembersPage() {
                     ...(actorIsOwner
                       ? [{ value: 'TENANT_ADMIN', label: t('Quản trị viên chi nhánh (TENANT_ADMIN)') }]
                       : []),
-                    { value: 'DRIVER', label: t('Tài xế nội bộ (DRIVER)') },
                     { value: 'VIEWER', label: t('Người xem báo cáo (VIEWER)') },
                   ]}
                 />

@@ -26,6 +26,39 @@ DEMAND_SCALE = 100
 LATE_PENALTY_PER_SECOND = max(1, COST_SCALE // 10)
 OVERDUE_LATE_PENALTY_PER_SECOND = max(1, COST_SCALE // 200)
 
+# Soft arrival penalties (per second of delay beyond direct depot travel) for prioritized orders
+# without explicit appointment windows.
+# - URGENT (~2.4 km equivalent/min): pushes urgent orders near the start of the route while staying
+#   below LATE_PENALTY_PER_SECOND (100) so achievable deadlines on other stops are never broken.
+# - HIGH (~0.72 km equivalent/min): serves high-priority orders ahead of normal orders when the
+#   extra detour is reasonable.
+URGENT_ARRIVAL_PENALTY_PER_SECOND = max(1, COST_SCALE // 25)
+HIGH_ARRIVAL_PENALTY_PER_SECOND = max(1, COST_SCALE // 80)
+
+
+def _priority_arrival_penalty(priority: str | None) -> int:
+    """Return per-second soft arrival penalty for an unwindowed stop based on its priority."""
+    if not priority:
+        return 0
+    normalized = priority.strip().upper()
+    if normalized == "URGENT":
+        return URGENT_ARRIVAL_PENALTY_PER_SECOND
+    if normalized == "HIGH":
+        return HIGH_ARRIVAL_PENALTY_PER_SECOND
+    return 0
+
+
+def _priority_window_multiplier(priority: str | None) -> float:
+    """Return lateness penalty multiplier when a stop with an appointment window is also prioritized."""
+    if not priority:
+        return 1.0
+    normalized = priority.strip().upper()
+    if normalized == "URGENT":
+        return 2.0
+    if normalized == "HIGH":
+        return 1.5
+    return 1.0
+
 
 def ortools_tsp(
     cost_matrix: List[List[float]],
@@ -133,12 +166,14 @@ def ortools_vrp(
     time_matrix: List[List[float]] | None = None,
     delivery_windows: List[Tuple[int, int] | None] | None = None,
     service_times: List[float] | None = None,
+    priorities: List[str] | None = None,
 ) -> Dict[str, Any]:
     """
-    Solve the Capacitated Vehicle Routing Problem (CVRP) using Google OR-Tools.
+    Solve the Capacitated Vehicle Routing Problem (CVRP / VRPTW) using Google OR-Tools.
 
-    Partitions stops across multiple vehicles while strictly respecting
-    per-vehicle cargo capacity limits, stop-count balance, and minimizing total transit distance.
+    Partitions stops across one or more vehicles while strictly respecting
+    per-vehicle cargo capacity limits, stop-count balance, appointment windows,
+    and order priority levels (NORMAL | HIGH | URGENT).
 
     Args:
         cost_matrix: N x N cost/distance matrix (index 0 is depot).
@@ -148,6 +183,10 @@ def ortools_vrp(
         start: Depot node index (default 0).
         time_limit_seconds: Solver search time limit.
         max_stops_per_vehicle: Optional soft/hard cap on stops per vehicle.
+        time_matrix: Optional N x N travel duration matrix in minutes.
+        delivery_windows: Optional per-node (start_sec, end_sec) appointment windows.
+        service_times: Optional per-node service duration in minutes.
+        priorities: Optional per-node priority strings (NORMAL | HIGH | URGENT, length N).
 
     Returns:
         A dictionary containing:
@@ -167,6 +206,8 @@ def ortools_vrp(
         raise ValueError(f"capacities count ({len(capacities)}) must match num_vehicles ({num_vehicles})")
     if len(demands) != n:
         raise ValueError(f"demands length ({len(demands)}) must match matrix size ({n})")
+    if priorities is not None and len(priorities) != n:
+        raise ValueError(f"priorities length ({len(priorities)}) must match matrix size ({n})")
 
     if service_times is None:
         service_times = [0.0] * n
@@ -238,14 +279,22 @@ def ortools_vrp(
     stop_count_dimension = routing.GetDimensionOrDie("StopCount")
     stop_count_dimension.SetGlobalSpanCostCoefficient(COST_SCALE * 5)
 
-    if time_matrix is not None and delivery_windows is not None:
+    # Activate the ArrivalTime dimension whenever appointment windows OR prioritized
+    # orders (HIGH / URGENT) are present so the solver can penalize late arrivals.
+    has_priority = priorities is not None and any(
+        _priority_arrival_penalty(p) > 0 for idx, p in enumerate(priorities) if idx != start
+    )
+    if time_matrix is not None and (delivery_windows is not None or has_priority):
         if len(time_matrix) != n:
             raise ValueError(f"time_matrix size ({len(time_matrix)}) must match cost_matrix size ({n})")
-        if len(delivery_windows) != n:
+        if delivery_windows is not None and len(delivery_windows) != n:
             raise ValueError(f"delivery_windows length ({len(delivery_windows)}) must match matrix size ({n})")
 
+        effective_windows: List[Tuple[int, int] | None] = (
+            delivery_windows if delivery_windows is not None else [None] * n
+        )
         seconds = [[max(0, math.ceil(minutes * 60)) for minutes in row] for row in time_matrix]
-        max_window_start = max((max(0, window[0]) for window in delivery_windows if window), default=0)
+        max_window_start = max((max(0, window[0]) for window in effective_windows if window), default=0)
         max_edge_sec = max((max(row, default=0) for row in seconds), default=0)
         horizon = max_window_start + n * max_edge_sec + sum(service_seconds) + 1
 
@@ -258,22 +307,40 @@ def ortools_vrp(
         routing.AddDimension(time_index, horizon, horizon, True, "ArrivalTime")
         arrival = routing.GetDimensionOrDie("ArrivalTime")
         arrival.SetSpanCostCoefficientForAllVehicles(1)
-        for node, window in enumerate(delivery_windows):
-            if window is None or node == start:
+        for node in range(n):
+            if node == start:
                 continue
+            window = effective_windows[node]
+            node_priority = priorities[node] if priorities is not None else "NORMAL"
             index = manager.NodeToIndex(node)
-            win_start = max(0, window[0])
-            win_end = window[1]
-            arrival.CumulVar(index).SetMin(win_start)
 
-            earliest_possible = max(win_start, seconds[start][node])
-            if win_end >= earliest_possible:
-                # On-time delivery is achievable: prioritize meeting the window over moderate detours.
-                arrival.SetCumulVarSoftUpperBound(index, win_end, LATE_PENALTY_PER_SECOND)
+            if window is not None:
+                # Case 1: Stop has an explicit appointment window.
+                # Enforce the earliest arrival (win_start) and penalize lateness past win_end,
+                # scaling the penalty up if the stop is also marked HIGH (1.5x) or URGENT (2.0x).
+                win_start = max(0, window[0])
+                win_end = window[1]
+                arrival.CumulVar(index).SetMin(win_start)
+
+                multiplier = _priority_window_multiplier(node_priority)
+                earliest_possible = max(win_start, seconds[start][node])
+                if win_end >= earliest_possible:
+                    # On-time delivery is achievable: prioritize meeting the window over moderate detours.
+                    penalty = max(1, int(round(LATE_PENALTY_PER_SECOND * multiplier)))
+                    arrival.SetCumulVarSoftUpperBound(index, win_end, penalty)
+                else:
+                    # Already overdue or unreachable on time: penalize only delay beyond earliest possible
+                    # arrival with a gentle weight so it does not sacrifice achievable windows or mileage.
+                    penalty = max(1, int(round(OVERDUE_LATE_PENALTY_PER_SECOND * multiplier)))
+                    arrival.SetCumulVarSoftUpperBound(index, earliest_possible, penalty)
             else:
-                # Already overdue or unreachable on time: penalize only delay beyond earliest possible
-                # arrival with a gentle weight so it does not sacrifice achievable windows or mileage.
-                arrival.SetCumulVarSoftUpperBound(index, earliest_possible, OVERDUE_LATE_PENALTY_PER_SECOND)
+                # Case 2: Stop has no appointment window, but is marked HIGH or URGENT.
+                # Set a soft upper bound at its direct travel time from the depot (seconds[start][node])
+                # so every additional second spent visiting other stops before this one incurs a
+                # priority-proportional waiting cost, pulling URGENT and HIGH stops toward the front.
+                priority_penalty = _priority_arrival_penalty(node_priority)
+                if priority_penalty > 0:
+                    arrival.SetCumulVarSoftUpperBound(index, seconds[start][node], priority_penalty)
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (

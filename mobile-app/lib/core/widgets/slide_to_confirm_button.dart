@@ -80,21 +80,25 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
           final thumbLeft = pad + (_dragFraction * maxSlide);
 
           return Container(
+            width: double.infinity,
             height: height,
+            clipBehavior: Clip.hardEdge,
             decoration: BoxDecoration(
               color: effectiveBg,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Stack(
+              fit: StackFit.expand,
               alignment: Alignment.center,
               children: [
                 // Center instruction label (fades slightly as thumb advances)
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: thumbSize + 12,
-                    right: 16,
-                  ),
-                  child: Opacity(
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(
+                      left: thumbSize + 12,
+                      right: 16,
+                    ),
+                    child: Opacity(
                     opacity: _busy
                         ? 1.0
                         : (1.0 - _dragFraction * 0.85).clamp(0.15, 1.0),
@@ -149,6 +153,7 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                                 ),
                             ],
                           ),
+                    ),
                   ),
                 ),
 
@@ -161,7 +166,12 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                     curve: Curves.easeOutCubic,
                     left: thumbLeft,
                     top: pad,
-                    child: GestureDetector(
+                    child: MouseRegion(
+                      cursor: widget.enabled
+                          ? SystemMouseCursors.grab
+                          : SystemMouseCursors.basic,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                       onHorizontalDragUpdate: !widget.enabled
                           ? null
                           : (details) {
@@ -202,12 +212,13 @@ class _SlideToConfirmButtonState extends State<SlideToConfirmButton> {
                             ),
                           ],
                         ),
-                        child: Icon(
-                          widget.icon,
-                          color: widget.enabled
-                              ? widget.backgroundColor
-                              : AppColors.textHint,
-                          size: 24,
+                          child: Icon(
+                            widget.icon,
+                            color: widget.enabled
+                                ? widget.backgroundColor
+                                : AppColors.textHint,
+                            size: 24,
+                          ),
                         ),
                       ),
                     ),

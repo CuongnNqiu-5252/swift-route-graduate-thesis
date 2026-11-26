@@ -57,6 +57,7 @@ public class SecurityConfig {
                                                 // Public endpoints — phải đồng bộ với JwtAuthFilter.PUBLIC_PATHS
                                                 .pathMatchers(
                                                                 "/api/auth/login",
+                                                                "/api/auth/driver/activate",
                                                                 "/api/auth/register",
                                                                 "/api/auth/email/verify",
                                                                 "/api/auth/email/resend-public",

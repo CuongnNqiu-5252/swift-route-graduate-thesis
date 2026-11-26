@@ -50,7 +50,7 @@ public class DeliveryTask {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
-    private DeliveryTaskStatus status = DeliveryTaskStatus.ASSIGNED;
+    private DeliveryTaskStatus status = DeliveryTaskStatus.OUT_FOR_DELIVERY;
     @Version
     private Long version;
     @Builder.Default

@@ -3,6 +3,7 @@
 import { AlertCircle, Check, CircleAlert, ClipboardList, MapPin, Search } from 'lucide-react';
 import { Fragment, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { ORDER_PRIORITY_BADGE, ORDER_PRIORITY_LABEL, type OrderPriority } from '@/domain/entities/order.entity';
 import { useLocale } from '@/i18n/provider';
 import type { ImportResult, ImportRow } from '@/infrastructure/repositories/order-import.repository';
 
@@ -34,7 +35,7 @@ const statusIcon = {
 };
 
 export function OrderImportReview({
-  fileName, rows, saved, checking, saving, blocked, onSave, onDiscard, renderPending,
+  fileName, rows, saved, checking, saving, blocked, onSave, onDiscard, onPriorityChange, renderPending,
 }: {
   fileName: string;
   rows: ImportReviewRow[];
@@ -44,6 +45,7 @@ export function OrderImportReview({
   blocked: boolean;
   onSave: () => void;
   onDiscard: () => void;
+  onPriorityChange?: (line: number, priority: OrderPriority) => void;
   renderPending: (row: ImportRow) => ReactNode;
 }) {
   const { t, intlLocale } = useLocale();
@@ -81,6 +83,7 @@ export function OrderImportReview({
     deliveryLng: t('Kinh độ'),
     timeWindowStart: t('Giờ hẹn bắt đầu'),
     timeWindowEnd: t('Giờ hẹn kết thúc'),
+    priority: t('Mức độ ưu tiên'),
   };
   const dateTime = new Intl.DateTimeFormat(intlLocale, {
     timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
@@ -150,6 +153,27 @@ export function OrderImportReview({
                     <td className="px-3 py-3">
                       <span className="block break-words font-medium text-slate-950">{row.externalOrderCode || '—'}</span>
                       <span className="block text-xs tabular-nums text-slate-600">{t('Dòng')} {row.line}</span>
+                      {data && (
+                        !saved && onPriorityChange ? (
+                          <select
+                            aria-label={`${t('Mức độ ưu tiên')} ${row.externalOrderCode || row.line}`}
+                            value={data.priority ?? 'NORMAL'}
+                            disabled={saving}
+                            onChange={(event) => onPriorityChange(row.line, event.target.value as OrderPriority)}
+                            className={`mt-1.5 h-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold focus-visible:outline-2 focus-visible:outline-blue-600 ${ORDER_PRIORITY_BADGE[data.priority ?? 'NORMAL']}`}
+                          >
+                            {(['NORMAL', 'HIGH', 'URGENT'] as OrderPriority[]).map((item) => (
+                              <option key={item} value={item} className="bg-white text-slate-900">
+                                {t(ORDER_PRIORITY_LABEL[item])}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`mt-1.5 inline-block rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${ORDER_PRIORITY_BADGE[data.priority ?? 'NORMAL']}`}>
+                            {t(ORDER_PRIORITY_LABEL[data.priority ?? 'NORMAL'])}
+                          </span>
+                        )
+                      )}
                     </td>
                     <td className="break-words px-3 py-3 text-slate-800">
                       {data?.recipientName || '—'}

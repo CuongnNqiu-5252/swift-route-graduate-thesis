@@ -162,10 +162,6 @@ public class Order {
     @Column(name = "assigned_driver_id")
     private UUID assignedDriverId;
 
-    /** Driver currently holding physical custody of the package (null when at depot or released) */
-    @Column(name = "custodian_driver_id")
-    private UUID custodianDriverId;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "plan_id")
     @JsonIgnore

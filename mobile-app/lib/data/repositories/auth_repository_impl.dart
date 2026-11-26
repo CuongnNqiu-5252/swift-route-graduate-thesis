@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:swiftroute_app/core/device/device_metadata_collector.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
 import 'package:swiftroute_app/core/offline/sqlite_offline_store.dart';
 import 'package:swiftroute_app/data/models/auth_model.dart';
@@ -11,6 +12,7 @@ import 'package:swiftroute_app/domain/repositories/auth_repository.dart';
 class AuthRepositoryImpl implements AuthRepository {
   final Dio _dio;
   final TokenStorage _tokenStorage;
+  DateTime? _lastDeviceSyncAt;
 
   AuthRepositoryImpl({required Dio dio, required TokenStorage tokenStorage})
     : _dio = dio,
@@ -19,64 +21,134 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<User> login(String identifier, String password) async {
     try {
-      // Backend LoginRequestDTO uses 'username' field
       final request = LoginRequest(username: identifier, password: password);
       final response = await _dio.post('/auth/login', data: request.toJson());
-
-      // Backend wraps response in ApiResponse: { "data": { accessToken, refreshToken } }
-      final loginResponse = LoginResponse.fromJson(
+      return await _persistAndResolveUser(
         response.data as Map<String, dynamic>,
+        fallbackEmail: identifier,
       );
-
-      final previousToken = await _tokenStorage.getAccessToken();
-      final previousUser = previousToken == null
-          ? null
-          : _decodeUserFromToken(previousToken);
-      final nextUser = _decodeUserFromToken(loginResponse.accessToken);
-      if (previousUser == null || previousUser.id != nextUser.id) {
-        await SqliteOfflineStore.instance.clearAll();
-      }
-
-      await _tokenStorage.saveTokens(
-        accessToken: loginResponse.accessToken,
-        refreshToken: loginResponse.refreshToken,
-      );
-
-      // Attempt to load full user profile directly from /auth/me
-      try {
-        final meResponse = await _dio.get('/auth/me');
-        final meData = meResponse.data['data'] as Map<String, dynamic>;
-        final tokenUser = _decodeUserFromToken(loginResponse.accessToken);
-        final mePermissions = UserModel.parsePermissions(meData['permissions']);
-        return UserModel(
-          id: meData['id'] as String? ?? '',
-          email: meData['email'] as String? ?? identifier,
-          name: meData['full_name'] as String? ?? '',
-          // The signed access token carries the active tenant membership role.
-          // account_role from /auth/me is platform-scoped and must not drive the Driver app.
-          role: tokenUser.role,
-          permissions: mePermissions.isNotEmpty
-              ? mePermissions
-              : tokenUser.permissions,
-          permissionsVersion: tokenUser.permissionsVersion,
-        );
-      } catch (_) {
-        // Fallback: decode user info from the access token payload (JWT)
-        return _decodeUserFromToken(loginResponse.accessToken);
-      }
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
   }
 
-  /// Decodes basic user fields from a JWT payload without verifying the signature.
-  /// The mobile client does NOT need to verify — the API Gateway handles that.
+  @override
+  Future<User> activateWithCode(String activationCode) async {
+    final normalized = activationCode.replaceAll(RegExp(r'[\s-]+'), '');
+    if (!RegExp(r'^\d{12}$').hasMatch(normalized)) {
+      throw Exception('Vui lòng nhập đủ 12 chữ số của mã kích hoạt.');
+    }
+
+    try {
+      final installationId = await _tokenStorage.getOrCreateInstallationId();
+      final metadata = DeviceMetadataCollector.collect(installationId);
+
+      final response = await _dio.post(
+        '/auth/driver/activate',
+        data: metadata.toActivationJson(normalized),
+      );
+
+      final user = await _persistAndResolveUser(
+        response.data as Map<String, dynamic>,
+      );
+      await _tokenStorage.saveLastSyncedAppVersion(metadata.appVersion);
+      _lastDeviceSyncAt = DateTime.now();
+      return user;
+    } on DioException catch (e) {
+      throw _handleDioError(e, isActivation: true);
+    }
+  }
+
+  Future<User> _persistAndResolveUser(
+    Map<String, dynamic> responseMap, {
+    String fallbackEmail = '',
+  }) async {
+    final loginResponse = LoginResponse.fromJson(responseMap);
+
+    final previousToken = await _tokenStorage.getAccessToken();
+    final previousUser = previousToken == null
+        ? null
+        : _decodeUserFromToken(previousToken);
+    final nextUser = _decodeUserFromToken(loginResponse.accessToken);
+    if (previousUser == null || previousUser.id != nextUser.id) {
+      await SqliteOfflineStore.instance.clearAll();
+    }
+
+    await _tokenStorage.saveTokens(
+      accessToken: loginResponse.accessToken,
+      refreshToken: loginResponse.refreshToken,
+    );
+
+    final dataPayload = responseMap['data'];
+    if (dataPayload is Map<String, dynamic> &&
+        dataPayload['user'] is Map<String, dynamic>) {
+      final userJson = dataPayload['user'] as Map<String, dynamic>;
+      final mePermissions = UserModel.parsePermissions(userJson['permissions']);
+      return UserModel(
+        id: (userJson['id'] ?? nextUser.id).toString(),
+        email: (userJson['email'] ?? fallbackEmail).toString(),
+        name: (userJson['full_name'] ?? userJson['fullName'] ?? nextUser.name)
+            .toString(),
+        role: nextUser.role,
+        permissions: mePermissions.isNotEmpty
+            ? mePermissions
+            : nextUser.permissions,
+        permissionsVersion: nextUser.permissionsVersion,
+      );
+    }
+
+    try {
+      final meResponse = await _dio.get('/auth/me');
+      final meData = meResponse.data['data'] as Map<String, dynamic>;
+      final mePermissions = UserModel.parsePermissions(meData['permissions']);
+      return UserModel(
+        id: meData['id'] as String? ?? '',
+        email: meData['email'] as String? ?? fallbackEmail,
+        name: meData['full_name'] as String? ?? '',
+        role: nextUser.role,
+        permissions: mePermissions.isNotEmpty
+            ? mePermissions
+            : nextUser.permissions,
+        permissionsVersion: nextUser.permissionsVersion,
+      );
+    } catch (_) {
+      return nextUser;
+    }
+  }
+
+  @override
+  Future<void> syncDeviceActivity({bool force = false}) async {
+    try {
+      final token = await _tokenStorage.getAccessToken();
+      if (token == null || token.isEmpty) return;
+
+      final installationId = await _tokenStorage.getOrCreateInstallationId();
+      final metadata = DeviceMetadataCollector.collect(installationId);
+      final previousVersion = await _tokenStorage.getLastSyncedAppVersion();
+      final now = DateTime.now();
+
+      final versionChanged = previousVersion != metadata.appVersion;
+      final intervalElapsed =
+          _lastDeviceSyncAt == null ||
+          now.difference(_lastDeviceSyncAt!) >= const Duration(minutes: 5);
+
+      if (!force && !versionChanged && !intervalElapsed) {
+        return;
+      }
+
+      await _dio.patch('/drivers/me/device', data: metadata.toHeartbeatJson());
+      await _tokenStorage.saveLastSyncedAppVersion(metadata.appVersion);
+      _lastDeviceSyncAt = now;
+    } catch (_) {
+      // Non-critical telemetry; if session was revoked (401), AuthInterceptor handles invalidation.
+    }
+  }
+
   User _decodeUserFromToken(String accessToken) {
     try {
       final parts = accessToken.split('.');
       if (parts.length != 3) throw Exception('Invalid token format');
       final payload = parts[1];
-      // Base64url decode (pad to multiple of 4)
       final padded = payload.padRight((payload.length + 3) & ~3, '=');
       final decoded = utf8.decode(base64Url.decode(padded));
       final claims = jsonDecode(decoded) as Map<String, dynamic>;
@@ -90,8 +162,7 @@ class AuthRepositoryImpl implements AuthRepository {
           ? (rawRole.isNotEmpty ? rawRole.first.toString() : 'USER')
           : rawRole.toString();
       final permissions = UserModel.parsePermissions(claims['permissions']);
-      final permissionsVersion =
-          (claims['perm_ver'] as num?)?.toInt() ?? 1;
+      final permissionsVersion = (claims['perm_ver'] as num?)?.toInt() ?? 1;
       return UserModel(
         id: (claims['sub'] ?? '') as String,
         email: (claims['email'] ?? '') as String,
@@ -101,7 +172,6 @@ class AuthRepositoryImpl implements AuthRepository {
         permissionsVersion: permissionsVersion,
       );
     } catch (_) {
-      // Fallback: return placeholder until /auth/me is called
       return const UserModel(id: '', email: '', name: '', role: 'USER');
     }
   }
@@ -111,7 +181,6 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       final refreshToken = await _tokenStorage.getRefreshToken();
       if (refreshToken != null) {
-        // Backend: POST /api/auth/logout?refreshToken=<token>
         await _dio.post(
           '/auth/logout',
           queryParameters: {'refreshToken': refreshToken},
@@ -120,6 +189,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (_) {
       // Ignore network errors on logout — always clear local tokens
     } finally {
+      _lastDeviceSyncAt = null;
       await SqliteOfflineStore.instance.clearAll();
       await _tokenStorage.clearAll();
     }
@@ -129,7 +199,7 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<User?> getCurrentUser() async {
     try {
       final token = await _tokenStorage.getAccessToken();
-      if (token == null) return null;
+      if (token == null || token.isEmpty) return null;
 
       try {
         final response = await _dio.get('/auth/me');
@@ -147,15 +217,24 @@ class AuthRepositoryImpl implements AuthRepository {
               : tokenUser.permissions,
           permissionsVersion: tokenUser.permissionsVersion,
         );
-      } catch (_) {
-        return _decodeUserFromToken(token);
+      } on DioException catch (e) {
+        final status = e.response?.statusCode;
+        final remainingToken = await _tokenStorage.getAccessToken();
+        if (status == 401 ||
+            status == 403 ||
+            remainingToken == null ||
+            remainingToken.isEmpty) {
+          await SqliteOfflineStore.instance.clearAll();
+          await _tokenStorage.clearAll();
+          return null;
+        }
+        return _decodeUserFromToken(remainingToken);
       }
     } catch (_) {
       return null;
     }
   }
 
-  /// Extracts a human-readable message from the ApiResponse error envelope.
   String? _extractServerMessage(DioException e) {
     final data = e.response?.data;
     if (data is Map) {
@@ -169,8 +248,7 @@ class AuthRepositoryImpl implements AuthRepository {
     return null;
   }
 
-  /// Converts a DioException into a user-friendly message.
-  Exception _handleDioError(DioException e) {
+  Exception _handleDioError(DioException e, {bool isActivation = false}) {
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.receiveTimeout:
@@ -191,13 +269,27 @@ class AuthRepositoryImpl implements AuthRepository {
         }
 
         return switch (statusCode) {
-          400 => Exception('Thông tin không hợp lệ (400).'),
-          401 => Exception('Email hoặc mật khẩu không chính xác (401).'),
-          403 => Exception('Tài khoản không có quyền truy cập (403).'),
+          400 => Exception(
+            isActivation
+                ? 'Mã kích hoạt không hợp lệ, đã hết hạn hoặc đã sử dụng.'
+                : 'Thông tin không hợp lệ (400).',
+          ),
+          401 => Exception(
+            isActivation
+                ? 'Mã kích hoạt không chính xác. Vui lòng kiểm tra lại.'
+                : 'Email hoặc mật khẩu không chính xác (401).',
+          ),
+          403 => Exception(
+            isActivation
+                ? 'Hồ sơ tài xế chưa sẵn sàng hoạt động hoặc đã bị tạm ngưng.'
+                : 'Tài khoản không có quyền truy cập (403).',
+          ),
           404 => Exception('Không tìm thấy tài nguyên (404).'),
           409 => Exception('Tài khoản hoặc dữ liệu đã tồn tại (409).'),
           422 => Exception('Dữ liệu gửi lên không hợp lệ (422).'),
-          429 => Exception('Quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.'),
+          429 => Exception(
+            'Quá nhiều lần thử. Vui lòng đợi ít phút trước khi thử lại.',
+          ),
           500 => Exception('Lỗi máy chủ nội bộ (500). Vui lòng thử lại sau.'),
           _ => Exception('Đã có lỗi xảy ra (${statusCode ?? 'unknown'}).'),
         };

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -27,6 +28,7 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.codec.ServerSentEvent;
@@ -116,6 +118,10 @@ public class OperationsAssistant {
         return Flux.concat(Mono.just(event("ready", Map.of())), reply, Mono.just(event("done", Map.of())))
                 .takeUntilOther(Mono.delay(TURN_TIMEOUT)
                         .then(Mono.error(new TimeoutException("Assistant response timed out"))))
+                .onErrorResume(EmptyAssistantResponse.class, failure -> {
+                    log.warn("Assistant turn produced no answer text (finishReason={})", failure.finishReason);
+                    return Flux.just(error("assistant_unavailable"));
+                })
                 .onErrorResume(failure -> {
                     log.warn("Assistant turn failed with error: {}", failure.getMessage(), failure);
                     return Flux.just(error("assistant_unavailable"));
@@ -264,7 +270,11 @@ public class OperationsAssistant {
             var actions = actions(evidence, scope, english);
             Flux<ServerSentEvent<Object>> answer = briefing
                     ? briefingAnswer(model, new Prompt(grounded), evidence, english, actions)
-                    : modelAnswer(model, new Prompt(grounded));
+                    : modelAnswer(model, new Prompt(grounded)).onErrorResume(EmptyAssistantResponse.class, failure -> {
+                        if (!failure.retryable()) return Flux.error(failure);
+                        log.info("Retrying empty assistant answer (finishReason={})", failure.finishReason);
+                        return modelAnswer(model, new Prompt(grounded, GeminiAssistantModel.answerRetryOptions()));
+                    });
             return Flux.concat(Mono.just(event("context", List.copyOf(routes.values()))),
                     Mono.just(event("sources", Map.of("tools", evidence.readings().stream()
                             .map(ToolReading::name).distinct().toList()))),
@@ -289,15 +299,41 @@ public class OperationsAssistant {
     }
 
     private static Flux<ServerSentEvent<Object>> modelAnswer(ChatModel model, Prompt prompt) {
-        return Flux.defer(() -> model.stream(prompt))
+        return Flux.defer(() -> {
+            var finishReason = new AtomicReference<>("UNKNOWN");
+            return model.stream(prompt)
+                    // Spring AI exposes each part of the Gemini candidate as a separate generation.
+                    .flatMapIterable(ChatResponse::getResults)
+                    .<String>handle((result, sink) -> {
+                        String reason = result.getMetadata().getFinishReason();
+                        if (reason != null && !reason.isBlank()) finishReason.set(reason);
+                        var message = result.getOutput();
+                        if (Boolean.TRUE.equals(message.getMetadata().get("isThought"))) return;
+                        String text = message.getText();
+                        if (text != null && !text.isEmpty()) sink.next(text);
+                    })
+                    .skipWhile(String::isBlank)
+                    .map(OperationsAssistant::delta)
+                    .switchIfEmpty(Mono.defer(() -> Mono.error(new EmptyAssistantResponse(finishReason.get()))));
+        })
                 .subscribeOn(Schedulers.boundedElastic())
-                .cancelOn(Schedulers.boundedElastic())
-                .<ServerSentEvent<Object>>handle((response, sink) -> {
-                    if (response.getResult() == null) return;
-                    String text = response.getResult().getOutput().getText();
-                    if (text != null && !text.isEmpty()) sink.next(delta(text));
-                })
-                .switchIfEmpty(Mono.error(new IllegalStateException("Empty assistant response")));
+                .cancelOn(Schedulers.boundedElastic());
+    }
+
+    private static final class EmptyAssistantResponse extends RuntimeException {
+        private final String finishReason;
+
+        private EmptyAssistantResponse(String finishReason) {
+            super("Empty assistant response");
+            this.finishReason = finishReason;
+        }
+
+        private boolean retryable() {
+            return switch (finishReason) {
+                case "UNKNOWN", "FINISH_REASON_UNSPECIFIED", "STOP", "MAX_TOKENS" -> true;
+                default -> false;
+            };
+        }
     }
 
     private static Map<String, Object> briefingFacts(Evidence evidence) {

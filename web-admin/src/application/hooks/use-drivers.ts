@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { CreateDriverPayload, Driver } from '@/domain/entities/driver.entity';
+import { CreateDriverPayload, Driver, UpdateDriverPayload } from '@/domain/entities/driver.entity';
 import { driverRepository } from '@/infrastructure/repositories/driver.repository';
 
 export function useDrivers() {
@@ -23,6 +23,12 @@ export function useDrivers() {
     return created;
   };
 
+  const updateDriver = async (driverId: string, payload: UpdateDriverPayload) => {
+    const updated = await driverRepository.updateDriver(driverId, payload);
+    setDrivers((current) => current.map((driver) => (driver.id === driverId ? updated : driver)));
+    return updated;
+  };
+
   const reviewDriver = async (driverId: string, approved: boolean, note?: string) => {
     const updated = await driverRepository.reviewDriver(driverId, approved, note);
     setDrivers((current) => current.map((driver) => driver.id === driverId ? updated : driver));
@@ -37,5 +43,5 @@ export function useDrivers() {
     finally { setIsLoading(false); }
   };
 
-  return { drivers, isLoading, error, createDriver, reviewDriver, refetch };
+  return { drivers, isLoading, error, createDriver, updateDriver, reviewDriver, refetch };
 }

@@ -62,13 +62,28 @@ public class JwtService {
             java.util.List<String> permissions,
             Long permissionsVersion,
             long ttlMinutes) {
-        return Jwts.builder()
+        return generateTenantAccessToken(user, tenantId, role, permissions, permissionsVersion, null, ttlMinutes);
+    }
+
+    public String generateTenantAccessToken(
+            User user,
+            java.util.UUID tenantId,
+            String role,
+            java.util.List<String> permissions,
+            Long permissionsVersion,
+            java.util.UUID sessionId,
+            long ttlMinutes) {
+        var builder = Jwts.builder()
                 .subject(user.getId().toString())
                 .claim("system_role", user.getRole().name())
                 .claim("tenant_id", tenantId != null ? tenantId.toString() : null)
                 .claim("tenant_role", role)
                 .claim("permissions", permissions != null ? permissions : java.util.List.of())
-                .claim("perm_ver", permissionsVersion != null ? permissionsVersion : 1L)
+                .claim("perm_ver", permissionsVersion != null ? permissionsVersion : 1L);
+        if (sessionId != null) {
+            builder.claim("sid", sessionId.toString());
+        }
+        return builder
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + ttlMinutes * 60_000L))
                 .signWith(secretKey)
@@ -98,6 +113,10 @@ public class JwtService {
                 .orElseThrow(() -> new TokenExpiredException(ErrorCode.TOKEN_EXPIRED));
 
         if (existing.isRevoked()) {
+            if (existing.getSessionId() != null) {
+                refreshTokenRepository.revokeAllBySessionId(existing.getSessionId());
+                throw new TokenExpiredException(ErrorCode.TOKEN_EXPIRED);
+            }
             // Token này đã bị rotate/thu hồi trước đó nhưng vẫn bị dùng lại -> khả năng bị
             // đánh cắp
             refreshTokenRepository.revokeAllByUserId(existing.getUser().getId());
@@ -125,10 +144,18 @@ public class JwtService {
     }
 
     public String generateAndStoreRefreshToken(User user, HttpServletRequest request) {
-        return generateAndStoreRefreshToken(user, request, null);
+        return generateAndStoreRefreshToken(user, request, null, null);
     }
 
     public String generateAndStoreRefreshToken(User user, HttpServletRequest request, java.util.UUID activeTenantId) {
+        return generateAndStoreRefreshToken(user, request, activeTenantId, null);
+    }
+
+    public String generateAndStoreRefreshToken(
+            User user,
+            HttpServletRequest request,
+            java.util.UUID activeTenantId,
+            java.util.UUID sessionId) {
         String plainToken = generateSecureRandomToken();
         String hash = sha256(plainToken);
 
@@ -141,6 +168,7 @@ public class JwtService {
                 .deviceInfo(request != null ? request.getHeader("User-Agent") : null)
                 .ipAddress(request != null ? request.getRemoteAddr() : null)
                 .activeTenantId(activeTenantId)
+                .sessionId(sessionId)
                 .build();
 
         refreshTokenRepository.save(refreshToken);
@@ -217,6 +245,16 @@ public class JwtService {
             return ver != null ? ver.longValue() : 1L;
         } catch (Exception e) {
             return 1L;
+        }
+    }
+
+    public java.util.UUID extractSessionId(String token) {
+        try {
+            Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+            String sid = claims.get("sid", String.class);
+            return (sid != null && !sid.isBlank()) ? java.util.UUID.fromString(sid.trim()) : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 }

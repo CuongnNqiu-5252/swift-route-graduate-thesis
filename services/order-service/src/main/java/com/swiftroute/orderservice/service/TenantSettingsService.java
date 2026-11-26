@@ -1,29 +1,44 @@
 package com.swiftroute.orderservice.service;
 
-import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.swiftroute.orderservice.dto.request.DeliveryProofConfigRequest;
 import com.swiftroute.orderservice.dto.request.UpdateTenantSettingsRequest;
 import com.swiftroute.orderservice.dto.response.TenantSettingsResponse;
+import com.swiftroute.orderservice.entity.DeliveryProofConfig;
 import com.swiftroute.orderservice.entity.OptimizationWeights;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.TenantDispatchConfig;
+import com.swiftroute.orderservice.entity.enums.ProofPolicy;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
+import com.swiftroute.orderservice.repository.DeliveryProofConfigRepository;
 import com.swiftroute.orderservice.repository.TenantRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class TenantSettingsService {
 
     private final TenantRepository tenantRepository;
+    private final DeliveryProofConfigRepository deliveryProofConfigRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TenantSettingsService(
+            TenantRepository tenantRepository,
+            DeliveryProofConfigRepository deliveryProofConfigRepository) {
+        this.tenantRepository = tenantRepository;
+        this.deliveryProofConfigRepository = deliveryProofConfigRepository;
+    }
+
+    public TenantSettingsService(TenantRepository tenantRepository) {
+        this(tenantRepository, null);
+    }
 
     @Transactional(readOnly = true)
     public TenantSettingsResponse getSettings(UUID tenantId) {
@@ -88,14 +103,65 @@ public class TenantSettingsService {
                 && (config.getMaxWaitTimeSeconds() < 30 || config.getMaxWaitTimeSeconds() > 3600)) {
             throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
-        if (config.getAlgorithm() != null
-                && !List.of("auto", "held_karp", "nearest_neighbor", "genetic").contains(config.getAlgorithm())) {
-            throw new AppException(ErrorCode.VALIDATION_ERROR);
-        }
         if (config.getScheduledDispatchTime() != null) {
             if (!config.getScheduledDispatchTime().matches("^([01]\\d|2[0-3]):[0-5]\\d$")) {
                 throw new AppException(ErrorCode.VALIDATION_ERROR);
             }
         }
     }
+
+    @Transactional(readOnly = true)
+    public DeliveryProofConfigRequest getConfig(UUID tenantId) {
+        return deliveryProofConfigRepository.findByTenantId(tenantId)
+                .map(this::toDto)
+                .orElseGet(this::defaultConfig);
+    }
+
+    @Transactional
+    public DeliveryProofConfigRequest updateConfig(
+            UUID tenantId,
+            DeliveryProofConfigRequest request) {
+
+        DeliveryProofConfig config = deliveryProofConfigRepository
+                .findByTenantId(tenantId)
+                .orElseGet(() -> {
+                    DeliveryProofConfig newConfig = new DeliveryProofConfig();
+                    newConfig.setTenantId(tenantId);
+                    return newConfig;
+                });
+
+        config.setSuccessNotePolicy(request.successNotePolicy());
+        config.setSuccessSignaturePolicy(request.successSignaturePolicy());
+        config.setSuccessPhotoPolicy(request.successPhotoPolicy());
+
+        config.setFailedNotePolicy(request.failedNotePolicy());
+        config.setFailedSignaturePolicy(request.failedSignaturePolicy());
+        config.setFailedPhotoPolicy(request.failedPhotoPolicy());
+
+        return toDto(deliveryProofConfigRepository.save(config));
+    }
+
+    private DeliveryProofConfigRequest toDto(
+            DeliveryProofConfig config) {
+
+        return new DeliveryProofConfigRequest(
+                config.getSuccessNotePolicy(),
+                config.getSuccessSignaturePolicy(),
+                config.getSuccessPhotoPolicy(),
+                config.getFailedNotePolicy(),
+                config.getFailedSignaturePolicy(),
+                config.getFailedPhotoPolicy());
+    }
+
+    private DeliveryProofConfigRequest defaultConfig() {
+        return new DeliveryProofConfigRequest(
+                ProofPolicy.OPTIONAL,
+                ProofPolicy.DISABLED,
+                ProofPolicy.REQUIRED,
+
+                ProofPolicy.REQUIRED,
+                ProofPolicy.DISABLED,
+                ProofPolicy.OPTIONAL);
+    }
+
 }

@@ -10,9 +10,9 @@ import 'package:swiftroute_app/core/network/dio.dart';
 import 'package:swiftroute_app/core/offline/offline_action.dart';
 import 'package:swiftroute_app/core/offline/offline_sync_controller.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/delivery_proof_config_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
 import 'package:swiftroute_app/features/driver/data/models/driver_cod_collection_model.dart';
-import 'package:swiftroute_app/features/driver/data/models/package_handover_model.dart';
 
 class OrderRemoteDataSource {
   final Dio _dio;
@@ -22,6 +22,7 @@ class OrderRemoteDataSource {
 
   static const _ordersCacheKey = 'driver.assigned_orders.v1';
   static const _plansCacheKey = 'driver.dispatch_plans.v1';
+  static const _proofConfigCacheKey = 'driver.delivery_proof_config.v1';
 
   bool _isTransient(Object error) =>
       error is DioException &&
@@ -265,41 +266,6 @@ class OrderRemoteDataSource {
     }
   }
 
-  Future<List<PackageHandoverModel>> getMyPackageHandovers() async {
-    final response = await _dio.get('/custody/handovers/mine');
-    final data = response.data;
-    final raw = data is Map && data['data'] is List
-        ? data['data'] as List
-        : (data is List ? data : <dynamic>[]);
-    return raw
-        .whereType<Map>()
-        .map(
-          (item) =>
-              PackageHandoverModel.fromJson(Map<String, dynamic>.from(item)),
-        )
-        .toList();
-  }
-
-  Future<void> createPackageHandover({
-    required String orderId,
-    required String reason,
-  }) async {
-    await _dio.post(
-      '/custody/handovers',
-      data: {'order_id': orderId, 'reason': reason},
-    );
-  }
-
-  Future<void> actOnPackageHandover({
-    required String handoverId,
-    required String action,
-  }) async {
-    await _dio.patch(
-      '/custody/handovers/$handoverId/$action',
-      data: {'notes': 'Xác nhận trên ứng dụng tài xế'},
-    );
-  }
-
   /// Reports a delivery incident, transitioning the order to FAILED.
   Future<OrderModel> reportIncident({
     required String orderId,
@@ -414,27 +380,34 @@ class OrderRemoteDataSource {
     return Map<String, dynamic>.from(map);
   }
 
-  /// Single-swipe batch pickup: acquires package custody and moves grouped depot tasks directly to OUT_FOR_DELIVERY.
-  Future<void> batchPickupDeliveryTasks({
-    List<String>? taskIds,
-    List<String>? orderIds,
-    String? notes,
-  }) async {
-    final body = <String, dynamic>{
-      if (taskIds != null && taskIds.isNotEmpty) 'task_ids': taskIds,
-      if (orderIds != null && orderIds.isNotEmpty) 'order_ids': orderIds,
-      if (notes != null && notes.isNotEmpty) 'notes': notes,
-    };
+  /// Fetches the tenant's Proof of Delivery (POD) configuration for notes and photos.
+  /// Caches the last known policy locally so offline/poor-network stops still enforce it.
+  Future<DeliveryProofConfigModel> getDeliveryProofConfig() async {
     try {
-      await _dio.post('/delivery-tasks/batch-pickup', data: body);
-    } catch (error) {
-      if (!_isTransient(error)) rethrow;
-      await _queue(
-        type: OfflineActionType.deliveryTaskUpdate,
-        method: 'POST',
-        path: '/delivery-tasks/batch-pickup',
-        body: body,
-      );
+      final response = await _dio.get('/tenants/me/delivery-proof-config');
+      final resData = response.data;
+      final rawMap = resData is Map && resData['data'] is Map
+          ? Map<String, dynamic>.from(resData['data'] as Map)
+          : (resData is Map
+                ? Map<String, dynamic>.from(resData)
+                : <String, dynamic>{});
+      final config = DeliveryProofConfigModel.fromJson(rawMap);
+      await _offline.putCache(_proofConfigCacheKey, jsonEncode(config.toJson()));
+      return config;
+    } catch (e) {
+      debugPrint('[OrderRemoteDataSource] getDeliveryProofConfig fallback: $e');
+      final cached = await _offline.getCache(_proofConfigCacheKey);
+      if (cached != null) {
+        try {
+          final decoded = jsonDecode(cached);
+          if (decoded is Map) {
+            return DeliveryProofConfigModel.fromJson(
+              Map<String, dynamic>.from(decoded),
+            );
+          }
+        } catch (_) {}
+      }
+      return const DeliveryProofConfigModel();
     }
   }
 }

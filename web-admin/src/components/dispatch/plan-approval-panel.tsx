@@ -4,7 +4,6 @@ import { clockMinutes, dispatchDay, formatClockMinute, getPlanStartTime, readPla
 import { useRouteWeather } from '@/application/use-route-weather';
 import { DispatchRouteSequence } from '@/components/dispatch/dispatch-route-sequence';
 import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,7 +16,7 @@ import type { Order } from '@/domain/entities/order.entity';
 import type { DispatchPlanRecord, MapPlanHighlight } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
 import { formatVNDate } from '@/lib/utils';
-import { Check, Clock, Package, Play, RefreshCw, Truck, UserPlus, X } from 'lucide-react';
+import { Check, Clock, Package, Play, Truck, UserPlus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { RouteRainDetails, WeatherCoverage } from './route-weather-risk';
 
@@ -29,7 +28,6 @@ interface PlanApprovalPanelProps {
   eligibleOrders: Order[];
   canExecute: boolean;
   isLoading: boolean;
-  isTriggering: boolean;
   selectedPlanId: string | null;
   highlightedPlan?: MapPlanHighlight | null;
   editingPlanId: string | null;
@@ -37,9 +35,6 @@ interface PlanApprovalPanelProps {
   initialFilter?: PlanFilter;
   onSelectPlan: (planId: string | null) => void;
   onHighlightPlan: (highlight: MapPlanHighlight | null) => void;
-  onClose: () => void;
-  onRefresh: () => void;
-  onTriggerPlanning: () => Promise<boolean>;
   onApprovePlan: (planId: string, driverId: string) => Promise<boolean>;
   onDispatchPlan: (planId: string) => Promise<void>;
   onCancelPlan: (planId: string, reason: string) => Promise<void>;
@@ -69,8 +64,8 @@ function matchesFilter(plan: DispatchPlanRecord, filter: PlanFilter): boolean {
 }
 
 export function PlanApprovalPanel({
-  plans, drivers, orders, routeColors, eligibleOrders, canExecute, isLoading, isTriggering,
-  selectedPlanId, highlightedPlan, editingPlanId, maxOrdersPerDriver, initialFilter, onSelectPlan, onHighlightPlan, onClose, onRefresh, onTriggerPlanning,
+  plans, drivers, orders, routeColors, eligibleOrders, canExecute, isLoading,
+  selectedPlanId, highlightedPlan, editingPlanId, maxOrdersPerDriver, initialFilter, onSelectPlan, onHighlightPlan,
   onApprovePlan, onDispatchPlan, onCancelPlan, onInsertOrderIntoPlan, onReorderStops, onMoveStop,
 }: PlanApprovalPanelProps) {
   const { t } = useLocale();
@@ -146,36 +141,13 @@ export function PlanApprovalPanel({
   const nowPosition = hasToday && nowMinute >= axisStart && nowMinute <= axisStart + axisMinutes
     ? (nowMinute - axisStart) / axisMinutes * 100 : undefined;
 
-  async function triggerPlanning() {
-    onHighlightPlan(null);
-    if (await onTriggerPlanning()) setFilter('CURRENT');
-  }
-
   async function runAction(planId: string, action: () => Promise<unknown>) {
     setBusyPlanId(planId);
     try { await action(); } finally { setBusyPlanId(null); }
   }
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/90 bg-white/95 shadow-2xl shadow-slate-900/15 backdrop-blur-md">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 bg-white/90 px-3.5 py-2 sm:px-4">
-        <div className="mr-auto flex items-center gap-2">
-          <h2 id="dispatch-tool-heading-plans" className="text-sm font-semibold text-slate-950 sm:text-base">{t('Kế hoạch điều phối')}</h2>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-700">
-            {counts.CURRENT}
-          </span>
-        </div>
-        <Button variant="ghost" size="sm" className="size-9 cursor-pointer px-0" onClick={onRefresh} isLoading={isLoading}
-          aria-label={t('Làm mới kế hoạch')} title={t('Làm mới kế hoạch')}><RefreshCw size={15} aria-hidden="true" /></Button>
-        {canExecute && (
-          <Button size="sm" className="cursor-pointer bg-[#17766c] text-white hover:bg-[#136058]" onClick={triggerPlanning} isLoading={isTriggering}>
-            <Play size={14} aria-hidden="true" />{t('Chạy lập kế hoạch ngay')}
-          </Button>
-        )}
-        <Button type="button" variant="ghost" size="sm" className="size-9 cursor-pointer px-0 text-slate-500 hover:text-slate-900" onClick={onClose}
-          aria-label={t('Thu gọn')} title={t('Thu gọn')}><X size={17} aria-hidden="true" /></Button>
-      </div>
-
+    <div className="min-w-0">
       {plans.length > 0 && (
         <div role="group" aria-label={t('Lọc kế hoạch theo trạng thái')} className="flex gap-1.5 overflow-x-auto border-b border-slate-200/80 bg-slate-50/70 px-3.5 py-2 sm:px-4">
           {FILTERS.map(({ key, label }) => {

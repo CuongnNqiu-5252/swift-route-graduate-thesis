@@ -30,7 +30,8 @@ public class TenantNotificationConsumer {
     private static final Set<String> SENSITIVE_AUTH_EVENTS = Set.of(
             "user.email_verification.v1",
             "user.password_reset_requested.v1",
-            "tenant.driver_invited.v1"
+            "tenant.driver_invited.v1",
+            "tenant.driver_activation_code.v1"
     );
 
     private final JdbcTemplate jdbc;
@@ -54,7 +55,8 @@ public class TenantNotificationConsumer {
             handleMemberPermissionsUpdated(p);
             return;
         }
-        if (!Set.of("tenant.driver_invited.v1", "user.email_verification.v1", "user.password_reset_requested.v1",
+        if (!Set.of("tenant.driver_invited.v1", "tenant.driver_activation_code.v1",
+                "user.email_verification.v1", "user.password_reset_requested.v1",
                 "tenant.created", "tenant.created.v1", "tenant.verification_submitted.v1",
                 "tenant.verification_under_review.v1", "tenant.verification_changes_requested.v1",
                 "tenant.approved", "tenant.approved.v1", "tenant.rejected.v1", "tenant.suspended.v1",
@@ -70,6 +72,29 @@ public class TenantNotificationConsumer {
         if (jdbc.update(
                 "INSERT INTO processed_events(event_id, consumer_name) VALUES (?, 'tenant-notifications') ON CONFLICT DO NOTHING",
                 eventId) == 0) {
+            return;
+        }
+
+        if ("tenant.driver_activation_code.v1".equals(type)) {
+            String recipientEmail = p.path("email").asText("");
+            String businessName = p.path("businessName").asText("Doanh nghiệp SwiftRoute");
+            String driverName = p.path("driverName").asText("Tài xế");
+            String activationCode = p.path("activationCode").asText("");
+            String expiresAtFormatted = p.path("expiresAtFormatted").asText("trong vòng 24 giờ");
+            if (!recipientEmail.isBlank() && !activationCode.isBlank()) {
+                String emailSubject = "Mã kích hoạt ứng dụng SwiftRoute Driver - " + businessName;
+                String emailBody = "Xin chào " + driverName + ",\n\n"
+                        + businessName + " đã cấp mã kích hoạt ứng dụng di động SwiftRoute Driver cho bạn.\n\n"
+                        + "Mã kích hoạt 12 chữ số của bạn:\n"
+                        + activationCode + "\n\n"
+                        + "Thời hạn hiệu lực: đến " + expiresAtFormatted + " (chỉ sử dụng 1 lần).\n\n"
+                        + "Hướng dẫn kích hoạt:\n"
+                        + "- Mở ứng dụng SwiftRoute Driver trên điện thoại.\n"
+                        + "- Tại màn hình đăng nhập, chọn \"Kích hoạt bằng mã\".\n"
+                        + "- Nhập hoặc dán mã 12 chữ số ở trên và bấm \"Kích hoạt ứng dụng\".\n\n"
+                        + "Nếu bạn không yêu cầu mã này, vui lòng liên hệ quản trị viên doanh nghiệp.";
+                emailSender.send(recipientEmail, emailSubject, emailBody);
+            }
             return;
         }
 
@@ -201,6 +226,13 @@ public class TenantNotificationConsumer {
 
     private void handleMemberPermissionsUpdated(com.fasterxml.jackson.databind.JsonNode p) {
         try {
+            String revokedSid = p.path("revokedSessionId").asText(p.path("revoked_session_id").asText(""));
+            if (!revokedSid.isBlank()) {
+                long expSec = p.path("revokedSessionExpiresAtEpochSec")
+                        .asLong((System.currentTimeMillis() / 1000L) + 7200L);
+                NotificationAuthorization.recordRevokedSession(UUID.fromString(revokedSid.trim()), expSec);
+                return;
+            }
             String tenantStr = p.path("tenantId").asText(p.path("tenant_id").asText(""));
             String userStr = p.path("userId").asText(p.path("user_id").asText(""));
             if (tenantStr.isBlank() || userStr.isBlank()) {

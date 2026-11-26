@@ -42,7 +42,8 @@ public class VerificationOutboxPublisher {
                 payload.put("email", row.get("email"));
                 payload.put("occurredAt", Instant.now().toString());
 
-                if ("tenant.member_permissions_updated.v1".equals(eventType)) {
+                if ("tenant.member_permissions_updated.v1".equals(eventType)
+                        || DriverActivationService.ACTIVATION_EMAIL_EVENT_TYPE.equals(eventType)) {
                     Map<String, Object> syncData = MAPPER.readValue(decrypted, MAP_TYPE);
                     payload.putAll(syncData);
                 } else {

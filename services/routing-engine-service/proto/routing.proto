@@ -34,6 +34,7 @@ message StopItemProto {
   string time_window_start = 5;
   string time_window_end = 6;
   optional double service_time = 7; // Minutes; absent defaults to 5 in Routing Engine.
+  string priority = 8; // NORMAL | HIGH | URGENT; empty defaults to NORMAL.
 }
 
 message RouteStopStateProto {
@@ -45,6 +46,7 @@ message RouteStopStateProto {
   string time_window_end = 6;
   bool is_completed = 7;
   optional double service_time = 8;
+  string priority = 9; // NORMAL | HIGH | URGENT; empty defaults to NORMAL.
 }
 
 message OrderedStopProto {
