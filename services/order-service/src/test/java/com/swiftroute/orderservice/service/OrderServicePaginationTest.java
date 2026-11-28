@@ -33,7 +33,6 @@ import com.swiftroute.orderservice.repository.TenantRepository;
 class OrderServicePaginationTest {
 
     @Mock private OrderRepository orderRepository;
-    @Mock private PackageCustodyService custody;
     @Mock private TenantRepository tenantRepository;
     @Mock private OutboxEventRepository outboxEventRepository;
     @Mock private RabbitTemplate rabbitTemplate;

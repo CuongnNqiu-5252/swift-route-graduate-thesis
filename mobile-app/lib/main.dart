@@ -12,8 +12,6 @@ import 'package:swiftroute_app/features/driver/presentation/screens/driver_main_
 import 'package:swiftroute_app/firebase_options.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 import 'package:swiftroute_app/presentation/screens/driver_activation_screen.dart';
-import 'package:swiftroute_app/presentation/screens/forgot_password_screen.dart';
-import 'package:swiftroute_app/presentation/screens/login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,12 +77,6 @@ class _SwiftRouteAppState extends ConsumerState<SwiftRouteApp>
       title: 'SwiftRoute Driver',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
-      routes: {
-        '/login': (_) => const LoginScreen(),
-        '/forgot-password': (_) => const ForgotPasswordScreen(),
-        '/driver/activate': (_) => const DriverActivationScreen(),
-        '/driver/home': (_) => const DriverMainScreen(),
-      },
       home: _AuthGate(authState: authState),
     );
   }
@@ -103,7 +95,7 @@ class _AuthGate extends StatelessWidget {
     }
 
     if (!authState.isAuthenticated || authState.user == null) {
-      return const LoginScreen();
+      return const DriverActivationScreen();
     }
 
     return switch (authState.user!.role) {
@@ -159,7 +151,7 @@ class _UnsupportedRoleScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Tài khoản hiện tại không thuộc vai trò tài xế (DRIVER). Vui lòng đăng xuất và đăng nhập bằng tài khoản tài xế hoặc kích hoạt bằng mã 12 chữ số.',
+                    'Tài khoản hiện tại chưa có quyền tài xế. Hãy đăng xuất và nhập mã kích hoạt do quản trị viên doanh nghiệp cấp.',
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.45,
@@ -173,7 +165,7 @@ class _UnsupportedRoleScreen extends ConsumerWidget {
                     child: FilledButton.icon(
                       onPressed: () => ref.read(authProvider.notifier).logout(),
                       icon: const Icon(Icons.logout_rounded, size: 18),
-                      label: const Text('Đăng xuất để đổi tài khoản'),
+                      label: const Text('Đăng xuất'),
                     ),
                   ),
                 ],

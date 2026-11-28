@@ -13,24 +13,12 @@ class DriverEarningsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(driverEarningsProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Thu nhập'),
-        actions: [
-          IconButton(
-            tooltip: 'Làm mới',
-            onPressed: () =>
-                ref.read(driverEarningsProvider.notifier).refresh(),
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Thu nhập')),
       body: RefreshIndicator(
         onRefresh: () => ref.read(driverEarningsProvider.notifier).refresh(),
         child: state.when(
           loading: () => const _EarningsSkeleton(),
-          error: (error, _) => _EarningsError(
-            onRetry: () => ref.read(driverEarningsProvider.notifier).refresh(),
-          ),
+          error: (_, _) => const _EarningsError(),
           data: (bundle) => _EarningsContent(bundle: bundle),
         ),
       ),
@@ -313,8 +301,7 @@ class _EarningsSkeleton extends StatelessWidget {
 }
 
 class _EarningsError extends StatelessWidget {
-  const _EarningsError({required this.onRetry});
-  final VoidCallback onRetry;
+  const _EarningsError();
   @override
   Widget build(BuildContext context) => ListView(
     physics: const AlwaysScrollableScrollPhysics(),
@@ -332,8 +319,9 @@ class _EarningsError extends StatelessWidget {
         style: TextStyle(fontWeight: FontWeight.w700),
       ),
       const SizedBox(height: 8),
-      Center(
-        child: TextButton(onPressed: onRetry, child: const Text('Thử lại')),
+      const Text(
+        'Kiểm tra kết nối rồi kéo xuống để tải lại.',
+        textAlign: TextAlign.center,
       ),
     ],
   );

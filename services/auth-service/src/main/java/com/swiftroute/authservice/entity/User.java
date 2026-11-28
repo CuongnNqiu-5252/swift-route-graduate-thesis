@@ -48,7 +48,8 @@ public class User {
     @Column(nullable = false, length = 20)
     @Builder.Default
     private Role role = Role.USER;
-
+    @Column(name = "google_sub", unique = true)
+    private String googleSub;
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "PENDING_VERIFICATION";

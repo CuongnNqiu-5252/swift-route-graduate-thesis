@@ -1,5 +1,6 @@
 package com.swiftroute.orderservice.repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -28,9 +29,28 @@ public interface DeliveryTaskRepository extends JpaRepository<DeliveryTask, UUID
 
     List<DeliveryTask> findByDriverIdAndStatusIn(UUID driverId, Collection<DeliveryTaskStatus> statuses);
 
+    List<DeliveryTask> findByTenantIdAndDriverIdAndStatusAndUpdatedAtGreaterThanEqualOrderByUpdatedAtDesc(
+            UUID tenantId, UUID driverId, DeliveryTaskStatus status, Instant startOfDay);
+
     @Query("select distinct task.order.id from DeliveryTask task "
             + "where task.driverId = :driverId and task.status in :statuses")
     List<UUID> findActiveOrderIdsByDriverId(
             @Param("driverId") UUID driverId,
             @Param("statuses") Collection<DeliveryTaskStatus> statuses);
+
+    @Modifying
+    @Query(value = """
+            UPDATE delivery_tasks
+            SET dispatch_plan_id = NULL,
+                status = CASE
+                    WHEN status = 'OUT_FOR_DELIVERY' THEN 'CANCELLED'
+                    ELSE status
+                END,
+                updated_at = NOW()
+            WHERE dispatch_plan_id = :planId
+              AND order_id IN (:orderIds)
+            """, nativeQuery = true)
+    void cancelTasksForPlanOrders(
+            @Param("planId") UUID planId,
+            @Param("orderIds") Collection<UUID> orderIds);
 }

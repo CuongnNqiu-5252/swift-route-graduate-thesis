@@ -8,10 +8,9 @@ export interface IncidentDto {
   driver_id: string | null;
   reported_by: string;
   incident_type: string;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   notes: string | null;
   evidence_urls: string[];
-  status: 'OPEN' | 'IN_PROGRESS' | 'ESCALATED' | 'RESOLVED';
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
   assigned_operator_id: string | null;
   resolution_type: string | null;
   resolved_by: string | null;
@@ -20,42 +19,27 @@ export interface IncidentDto {
   resolved_at: string | null;
 }
 
-export interface ReturnRequestDto {
-  id: string;
+export interface ReturningOrderDto {
   order_id: string;
   order_code: string | null;
-  incident_id: string | null;
-  reason: string;
-  status: 'REQUESTED' | 'REJECTED' | 'IN_EXECUTION' | 'ARRIVED' | 'AWAITING_RECEIPT' | 'COMPLETED' | 'DISCREPANCY' | 'EXECUTION_FAILED' | 'CANCELLED';
-  return_location_id: string | null;
-  return_location_name: string | null;
-  return_address: string | null;
-  current_holder_id: string | null;
-  requested_by: string;
-  approved_by: string | null;
-  return_task_id: string | null;
-  received_by: string | null;
-  received_at: string | null;
-  completion_notes: string | null;
-  discrepancy_type: string | null;
-  discrepancy_notes: string | null;
-  discrepancy_evidence_url: string | null;
-  created_at: string;
+  status: 'FAILED' | 'RETURNING' | 'RETURNED';
+  assigned_driver_id: string | null;
+  recipient_name: string | null;
+  recipient_phone: string | null;
+  delivery_address: string;
+  pickup_location_name: string | null;
+  pickup_address: string | null;
+  cod_amount: number | null;
+  latest_reason: string | null;
   updated_at: string;
 }
 
 export interface ResolveIncidentParams {
-  resolution_type: 'CONTINUE_DELIVERY' | 'RETRY_DELIVERY' | 'REASSIGN_DRIVER' | 'REQUEST_RETURN' | 'ESCALATED' | 'RESOLVED_NO_ACTION';
+  resolution_type: 'CONTINUE_DELIVERY' | 'RETRY_DELIVERY' | 'REASSIGN_DRIVER' | 'REQUEST_RETURN' | 'RESOLVED_NO_ACTION';
   notes?: string;
   assigned_operator_id?: string;
   reschedule_time?: string;
   replacement_driver_id?: string;
-}
-
-export interface ReportDiscrepancyParams {
-  discrepancy_type: string;
-  discrepancy_notes?: string;
-  evidence_url?: string;
 }
 
 export interface FileUploadResult {
@@ -109,7 +93,7 @@ export const operationsRepository = {
     return (await api.get<unknown>('/operations/review')).data;
   },
 
-  async getIncidents(params?: { status?: string; severity?: string; driver_id?: string; order_id?: string }): Promise<IncidentDto[]> {
+  async getIncidents(params?: { status?: string; driver_id?: string; order_id?: string }): Promise<IncidentDto[]> {
     const res = await api.get<IncidentDto[]>('/operations/incidents', { params });
     return res.data;
   },
@@ -119,23 +103,18 @@ export const operationsRepository = {
     return res.data;
   },
 
-  async getReturns(params?: { status?: string; driver_id?: string }): Promise<ReturnRequestDto[]> {
-    const res = await api.get<ReturnRequestDto[]>('/operations/returns', { params });
+  async getReturningOrders(params?: { status?: string }): Promise<ReturningOrderDto[]> {
+    const res = await api.get<ReturningOrderDto[]>('/operations/returning-orders', { params });
     return res.data;
   },
 
-  async approveReturn(id: string, params?: { return_location_id?: string; assigned_driver_id?: string; notes?: string }): Promise<ReturnRequestDto> {
-    const res = await api.patch<ReturnRequestDto>(`/operations/returns/${id}/approve`, params ?? {});
+  async confirmOrderReturn(orderId: string, notes?: string): Promise<ReturningOrderDto> {
+    const res = await api.patch<ReturningOrderDto>(`/operations/orders/${orderId}/confirm-return`, { notes });
     return res.data;
   },
 
-  async confirmReturnReceipt(id: string, notes?: string): Promise<ReturnRequestDto> {
-    const res = await api.patch<ReturnRequestDto>(`/operations/returns/${id}/confirm-receipt`, { notes });
-    return res.data;
-  },
-
-  async reportDiscrepancy(id: string, params: ReportDiscrepancyParams): Promise<ReturnRequestDto> {
-    const res = await api.patch<ReturnRequestDto>(`/operations/returns/${id}/discrepancy`, params);
+  async requeueFailedOrder(orderId: string, notes?: string): Promise<ReturningOrderDto> {
+    const res = await api.patch<ReturningOrderDto>(`/operations/orders/${orderId}/requeue-dispatch`, { notes });
     return res.data;
   },
 

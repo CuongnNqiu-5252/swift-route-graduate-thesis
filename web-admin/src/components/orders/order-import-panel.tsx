@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 
 import { readOrderCsv } from '@/application/order-import-csv';
+import LocationMapPicker from '@/components/locations/location-map-picker';
 import { DriveCsvPicker } from '@/components/orders/drive-csv-picker';
 import { OrderImportReview, type ImportReviewRow } from '@/components/orders/order-import-review';
-import LocationMapPicker from '@/components/locations/location-map-picker';
 import { Button } from '@/components/ui/button';
 import type { OrderPriority } from '@/domain/entities/order.entity';
 import { useLocale } from '@/i18n/provider';
@@ -183,7 +183,7 @@ export function OrderImportPanel({
               if (file) void choose(file);
             }} className="peer sr-only" />
           <label htmlFor="order-import-file"
-            className="inline-flex min-h-10 cursor-pointer items-center rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-600 peer-disabled:cursor-default peer-disabled:opacity-50">
+            className="inline-flex min-h-10 cursor-pointer items-center rounded-sm border border-slate-300 px-3 text-sm font-medium text-slate-800 hover:bg-slate-50 peer-focus-visible:outline-2 peer-focus-visible:outline-blue-600 peer-disabled:cursor-default peer-disabled:opacity-50">
             {preview ? t('Chọn file khác') : t('Chọn file Excel (.xlsx) hoặc CSV')}
           </label>
           <DriveCsvPicker disabled={busy || driveBusy} onFile={choose} onBusy={setDriveBusy} onError={setError} />

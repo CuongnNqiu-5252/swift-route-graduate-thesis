@@ -6,18 +6,12 @@ import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
 import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
-import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-/// Waybill detail sheet for a stop (D06).
-///
-/// Exposes one clear primary action per phase:
-/// - customer delivery stop → "Giao xong" opening the POD/COD sheet
-/// - return task → confirm handover back at the warehouse
+/// Waybill detail sheet for a customer delivery stop (D06).
 class DriverStopDetailSheet extends ConsumerStatefulWidget {
   const DriverStopDetailSheet({
     super.key,
@@ -26,12 +20,12 @@ class DriverStopDetailSheet extends ConsumerStatefulWidget {
   });
 
   final OrderModel order;
-  final int sequenceNumber;
+  final int? sequenceNumber;
 
   static Future<void> show(
     BuildContext context, {
     required OrderModel order,
-    required int sequenceNumber,
+    required int? sequenceNumber,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -62,32 +56,6 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
     _showSnack('Đã giao xong ${_order.displayCode}.', color: AppColors.success);
   }
 
-  Future<void> _advanceReturn() async {
-    final taskId = _order.deliveryTaskId;
-    if (taskId == null || taskId.isEmpty) {
-      _showSnack('Nhiệm vụ chưa có mã thực thi. Hãy tải lại lộ trình.');
-      return;
-    }
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .updateDeliveryTask(
-            orderId: _order.id,
-            taskId: taskId,
-            nextStatus: DeliveryTaskStatus.completed,
-            notes: 'Đã bàn giao kiện hoàn cho kho',
-          );
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (mounted) {
-        _showSnack(
-          'Không cập nhật được đơn hoàn: ${AppFormatters.errorMessage(e)}',
-          color: AppColors.error,
-        );
-      }
-    }
-  }
-
   Future<void> _reportIncident() async {
     await DriverIncidentSheet.show(context, _order);
     if (mounted) Navigator.of(context).pop();
@@ -103,25 +71,17 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final order = _order;
-    final status = order.deliveryTaskStatus ?? DeliveryTaskStatus.outForDelivery;
+    final status =
+        order.deliveryTaskStatus ?? DeliveryTaskStatus.outForDelivery;
     final isClosed =
         status == DeliveryTaskStatus.completed ||
         status == DeliveryTaskStatus.failed ||
         status == DeliveryTaskStatus.cancelled;
-    final isReturn = order.isReturnTask;
     final bottom = MediaQuery.paddingOf(context).bottom;
 
-    final placeTitle = isReturn
-        ? 'Hoàn về ${order.pickupDisplayName}'
-        : (order.recipientName?.trim().isNotEmpty == true
-              ? order.recipientName!.trim()
-              : 'Khách nhận hàng');
-    final placeAddress = isReturn
-        ? order.pickupAddress
-        : order.deliveryAddress;
-    final contactPhone = isReturn
-        ? order.senderPhone
-        : order.recipientPhone;
+    final placeTitle = order.recipientName?.trim().isNotEmpty == true
+        ? order.recipientName!.trim()
+        : 'Khách nhận hàng';
 
     return ConstrainedBox(
       constraints: BoxConstraints(
@@ -154,14 +114,21 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text(
-                    '${widget.sequenceNumber}',
-                    style: AppTheme.numStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                  child: switch (widget.sequenceNumber) {
+                    final number? => Text(
+                      '$number',
+                      style: AppTheme.numStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                    null => const Icon(
+                      Icons.local_shipping_outlined,
+                      size: 18,
                       color: Colors.white,
                     ),
-                  ),
+                  },
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -192,7 +159,7 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              placeAddress,
+              order.deliveryAddress,
               style: const TextStyle(
                 fontSize: 14.5,
                 height: 1.4,
@@ -204,8 +171,8 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
               children: [
                 Expanded(
                   child: PhoneCallButton(
-                    phone: contactPhone,
-                    label: isReturn ? 'Gọi kho' : 'Gọi khách',
+                    phone: order.recipientPhone,
+                    label: 'Gọi khách',
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -247,52 +214,38 @@ class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
                 value: order.notes!.trim(),
                 emphasize: true,
               ),
-            if (!isReturn) ...[
-              const SizedBox(height: 4),
-              CodBadge(amount: order.codAmount, large: true),
-            ],
+            const SizedBox(height: 4),
+            CodBadge(amount: order.codAmount, large: true),
             if (!isClosed) ...[
               const SizedBox(height: 20),
-              if (isReturn)
-                SlideToConfirmButton(
-                  label: 'Vuốt xác nhận đã bàn giao tại kho',
-                  subtitle: 'Kho sẽ kiểm nhận để hoàn tất yêu cầu',
-                  icon: Icons.assignment_return_rounded,
-                  onConfirmed: _advanceReturn,
-                )
-              else ...[
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: _completeDelivery,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.success,
-                    ),
-                    icon: const Icon(Icons.check_circle_rounded, size: 22),
-                    label: const Text(
-                      'Giao xong',
-                      style: TextStyle(fontSize: 16),
-                    ),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton.icon(
+                  onPressed: _completeDelivery,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                  ),
+                  icon: const Icon(Icons.check_circle_rounded, size: 22),
+                  label: const Text(
+                    'Giao xong',
+                    style: TextStyle(fontSize: 16),
                   ),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton.icon(
-                    onPressed: _reportIncident,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      minimumSize: const Size.fromHeight(48),
-                    ),
-                    icon: const Icon(
-                      Icons.report_problem_outlined,
-                      size: 18,
-                    ),
-                    label: const Text('Báo sự cố'),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: _reportIncident,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    minimumSize: const Size.fromHeight(48),
                   ),
+                  icon: const Icon(Icons.report_problem_outlined, size: 18),
+                  label: const Text('Báo sự cố'),
                 ),
-              ],
+              ),
             ],
           ],
         ),

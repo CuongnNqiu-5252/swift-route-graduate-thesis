@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Clock, MapPin, Package, Route, UserRound, Warehouse, X } from 'lucide-react';
+import { getPlanStartTime } from '@/application/dispatch-plan-clock';
+import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
+import { Button } from '@/components/ui/button';
 import { Driver } from '@/domain/entities/driver.entity';
 import { ORDER_STATUS_LABEL, Order, OrderStatus } from '@/domain/entities/order.entity';
 import { DispatchDepot, DispatchPlanRecord, OptimizationStop } from '@/domain/entities/routing.entity';
-import { PlanStatusBadge } from '@/components/dispatch/plan-status-badge';
-import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n/provider';
-import { getPlanStartTime } from '@/application/dispatch-plan-clock';
 import { formatVNDate } from '@/lib/utils';
+import { Clock, MapPin, Package, Route, UserRound, Warehouse, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface DispatchStopTimelineProps {
   plan: DispatchPlanRecord;
@@ -143,17 +143,17 @@ export function DispatchStopTimeline({
       {/* Metrics & Driver */}
       <div className="space-y-2.5 border-b border-slate-200 px-4 py-3">
         <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+          <div className="rounded-sm bg-slate-50 px-2.5 py-2">
             <p className="text-[11px] font-medium text-slate-500">{t('Điểm giao')}</p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-950">{stops.length}</p>
           </div>
-          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+          <div className="rounded-sm bg-slate-50 px-2.5 py-2">
             <p className="text-[11px] font-medium text-slate-500">{t('Quãng đường')}</p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-950">
               {plan.total_distance_km != null ? `${Number(plan.total_distance_km).toFixed(1)} km` : '—'}
             </p>
           </div>
-          <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+          <div className="rounded-sm bg-slate-50 px-2.5 py-2">
             <p className="text-[11px] font-medium text-slate-500">{t('Thời gian')}</p>
             <p className="mt-0.5 text-sm font-semibold tabular-nums text-slate-950">
               {plan.estimated_duration_minutes != null ? `${plan.estimated_duration_minutes} ${t('phút')}` : '—'}
@@ -236,12 +236,11 @@ export function DispatchStopTimeline({
                 </div>
 
                 <div
-                  className={`min-w-0 flex-1 rounded-xl border p-2.5 transition-all duration-150 motion-reduce:transition-none ${
-                    isSelected ? 'border-teal-600 bg-teal-50 ring-1 ring-teal-600'
-                    : isHighlighted
-                      ? 'border-slate-400 shadow-md'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
+                  className={`min-w-0 flex-1 rounded-xl border p-2.5 transition-all duration-150 motion-reduce:transition-none ${isSelected ? 'border-teal-600 bg-teal-50 ring-1 ring-teal-600'
+                      : isHighlighted
+                        ? 'border-slate-400 shadow-md'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
                   style={isHighlighted ? { backgroundColor: `color-mix(in srgb, ${routeColor} 7%, white)`, borderColor: routeColor } : undefined}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-1.5">

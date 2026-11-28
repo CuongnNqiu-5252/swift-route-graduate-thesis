@@ -81,8 +81,8 @@ function ResetPasswordForm() {
         <Button type="submit" className="w-full cursor-pointer">{t("Tiếp tục đặt lại mật khẩu")}</Button>
       </form>
       <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-        <Link href="/forgot-password" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Yêu cầu email mới")}</Link>
-        <Link href="/login" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-slate-300 px-5 text-sm font-medium text-slate-800 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Về đăng nhập")}</Link>
+        <Link href="/forgot-password" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-sm bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Yêu cầu email mới")}</Link>
+        <Link href="/login" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-sm border border-slate-300 px-5 text-sm font-medium text-slate-800 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Về đăng nhập")}</Link>
       </div>
     </section>
   </main>;
@@ -94,7 +94,7 @@ function ResetPasswordForm() {
         <CheckCircle2 size={42} aria-hidden="true" className="text-emerald-700" />
         <h1 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950">{t("Mật khẩu đã được đổi")}</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">{t("Mật khẩu mới đã được lưu và các phiên làm mới đăng nhập cũ đã bị thu hồi. Hãy đăng nhập lại.")}</p>
-        <Link href="/login" className="mt-7 inline-flex min-h-11 cursor-pointer items-center rounded-lg bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Đi đến đăng nhập")}</Link>
+        <Link href="/login" className="mt-7 inline-flex min-h-11 cursor-pointer items-center rounded-sm bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Đi đến đăng nhập")}</Link>
       </div> : <>
         <KeyRound size={38} aria-hidden="true" className="mt-8 text-[#17766c]" />
         <h1 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950">{t("Đặt mật khẩu mới")}</h1>
@@ -102,8 +102,8 @@ function ResetPasswordForm() {
         <form onSubmit={submit} className="mt-7 space-y-4">
           <Input id="new-password" label={t("Mật khẩu mới")} type="password" autoComplete="new-password" minLength={8} required value={password} error={passwordError} onChange={(event) => { setPassword(event.target.value); if (passwordError) setPasswordError(''); }} />
           <Input id="confirm-password" label={t("Nhập lại mật khẩu")} type="password" autoComplete="new-password" minLength={8} required value={confirm} error={confirmError} onChange={(event) => { setConfirm(event.target.value); if (confirmError) setConfirmError(''); }} />
-          {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm leading-5 text-red-700">{error}</p>}
-          {invalidToken && <Link href="/forgot-password" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-slate-300 px-5 text-sm font-medium text-slate-800 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Yêu cầu email mới")}</Link>}
+          {error && <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm leading-5 text-red-700">{error}</p>}
+          {invalidToken && <Link href="/forgot-password" className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-sm border border-slate-300 px-5 text-sm font-medium text-slate-800 transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17766c]">{t("Yêu cầu email mới")}</Link>}
           <Button type="submit" size="lg" isLoading={busy} disabled={!token} className="min-h-12 w-full cursor-pointer">{t("Đổi mật khẩu")}</Button>
         </form>
       </>}

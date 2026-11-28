@@ -630,8 +630,10 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
     return plans.map((plan) => {
       const ids = plan.plan_id === pendingMapEdit.sourcePlan.plan_id ? pendingMapEdit.sourceIds
         : plan.plan_id === pendingMapEdit.targetPlan.plan_id ? pendingMapEdit.targetIds : undefined;
-      return ids ? { ...plan, ordered_stop_ids: ids, order_count: ids.length, route_waypoints: null,
-        estimated_duration_minutes: null, total_distance_km: null } : plan;
+      return ids ? {
+        ...plan, ordered_stop_ids: ids, order_count: ids.length, route_waypoints: null,
+        estimated_duration_minutes: null, total_distance_km: null
+      } : plan;
     });
   }, [pendingMapEdit, plans]);
   const overviewRoutes = useMemo(() => {
@@ -655,7 +657,7 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
     && !(plan.ordered_stop_ids ?? []).some((id) => lockedStopIds.has(id))).map((plan) => plan.plan_id)), [lockedStopIds, plans]);
   const editableStopIds = useMemo(() => new Set(mapRoutes.flatMap((route) => editablePlanIds.has(route.id)
     ? route.stops.filter((stop) => stopPlanIds.get(stop.id) === route.id).map((stop) => stop.id) : [])),
-  [editablePlanIds, mapRoutes, stopPlanIds]);
+    [editablePlanIds, mapRoutes, stopPlanIds]);
   const selectedMapStops = useMemo(() => new Set([...mapStopIds].filter((id) => editableStopIds.has(id))), [editableStopIds, mapStopIds]);
   const selectedMapSources = new Set([...selectedMapStops].map((id) => stopPlanIds.get(id)));
   const selectedMapSource = selectedMapSources.size === 1 ? [...selectedMapSources][0] : undefined;
@@ -701,8 +703,10 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
     } else {
       targetIds.push(...orderIds);
     }
-    setPendingMapEdit({ sourcePlan, targetPlan, orderIds,
-      sourceIds: swapOrderId ? sourceIds : sourceIds.filter((id) => !moving.has(id)), targetIds, targetIndex, swapOrderId });
+    setPendingMapEdit({
+      sourcePlan, targetPlan, orderIds,
+      sourceIds: swapOrderId ? sourceIds : sourceIds.filter((id) => !moving.has(id)), targetIds, targetIndex, swapOrderId
+    });
     setMapStopIds(moving);
   }
 
@@ -920,11 +924,11 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
             <Pentagon size={16} aria-hidden="true" /><span className="sr-only sm:not-sr-only">{t('Chọn theo vùng')}</span>
           </Button>}
           {canExecute && (drawingPolygon || selectedMapStops.size > 0 || pendingMapEdit) && (
-            <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white px-2.5 py-1 shadow-md ring-1 ring-slate-200">
+            <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-sm bg-white px-2.5 py-1 shadow-md ring-1 ring-slate-200">
               <span role="status" className="max-w-full text-xs font-medium text-slate-700">
                 {drawingPolygon ? t('Bấm để vẽ. Bấm lại đỉnh đầu hoặc bấm đúp để hoàn tất. Esc để hủy.')
                   : pendingMapEdit ? t('Thay đổi tuyến chưa lưu')
-                  : `${t('Đã chọn')} ${selectedMapStops.size} ${t('đơn hàng')}`}
+                    : `${t('Đã chọn')} ${selectedMapStops.size} ${t('đơn hàng')}`}
               </span>
               {!drawingPolygon && !pendingMapEdit && selectedMapSources.size > 1 && (
                 <span className="order-last basis-full text-xs font-medium text-amber-800 sm:order-none sm:basis-auto">{t('Chỉ có thể chuyển nhóm đơn thuộc cùng một tuyến.')}</span>
@@ -986,9 +990,8 @@ function DispatchWorkspace({ canReadOrders, canExecute }: { canReadOrders: boole
         <section
           id="dispatch-tool-plans"
           aria-label={t('Kế hoạch điều phối')}
-          className={`absolute inset-x-2 bottom-2 z-30 min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white sm:inset-x-4 sm:bottom-4 sm:max-h-[min(65dvh,calc(100%_-_4.5rem))] ${
-            drawingPolygon || selectedMapStops.size > 0 || pendingMapEdit ? 'max-h-[min(65dvh,calc(100%_-_10rem))]' : 'max-h-[min(65dvh,calc(100%_-_4.5rem))]'
-          } ${isPlansOpen ? 'flex' : 'hidden'}`}
+          className={`absolute inset-x-2 bottom-2 z-30 min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white sm:inset-x-4 sm:bottom-4 sm:max-h-[min(65dvh,calc(100%_-_4.5rem))] ${drawingPolygon || selectedMapStops.size > 0 || pendingMapEdit ? 'max-h-[min(65dvh,calc(100%_-_10rem))]' : 'max-h-[min(65dvh,calc(100%_-_4.5rem))]'
+            } ${isPlansOpen ? 'flex' : 'hidden'}`}
         >
           <Tabs.Root value={activeTab} onValueChange={(tab) => {
             setHighlightedPlan(null);

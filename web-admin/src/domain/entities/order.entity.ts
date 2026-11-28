@@ -86,7 +86,6 @@ export type OrderTimelineCategory =
   | 'STATUS'
   | 'DELIVERY'
   | 'INCIDENT'
-  | 'RETURN'
   | 'COD';
 
 export interface OrderTimelineEvent {

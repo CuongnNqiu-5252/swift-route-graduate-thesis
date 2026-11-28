@@ -2,40 +2,27 @@
 //
 // Maps Flutter DTOs to/from the backend API contract.
 // Backend wraps all responses in: { "data": {...}, "error": null, "timestamp": "..." }
-// Login:    POST /api/auth/login       { username, password }
-//           -> { data: { accessToken, refreshToken } }
 
 import 'package:swiftroute_app/domain/entities/user.dart';
 
-// ── Request models ────────────────────────────────────────────────────────────
-
-class LoginRequest {
-  final String username;
-  final String password;
-
-  LoginRequest({required this.username, required this.password});
-
-  Map<String, dynamic> toJson() => {'username': username, 'password': password};
-}
-
 // ── Response models ───────────────────────────────────────────────────────────
 
-class LoginResponse {
+class ActivationTokens {
   final String accessToken;
   final String refreshToken;
 
-  LoginResponse({required this.accessToken, required this.refreshToken});
+  ActivationTokens({required this.accessToken, required this.refreshToken});
 
   /// Backend response shape: { "data": { "accessToken": "...", "refreshToken": "..." }, ... }
   /// Jackson SnakeCaseStrategy is applied on the backend, so fields come as snake_case.
-  factory LoginResponse.fromJson(Map<String, dynamic> json) {
+  factory ActivationTokens.fromJson(Map<String, dynamic> json) {
     // Unwrap the ApiResponse envelope if present
     final payload =
         json.containsKey('data') && json['data'] is Map<String, dynamic>
         ? json['data'] as Map<String, dynamic>
         : json;
 
-    return LoginResponse(
+    return ActivationTokens(
       accessToken:
           (payload['access_token'] ?? payload['accessToken']) as String,
       refreshToken:

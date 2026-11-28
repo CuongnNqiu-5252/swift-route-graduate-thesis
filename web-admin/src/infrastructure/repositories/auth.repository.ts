@@ -1,6 +1,6 @@
 import api from '@/lib/api';
 
-interface AuthProfile {
+export interface AuthProfile {
   id: string;
   email: string;
   phone?: string;
@@ -17,6 +17,8 @@ interface AuthProfile {
   created_at?: string;
   createdAt?: string;
   permissions?: string[];
+  permissions_version?: number;
+  permissionsVersion?: number;
 }
 
 export interface InvitationPreview {
@@ -40,7 +42,7 @@ export const authRepository = {
     return (await api.get<AuthProfile>('/auth/me')).data;
   },
   async login(email: string, password: string) {
-    return (await api.post<{ access_token: string; refresh_token: string }>(
+    return (await api.post<{ access_token: string; refresh_token: string; user?: AuthProfile }>(
       '/auth/login', { username: email, password },
     )).data;
   },
@@ -55,6 +57,17 @@ export const authRepository = {
   },
   async verifyEmail(token: string) {
     await api.post('/auth/email/verify', { token });
+  },
+  async loginWithGoogle(idToken: string) {
+    return (await api.post<{ access_token: string; refresh_token: string; user?: AuthProfile }>(
+      '/auth/google/login',
+      { id_token: idToken },
+    )).data;
+  },
+  async linkGoogle(idToken: string) {
+    await api.post('/auth/google/link', {
+      id_token: idToken,
+    });
   },
   async resendVerification() {
     await api.post('/auth/email/resend');

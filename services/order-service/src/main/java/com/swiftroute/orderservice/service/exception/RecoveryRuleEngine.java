@@ -1,7 +1,7 @@
 package com.swiftroute.orderservice.service.exception;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -13,24 +13,24 @@ import org.springframework.transaction.annotation.Transactional;
 import com.swiftroute.orderservice.entity.DeliveryIncident;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
-import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
-import com.swiftroute.orderservice.repository.ReturnRequestRepository;
+import com.swiftroute.orderservice.service.OrderStatusHistoryRecorder;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Automated recovery rule engine for delivery incidents (P2.6).
+ * Automated recovery rule engine for failed delivery stops.
  *
- * <p>
- * Determines whether a failed delivery or reported incident should be
- * recommended for redelivery (`REDELIVERY`), return to origin
- * (`RETURN_TO_ORIGIN`),
- * or operator review (`MANUAL_REVIEW`) based on incident category and attempt
- * count.
+ * <ul>
+ *   <li>{@code IMMEDIATE_RETURN_TYPES} (customer refused, damaged package, cancelled by sender)
+ *       and stops exceeding {@code DEFAULT_MAX_DELIVERY_ATTEMPTS} automatically transition the
+ *       order directly to {@code RETURNING} and resolve the incident ({@code AUTO_RETURN}).</li>
+ *   <li>Retryable stop failures ({@code CUSTOMER_UNREACHABLE}, {@code WRONG_ADDRESS}) remain
+ *       {@code FAILED} with an {@code OPEN} incident so dispatchers can retry or reschedule.</li>
+ * </ul>
  */
 @Component
 @RequiredArgsConstructor
@@ -53,79 +53,61 @@ public class RecoveryRuleEngine {
             "CUSTOMER_UNREACHABLE",
             "RECIPIENT_UNAVAILABLE",
             "ACCESS_DENIED",
-            "WRONG_ADDRESS",
-            "WEATHER_DELAY");
-
-    private static final Set<String> DELAY_ADVISORY_TYPES = Set.of(
-            "TRAFFIC_CONGESTION",
-            "WEATHER_DELAY");
-
-    private static final List<String> UNFINISHED_RETURN_STATUSES = List.of(
-            "REQUESTED", "IN_EXECUTION", "ARRIVED", "AWAITING_RECEIPT", "EXECUTION_FAILED");
+            "WRONG_ADDRESS");
 
     private final DeliveryAttemptRepository deliveryAttemptRepository;
-    private final ReturnRequestRepository returnRequestRepository;
     private final OutboxEventRepository outboxEventRepository;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private OrderStatusHistoryRecorder statusHistory;
 
-    /**
-     * Evaluates automated recovery rules for a newly reported delivery incident.
-     *
-     * @param incident the persisted delivery incident
-     * @return the recommended recovery action (`RETURN_TO_ORIGIN`, `REDELIVERY`,
-     *         `CONTINUE_DELIVERY`, or `MANUAL_REVIEW`)
-     */
     @Transactional
     public String evaluateAndApply(DeliveryIncident incident) {
         String normalizedType = incident.getIncidentType() != null
                 ? incident.getIncidentType().trim().toUpperCase(Locale.ROOT)
                 : "OTHER";
 
-        // Route-level incident (no specific order attached, e.g., vehicle breakdown)
         Order order = incident.getOrder();
         if (order == null) {
             publishIncidentAlert(incident, "MANUAL_REVIEW", 0);
             return "MANUAL_REVIEW";
         }
 
-        // A sync conflict records competing field/server facts for an operator.
-        // It must never create a delivery attempt, redelivery, or return request.
         if ("OFFLINE_SYNC_CONFLICT".equals(normalizedType)) {
             publishIncidentAlert(incident, "MANUAL_REVIEW", 0);
             return "MANUAL_REVIEW";
-        }
-
-        // Non-failing operational incident where order delivery itself was not marked
-        // FAILED
-        if (order.getStatus() != OrderStatus.FAILED && DELAY_ADVISORY_TYPES.contains(normalizedType)) {
-            publishIncidentAlert(incident, "CONTINUE_DELIVERY", 0);
-            return "CONTINUE_DELIVERY";
         }
 
         UUID orderId = order.getId();
         int attempts = deliveryAttemptRepository.maxAttemptNumber(orderId);
         String recoveryAction = determineRecoveryAction(normalizedType, attempts);
 
-        // Only auto-create a ReturnRequest when maximum delivery attempts have been
-        // exhausted
-        boolean hasOpenReturn = returnRequestRepository
-                .existsByOrder_IdAndStatusIn(orderId, UNFINISHED_RETURN_STATUSES);
+        if ("RETURN_TO_ORIGIN".equals(recoveryAction)) {
+            boolean immediateReturn = IMMEDIATE_RETURN_TYPES.contains(normalizedType);
+            String historyReason = immediateReturn
+                    ? "Tự động chuyển hoàn về kho (" + friendlyImmediateReason(normalizedType) + ")"
+                    : "Tự động chuyển hoàn về kho sau " + attempts + " lần giao thất bại";
 
-        if (!hasOpenReturn && attempts >= DEFAULT_MAX_DELIVERY_ATTEMPTS) {
-            ReturnRequest autoRequest = ReturnRequest.builder()
-                    .order(order)
-                    .incident(incident)
-                    .tenantId(incident.getTenantId())
-                    .returnLocation(order.getPickupLocation())
-                    .currentHolderId(order.getAssignedDriverId())
-                    .requestedBy(incident.getReportedBy())
-                    .reason("Tự động yêu cầu hoàn hàng sau khi vượt quá số lần giao tối đa (" + attempts + " lần)")
-                    .status("REQUESTED")
-                    .build();
-            returnRequestRepository.save(autoRequest);
-            incident.setStatus("IN_PROGRESS");
-            incident.setResolutionType("REQUEST_RETURN");
-            log.info("Order {} max attempts ({}) reached; auto-created ReturnRequest.",
-                    orderId, attempts);
+            OrderStatus previous = order.getStatus();
+            if (previous != OrderStatus.RETURNING && previous != OrderStatus.RETURNED) {
+                order.setStatus(OrderStatus.RETURNING);
+                order.setUpdatedAt(Instant.now());
+                if (statusHistory != null) {
+                    statusHistory.record(
+                            order,
+                            previous,
+                            OrderStatus.RETURNING,
+                            incident.getReportedBy(),
+                            "SYSTEM",
+                            historyReason);
+                }
+            }
+            incident.setStatus("RESOLVED");
+            incident.setResolutionType("AUTO_RETURN");
+            incident.setResolvedBy(incident.getReportedBy());
+            incident.setResolvedAt(Instant.now());
+            incident.setResolutionNotes(historyReason);
+            log.info("Order {} transitioned directly to RETURNING (reason={}, attempts={}).",
+                    orderId, normalizedType, attempts);
         }
 
         publishIncidentAlert(incident, recoveryAction, attempts);
@@ -145,6 +127,15 @@ public class RecoveryRuleEngine {
         return "MANUAL_REVIEW";
     }
 
+    private static String friendlyImmediateReason(String normalizedType) {
+        return switch (normalizedType) {
+            case "REFUSED", "CUSTOMER_REFUSED", "REFUSED_BY_RECIPIENT" -> "Khách từ chối nhận hàng";
+            case "DAMAGED", "PACKAGE_DAMAGED", "GOODS_DAMAGED" -> "Kiện hàng bị hư hỏng";
+            case "CANCELLED_BY_SENDER" -> "Người gửi yêu cầu huỷ / hoàn";
+            default -> normalizedType;
+        };
+    }
+
     private void publishIncidentAlert(DeliveryIncident incident, String recoveryAction, int attempts) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("incident_id", incident.getId() != null ? incident.getId().toString() : null);
@@ -154,7 +145,9 @@ public class RecoveryRuleEngine {
         payload.put("tenant_id", incident.getTenantId().toString());
         payload.put("driver_id", incident.getDriverId() != null ? incident.getDriverId().toString() : null);
         payload.put("reported_by", incident.getReportedBy().toString());
-        payload.put("action_url", "/operations?incident=" + incident.getId());
+        payload.put("action_url", "RETURN_TO_ORIGIN".equals(recoveryAction)
+                ? "/operations"
+                : "/operations?incident=" + incident.getId());
         payload.put("incident_type", incident.getIncidentType());
         payload.put("notes", incident.getNotes());
         payload.put("attempt_count", attempts);

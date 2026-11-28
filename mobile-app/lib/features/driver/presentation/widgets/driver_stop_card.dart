@@ -23,7 +23,7 @@ class DriverStopCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final status = stop.deliveryTaskStatus ?? DeliveryTaskStatus.assigned;
+    final status = stop.deliveryTaskStatus ?? DeliveryTaskStatus.outForDelivery;
     final isDone = status == DeliveryTaskStatus.completed;
     final isFailed = status == DeliveryTaskStatus.failed;
     final isCancelled =
@@ -31,21 +31,17 @@ class DriverStopCard extends ConsumerWidget {
         stop.status == OrderStatus.cancelled;
     final isClosed = isDone || isFailed || isCancelled;
     final canDeliver = stop.isOutForDelivery;
-
+  
     final badgeColor = isDone
         ? AppColors.success
         : isFailed
         ? AppColors.error
         : AppColors.primary;
 
-    final address = stop.isReturnTask
-        ? stop.pickupAddress
-        : stop.deliveryAddress;
-    final title = stop.isReturnTask
-        ? 'Hoàn về ${stop.pickupDisplayName}'
-        : (stop.recipientName?.trim().isNotEmpty == true
-              ? stop.recipientName!.trim()
-              : 'Khách nhận hàng');
+    final address = stop.deliveryAddress;
+    final title = stop.recipientName?.trim().isNotEmpty == true
+        ? stop.recipientName!.trim()
+        : 'Khách nhận hàng';
 
     return Material(
       color: AppColors.card,
@@ -106,7 +102,7 @@ class DriverStopCard extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  _StatusPillFor(status: status, isReturn: stop.isReturnTask),
+                  _StatusPillFor(status: status),
                 ],
               ),
               const SizedBox(height: 10),
@@ -150,7 +146,7 @@ class DriverStopCard extends ConsumerWidget {
                     icon: Icons.inventory_2_outlined,
                     text: '1 kiện · ${stop.weightKg.toStringAsFixed(1)} kg',
                   ),
-                  if (!stop.isReturnTask) CodBadge(amount: stop.codAmount),
+                  CodBadge(amount: stop.codAmount),
                 ],
               ),
               if (!isClosed) ...[
@@ -158,9 +154,7 @@ class DriverStopCard extends ConsumerWidget {
                 Row(
                   children: [
                     PhoneCallButton(
-                      phone: stop.isReturnTask
-                          ? stop.senderPhone
-                          : stop.recipientPhone,
+                      phone: stop.recipientPhone,
                       compact: true,
                     ),
                     const SizedBox(width: 8),
@@ -260,10 +254,9 @@ class _MetaText extends StatelessWidget {
 }
 
 class _StatusPillFor extends StatelessWidget {
-  const _StatusPillFor({required this.status, required this.isReturn});
+  const _StatusPillFor({required this.status});
 
   final DeliveryTaskStatus status;
-  final bool isReturn;
 
   @override
   Widget build(BuildContext context) {
@@ -278,17 +271,14 @@ class _StatusPillFor extends StatelessWidget {
         AppColors.errorSoft,
         AppColors.errorBorder,
       ),
-      DeliveryTaskStatus.pickedUp || DeliveryTaskStatus.outForDelivery => (
+      DeliveryTaskStatus.outForDelivery => (
         AppColors.primary,
         AppColors.primarySoft,
         AppColors.primaryBorder,
       ),
-      _ => (AppColors.warning, AppColors.warningSoft, AppColors.warningBorder),
     };
     return StatusPill(
-      label: isReturn && status == DeliveryTaskStatus.outForDelivery
-          ? 'Đang hoàn về'
-          : status.displayName,
+      label: status.displayName,
       foreground: fg,
       background: bg,
       borderColor: border,

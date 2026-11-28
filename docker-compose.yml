@@ -102,6 +102,7 @@ services:
       - GOONG_API_KEY=${GOONG_API_KEY:-}
       - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     networks:
       - swiftroute-net
     depends_on:

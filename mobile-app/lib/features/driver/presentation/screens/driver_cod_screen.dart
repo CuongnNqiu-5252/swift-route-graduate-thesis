@@ -14,16 +14,7 @@ class DriverCodScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(driverCodHandoverProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nộp COD'),
-        actions: [
-          IconButton(
-            tooltip: 'Làm mới',
-            onPressed: ref.read(driverCodHandoverProvider.notifier).refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Nộp COD')),
       body: _CodList(state: state),
     );
   }
@@ -157,17 +148,19 @@ class _CodListState extends ConsumerState<_CodList> {
           ShimmerBox(height: 140),
         ],
       ),
-      error: (_, _) => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          EmptyStateCard(
-            icon: Icons.cloud_off_rounded,
-            title: 'Không tải được tiền COD',
-            message: 'Kiểm tra kết nối rồi thử lại.',
-            actionLabel: 'Thử lại',
-            onAction: notifier.refresh,
-          ),
-        ],
+      error: (_, _) => RefreshIndicator(
+        onRefresh: notifier.refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: const [
+            EmptyStateCard(
+              icon: Icons.cloud_off_rounded,
+              title: 'Không tải được tiền COD',
+              message: 'Kiểm tra kết nối rồi kéo xuống để tải lại.',
+            ),
+          ],
+        ),
       ),
       data: (custody) {
         final collections = custody.eligibleCollections;

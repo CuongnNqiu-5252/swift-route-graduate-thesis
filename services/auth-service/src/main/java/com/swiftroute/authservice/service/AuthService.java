@@ -1,7 +1,10 @@
 package com.swiftroute.authservice.service;
 
+import java.util.UUID;
+
 import org.springframework.stereotype.Service;
 
+import com.swiftroute.authservice.dto.request.GoogleAuthRequest;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
@@ -25,4 +28,9 @@ public interface AuthService {
 
     UserProfileResponseDTO updateProfile(java.util.UUID userId, UpdateProfileRequestDTO request, String effectiveRole);
 
+    public void linkGoogle(UUID userId, GoogleAuthRequest request);
+
+    public LoginResponseDTO loginWithGoogle(
+            GoogleAuthRequest request,
+            HttpServletRequest httpRequest);
 }

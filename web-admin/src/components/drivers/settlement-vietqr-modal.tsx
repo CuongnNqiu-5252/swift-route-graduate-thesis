@@ -1,12 +1,5 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
-import { AlertCircle, Banknote, Check, Copy, Landmark, Pencil, QrCode } from 'lucide-react';
-import { toast } from 'sonner';
-import { useLocale } from '@/i18n/provider';
-import { DriverSettlement } from '@/domain/entities/earning.entity';
-import { driverRepository } from '@/infrastructure/repositories/driver.repository';
-import { earningRepository } from '@/infrastructure/repositories/earning.repository';
 import {
   VIETQR_BANKS,
   buildDefaultPaymentReference,
@@ -18,6 +11,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { CustomSelect } from '@/components/ui/select';
+import { DriverSettlement } from '@/domain/entities/earning.entity';
+import { useLocale } from '@/i18n/provider';
+import { driverRepository } from '@/infrastructure/repositories/driver.repository';
+import { earningRepository } from '@/infrastructure/repositories/earning.repository';
+import { AlertCircle, Banknote, Check, Copy, Landmark, Pencil, QrCode } from 'lucide-react';
+import { FormEvent, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { formatPeriodDate, formatVnd } from './driver-formatters';
 
 interface SettlementVietQrModalProps {
@@ -76,10 +76,10 @@ function SettlementVietQrModalContent({
   const [bankInfo, setBankInfo] = useState<LocalBankInfo | null>(() =>
     initialHasBank
       ? {
-          bankCode: settlement.driver_bank_code!,
-          accountNumber: settlement.driver_bank_account_number!,
-          accountName: initialHolderName,
-        }
+        bankCode: settlement.driver_bank_code!,
+        accountNumber: settlement.driver_bank_account_number!,
+        accountName: initialHolderName,
+      }
       : null
   );
   const [editingBank, setEditingBank] = useState(!initialHasBank);
@@ -229,7 +229,7 @@ function SettlementVietQrModalContent({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1" role="tablist">
+        <div className="grid grid-cols-2 gap-2 rounded-sm bg-slate-100 p-1" role="tablist">
           <button
             type="button"
             role="tab"
@@ -238,11 +238,10 @@ function SettlementVietQrModalContent({
               setMethod('vietqr');
               setPayError('');
             }}
-            className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${
-              method === 'vietqr'
+            className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${method === 'vietqr'
                 ? 'bg-white text-slate-950 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             <QrCode size={15} />
             <span>{t('Chuyển khoản VietQR')}</span>
@@ -255,11 +254,10 @@ function SettlementVietQrModalContent({
               setMethod('manual');
               setPayError('');
             }}
-            className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${
-              method === 'manual'
+            className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${method === 'manual'
                 ? 'bg-white text-slate-950 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             <Banknote size={15} />
             <span>{t('Tiền mặt / Khác')}</span>
@@ -310,11 +308,10 @@ function SettlementVietQrModalContent({
                       if (bankError) setBankError('');
                     }}
                     placeholder={t('VD: 0123456789')}
-                    className={`h-10 rounded-lg border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
-                      bankError
+                    className={`h-10 rounded-sm border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${bankError
                         ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
                         : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500/20'
-                    }`}
+                      }`}
                   />
                   {bankError && <p role="alert" className="text-xs font-normal text-red-600">{bankError}</p>}
                 </label>
@@ -326,7 +323,7 @@ function SettlementVietQrModalContent({
                     value={accountName}
                     onChange={(event) => setAccountName(event.target.value)}
                     placeholder={stripVietnameseDiacritics(settlement.driver_name)}
-                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </label>
               </div>
@@ -348,7 +345,7 @@ function SettlementVietQrModalContent({
                   {qrUrl && !qrFailed ? (
                     <div className="relative flex aspect-square w-full max-w-[200px] items-center justify-center">
                       {qrLoading && (
-                        <div className="absolute inset-0 animate-pulse rounded-lg bg-slate-100" />
+                        <div className="absolute inset-0 animate-pulse rounded-sm bg-slate-100" />
                       )}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -359,9 +356,8 @@ function SettlementVietQrModalContent({
                           setQrLoading(false);
                           setQrFailed(true);
                         }}
-                        className={`h-full w-full rounded-lg object-contain transition-opacity ${
-                          qrLoading ? 'opacity-0' : 'opacity-100'
-                        }`}
+                        className={`h-full w-full rounded-sm object-contain transition-opacity ${qrLoading ? 'opacity-0' : 'opacity-100'
+                          }`}
                       />
                     </div>
                   ) : (
@@ -443,7 +439,7 @@ function SettlementVietQrModalContent({
                       if (payError) setPayError('');
                     }}
                     placeholder={t('VD: VCB-FT2631800123')}
-                    className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="mt-1.5 w-full rounded-sm border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                   {payError && <p className="mt-1 text-xs text-red-600">{payError}</p>}
                 </div>
@@ -477,7 +473,7 @@ function SettlementVietQrModalContent({
                   if (payError) setPayError('');
                 }}
                 placeholder={t('VD: CASH-20261119-01 hoặc VCB-FT2631800123')}
-                className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="mt-1.5 w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               {payError && <p className="mt-1 text-xs text-red-600">{payError}</p>}
             </div>

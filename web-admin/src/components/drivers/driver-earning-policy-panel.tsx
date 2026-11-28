@@ -1,11 +1,11 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { EarningPolicy } from '@/domain/entities/earning.entity';
+import { useLocale } from '@/i18n/provider';
+import { earningRepository } from '@/infrastructure/repositories/earning.repository';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { useLocale } from '@/i18n/provider';
-import { EarningPolicy } from '@/domain/entities/earning.entity';
-import { earningRepository } from '@/infrastructure/repositories/earning.repository';
-import { Button } from '@/components/ui/button';
 import { formatVnd } from './driver-formatters';
 
 interface DriverEarningPolicyPanelProps {
@@ -226,11 +226,10 @@ function PolicyEditor({
           )}
         </div>
         <div
-          className={`flex overflow-hidden rounded-lg border bg-white focus-within:ring-2 ${
-            errorText
+          className={`flex overflow-hidden rounded-sm border bg-white focus-within:ring-2 ${errorText
               ? 'border-red-400 focus-within:border-red-500 focus-within:ring-red-500/20'
               : 'border-slate-300 focus-within:border-blue-500 focus-within:ring-blue-500/20'
-          }`}
+            }`}
         >
           <input
             id={id}
@@ -365,7 +364,7 @@ function PolicyEditor({
               step="0.5"
               value={sampleKm}
               onChange={(event) => setSampleKm(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="mt-1 w-full rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </label>
           <label className="block text-xs font-medium text-slate-700">
@@ -376,7 +375,7 @@ function PolicyEditor({
               step="0.5"
               value={sampleKg}
               onChange={(event) => setSampleKg(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              className="mt-1 w-full rounded-sm border border-slate-300 bg-white px-3 py-1.5 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </label>
         </div>
@@ -412,7 +411,7 @@ function PolicyEditor({
           </div>
         </dl>
 
-        <p className="mt-5 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+        <p className="mt-5 rounded-sm bg-slate-50 p-3 text-xs leading-5 text-slate-600">
           {t(
             'Tiền tài xế = phí cơ bản + (khoảng cách đường bộ Goong × đơn giá) + phụ phí, sau đó áp dụng mức tối thiểu. Mỗi khoản giữ nguyên công thức lúc ghi nhận.'
           )}

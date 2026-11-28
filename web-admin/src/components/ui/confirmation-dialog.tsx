@@ -1,8 +1,8 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useId, useRef, useState } from 'react';
-import { useLocale } from '@/i18n/provider';
 import { Button } from './button';
 
 interface ConfirmationDialogProps {
@@ -83,7 +83,7 @@ export function ConfirmationDialog({
                   value={value}
                   disabled={submitting}
                   onChange={(event) => setValue(event.target.value)}
-                  className="block w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-6 text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
+                  className="block w-full resize-y rounded-sm border border-slate-300 px-3 py-2 text-sm leading-6 text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
                 />
               </div>
             )}

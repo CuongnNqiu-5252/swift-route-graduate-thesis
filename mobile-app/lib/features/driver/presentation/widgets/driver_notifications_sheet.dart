@@ -179,15 +179,6 @@ class _DriverNotificationsSheetState
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Làm mới thông báo',
-                      onPressed: () {
-                        ref
-                            .read(driverNotificationsProvider.notifier)
-                            .refresh();
-                      },
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                    ),
-                    IconButton(
                       tooltip: 'Đóng',
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close_rounded, size: 22),
@@ -225,203 +216,192 @@ class _DriverNotificationsSheetState
               ),
               const Divider(height: 1, color: AppColors.divider),
               Expanded(
-                child: notificationsState.when(
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  ),
-                  error: (err, _) => Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.cloud_off_rounded,
-                            size: 38,
-                            color: AppColors.textSecondary,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Chưa tải được danh sách thông báo',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              ref
-                                  .read(driverNotificationsProvider.notifier)
-                                  .refresh();
-                            },
-                            icon: const Icon(Icons.refresh_rounded, size: 18),
-                            label: const Text('Thử lại'),
-                          ),
-                        ],
+                child: RefreshIndicator(
+                  onRefresh: ref
+                      .read(driverNotificationsProvider.notifier)
+                      .refresh,
+                  child: notificationsState.when(
+                    loading: () => const Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primary,
                       ),
                     ),
-                  ),
-                  data: (items) {
-                    final filtered = items.where((item) {
-                      if (_filter == 'ROUTE') {
-                        return item.category == 'DISPATCH' ||
-                            item.category == 'INCIDENT' ||
-                            item.category == 'DELIVERY';
-                      }
-                      if (_filter == 'FINANCE') {
-                        return item.category == 'COD' ||
-                            item.category == 'EARNINGS';
-                      }
-                      return true;
-                    }).toList();
-
-                    if (filtered.isEmpty) {
-                      return ListView(
-                        controller: scrollController,
-                        padding: const EdgeInsets.all(32),
-                        children: const [
-                          SizedBox(height: 36),
-                          Icon(
-                            Icons.notifications_none_rounded,
-                            size: 48,
-                            color: AppColors.textHint,
-                          ),
-                          SizedBox(height: 12),
-                          Text(
-                            'Chưa có thông báo mới',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary,
-                            ),
-                          ),
-                          SizedBox(height: 6),
-                          Text(
-                            'Khi có lộ trình mới, phản hồi xử lý sự cố từ điều phối viên, kết quả đối soát COD hoặc thanh toán thu nhập, bạn sẽ nhận thông báo tại đây.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 13,
-                              height: 1.45,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      );
-                    }
-
-                    return ListView.separated(
+                    error: (_, _) => ListView(
                       controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final item = filtered[index];
-                        final pres = _presentationFor(item);
-                        return InkWell(
-                          onTap: pres.onTap,
-                          borderRadius: BorderRadius.circular(14),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppColors.background,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: AppColors.divider),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(24),
+                      children: const [
+                        Text(
+                          'Không tải được thông báo. Kéo xuống để tải lại.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                    data: (items) {
+                      final filtered = items.where((item) {
+                        if (_filter == 'ROUTE') {
+                          return item.category == 'DISPATCH' ||
+                              item.category == 'INCIDENT' ||
+                              item.category == 'DELIVERY';
+                        }
+                        if (_filter == 'FINANCE') {
+                          return item.category == 'COD' ||
+                              item.category == 'EARNINGS';
+                        }
+                        return true;
+                      }).toList();
+
+                      if (filtered.isEmpty) {
+                        return ListView(
+                          controller: scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(32),
+                          children: const [
+                            SizedBox(height: 36),
+                            Icon(
+                              Icons.notifications_none_rounded,
+                              size: 48,
+                              color: AppColors.textHint,
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: pres.color.withValues(
-                                          alpha: 0.12,
+                            SizedBox(height: 12),
+                            Text(
+                              'Chưa có thông báo mới',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              'Khi có lộ trình mới, phản hồi xử lý sự cố từ điều phối viên, kết quả đối soát COD hoặc thanh toán thu nhập, bạn sẽ nhận thông báo tại đây.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.45,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+
+                      return ListView.separated(
+                        controller: scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          final pres = _presentationFor(item);
+                          return InkWell(
+                            onTap: pres.onTap,
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppColors.background,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: AppColors.divider),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
                                         ),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            pres.icon,
-                                            size: 13,
-                                            color: pres.color,
+                                        decoration: BoxDecoration(
+                                          color: pres.color.withValues(
+                                            alpha: 0.12,
                                           ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            pres.label,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              pres.icon,
+                                              size: 13,
                                               color: pres.color,
                                             ),
-                                          ),
-                                        ],
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              pres.label,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: pres.color,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
+                                      const Spacer(),
+                                      Text(
+                                        _formatRelativeTime(item.createdAt),
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    item.title,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textPrimary,
                                     ),
-                                    const Spacer(),
+                                  ),
+                                  if (item.body.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
                                     Text(
-                                      _formatRelativeTime(item.createdAt),
+                                      item.body,
                                       style: const TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 13,
+                                        height: 1.4,
                                         color: AppColors.textSecondary,
                                       ),
                                     ),
                                   ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  item.title,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                                if (item.body.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item.body,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      height: 1.4,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      pres.actionLabel,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        pres.actionLabel,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: pres.color,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Icon(
+                                        Icons.arrow_forward_rounded,
+                                        size: 14,
                                         color: pres.color,
                                       ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Icon(
-                                      Icons.arrow_forward_rounded,
-                                      size: 14,
-                                      color: pres.color,
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    );
-                  },
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
             ],

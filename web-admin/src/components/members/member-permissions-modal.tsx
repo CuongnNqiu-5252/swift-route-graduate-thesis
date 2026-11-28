@@ -1,10 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Check, Lock, RotateCcw, Shield, Sparkles, X } from 'lucide-react';
-import { toast } from 'sonner';
 import { useAuth } from '@/application/contexts/auth-context';
-import { useLocale } from '@/i18n/provider';
+import { extractApiErrorMessage, groupPermissionsByModule } from '@/components/members/permission-utils';
 import { Button } from '@/components/ui/button';
 import { CustomSelect } from '@/components/ui/select';
 import {
@@ -14,8 +11,11 @@ import {
   TenantMember,
   TenantMembershipRole,
 } from '@/domain/entities/member.entity';
+import { useLocale } from '@/i18n/provider';
 import { memberRepository } from '@/infrastructure/repositories/member.repository';
-import { extractApiErrorMessage, groupPermissionsByModule } from '@/components/members/permission-utils';
+import { Check, Lock, RotateCcw, Shield, Sparkles, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 const ASSIGNABLE_ROLES: TenantMembershipRole[] = ['TENANT_ADMIN', 'OPERATOR', 'DRIVER', 'VIEWER'];
 
@@ -166,7 +166,7 @@ export function MemberPermissionsModal({
             type="button"
             onClick={onClose}
             aria-label={t('Đóng')}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-sm p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
           >
             <X className="h-5 w-5" />
           </button>
@@ -252,11 +252,10 @@ export function MemberPermissionsModal({
                     return (
                       <label
                         key={perm.code}
-                        className={`flex items-start gap-3 px-4 py-3 transition-colors ${
-                          actorCanEdit
+                        className={`flex items-start gap-3 px-4 py-3 transition-colors ${actorCanEdit
                             ? 'cursor-pointer hover:bg-slate-50/80'
                             : 'cursor-not-allowed bg-slate-50/50 opacity-65'
-                        }`}
+                          }`}
                         title={
                           actorCanEdit
                             ? perm.description
@@ -269,11 +268,10 @@ export function MemberPermissionsModal({
                           aria-checked={checked}
                           disabled={!actorCanEdit}
                           onClick={() => togglePermission(perm.code)}
-                          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
-                            checked
+                          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${checked
                               ? 'border-blue-600 bg-blue-600 text-white'
                               : 'border-slate-300 bg-white text-transparent'
-                          } disabled:cursor-not-allowed`}
+                            } disabled:cursor-not-allowed`}
                         >
                           <Check className="h-3.5 w-3.5" />
                         </button>

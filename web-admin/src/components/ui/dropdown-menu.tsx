@@ -54,7 +54,7 @@ export function DropdownMenuItem({
 }: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>) {
   return (
     <DropdownMenuPrimitive.Item
-      className={`flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-slate-800 outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-950 data-[disabled]:opacity-45 ${className}`}
+      className={`flex cursor-pointer select-none items-center gap-2.5 rounded-sm px-2.5 py-2 text-sm text-slate-800 outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-slate-100 data-[highlighted]:text-slate-950 data-[disabled]:opacity-45 ${className}`}
       {...props}
     />
   );

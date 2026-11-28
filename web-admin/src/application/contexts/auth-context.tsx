@@ -1,8 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { authRepository } from '@/infrastructure/repositories/auth.repository';
+import { authRepository, type AuthProfile } from '@/infrastructure/repositories/auth.repository';
 import { clearSessionAndRedirect } from '@/lib/api';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 export interface AuthUser {
   id: string;
@@ -32,20 +32,13 @@ interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   login: (email: string, password: string) => Promise<AuthUser>;
+  loginWithGoogle: (idToken: string) => Promise<AuthUser>;
   logout: () => void;
   refreshProfile: () => Promise<AuthUser | null>;
   hasPermission: (permission: string | string[]) => boolean;
   hasAllPermissions: (permissions: string[]) => boolean;
   applyLivePermissions: (payload: LivePermissionSyncPayload) => void;
   isLoading: boolean;
-}
-
-interface JwtClaimsPayload {
-  system_role?: string;
-  tenant_id?: string | null;
-  tenant_role?: string | null;
-  permissions?: string[];
-  perm_ver?: number;
 }
 
 function normalizePermissions(raw?: unknown): string[] {
@@ -59,23 +52,31 @@ function normalizePermissions(raw?: unknown): string[] {
   );
 }
 
-function decodeJwtClaims(jwt: string | null): JwtClaimsPayload {
-  if (!jwt) return {};
-  try {
-    const parts = jwt.split('.');
-    if (parts.length < 2) return {};
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-    const json = decodeURIComponent(
-      atob(padded)
-        .split('')
-        .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
-        .join('')
-    );
-    return JSON.parse(json) as JwtClaimsPayload;
-  } catch {
-    return {};
-  }
+// Map backend UserProfileResponseDTO payload directly into client AuthUser state.
+function mapProfileToAuthUser(data: AuthProfile): AuthUser {
+  const resolvedTenantId = data.tenant_id ?? data.tenantId ?? null;
+  const systemRole = (data.account_role || data.accountRole)?.toUpperCase();
+  const tenantRole =
+    data.role && data.role !== systemRole ? data.role.toUpperCase() : null;
+  const effectivePerms = normalizePermissions(data.permissions);
+  const permissionsVersion = data.permissions_version ?? data.permissionsVersion;
+
+  return {
+    id: data.id,
+    email: data.email,
+    role: tenantRole || data.role || systemRole || '',
+    systemRole,
+    accountRole: systemRole,
+    tenantRole,
+    permissions: effectivePerms,
+    permissionsVersion: typeof permissionsVersion === 'number' ? permissionsVersion : undefined,
+    name: data.full_name || data.fullName || data.email,
+    phone: data.phone,
+    tenantId: resolvedTenantId,
+    emailVerified: data.email_verified ?? data.emailVerified ?? false,
+    status: data.status,
+    createdAt: data.created_at || data.createdAt,
+  };
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -84,44 +85,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
   // Fetch official user profile directly from GET /api/auth/me
   const refreshProfile = useCallback(async (): Promise<AuthUser | null> => {
     try {
       const data = await authRepository.getProfile();
       if (!data) return null;
 
-      const storedToken = localStorage.getItem('access_token');
-      const claims = decodeJwtClaims(storedToken);
-      const resolvedTenantId =
-        claims.tenant_id ?? localStorage.getItem('tenant_id') ?? data.tenant_id ?? data.tenantId ?? null;
-      if (resolvedTenantId && !localStorage.getItem('tenant_id')) {
-        localStorage.setItem('tenant_id', resolvedTenantId);
+      const profile = mapProfileToAuthUser(data);
+      if (profile.tenantId) {
+        localStorage.setItem('tenant_id', profile.tenantId);
+      } else {
+        localStorage.removeItem('tenant_id');
       }
-      const systemRole = (claims.system_role || data.account_role || data.accountRole)?.toUpperCase();
-      const tenantRole = (
-        data.role && data.role !== systemRole
-          ? data.role
-          : (claims.tenant_role ?? null)
-      )?.toUpperCase() ?? null;
-      const effectivePerms = normalizePermissions(data.permissions ?? claims.permissions);
-
-      const profile: AuthUser = {
-        id: data.id,
-        email: data.email,
-        role: tenantRole || data.role || systemRole || '',
-        systemRole,
-        accountRole: systemRole,
-        tenantRole,
-        permissions: effectivePerms,
-        permissionsVersion: typeof claims.perm_ver === 'number' ? claims.perm_ver : undefined,
-        name: data.full_name || data.fullName || data.email,
-        phone: data.phone,
-        tenantId: resolvedTenantId,
-        emailVerified: data.email_verified ?? data.emailVerified ?? false,
-        status: data.status,
-        createdAt: data.created_at || data.createdAt,
-      };
 
       setUser(profile);
       localStorage.setItem('auth_user', JSON.stringify(profile));
@@ -132,6 +107,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const initializeSession = async (
+    tokens: Awaited<ReturnType<typeof authRepository.login>>
+  ): Promise<AuthUser> => {
+    const accessToken = tokens?.access_token;
+    const refreshToken = tokens?.refresh_token;
+
+    if (!accessToken) {
+      throw new Error('Không nhận được mã xác thực từ máy chủ');
+    }
+
+    setUser(null);
+
+    localStorage.removeItem('tenant_id');
+    localStorage.removeItem('auth_user');
+    localStorage.removeItem('refresh_token');
+
+    localStorage.setItem('access_token', accessToken);
+
+    if (refreshToken) {
+      localStorage.setItem('refresh_token', refreshToken);
+    }
+
+    setToken(accessToken);
+
+    if (tokens.user) {
+      const profile = mapProfileToAuthUser(tokens.user);
+      if (profile.tenantId) {
+        localStorage.setItem('tenant_id', profile.tenantId);
+      }
+      setUser(profile);
+      localStorage.setItem('auth_user', JSON.stringify(profile));
+      return profile;
+    }
+
+    const profile = await refreshProfile();
+
+    if (!profile) {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('auth_user');
+      localStorage.removeItem('tenant_id');
+
+      setToken(null);
+      setUser(null);
+
+      throw new Error(
+        'Không thể tải thông tin tài khoản sau khi đăng nhập'
+      );
+    }
+
+    return profile;
+  };
+  const loginWithGoogle = async (
+    idToken: string
+  ): Promise<AuthUser> => {
+    const tokens = await authRepository.loginWithGoogle(idToken);
+
+    return initializeSession(tokens);
+  };
   useEffect(() => {
     let isCancelled = false;
 
@@ -254,38 +288,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user]
   );
 
-  const login = async (email: string, password: string) => {
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<AuthUser> => {
     const tokens = await authRepository.login(email, password);
 
-    const accessToken = tokens?.access_token;
-    const refreshToken = tokens?.refresh_token;
-
-    if (!accessToken) {
-      throw new Error('Không nhận được mã xác thực từ máy chủ');
-    }
-
-    setUser(null);
-    localStorage.removeItem('tenant_id');
-    localStorage.removeItem('auth_user');
-    localStorage.removeItem('refresh_token');
-    localStorage.setItem('access_token', accessToken);
-    if (refreshToken) {
-      localStorage.setItem('refresh_token', refreshToken);
-    }
-    setToken(accessToken);
-
-    // Fetch official user profile directly from /api/auth/me
-    const profile = await refreshProfile();
-    if (!profile) {
-      throw new Error('Không thể tải thông tin tài khoản sau khi đăng nhập');
-    }
-    return profile;
+    return initializeSession(tokens);
   };
-
   const logout = () => {
     const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null;
     if (refreshToken) {
-      authRepository.logout(refreshToken).catch(() => {});
+      authRepository.logout(refreshToken).catch(() => { });
     }
     clearSessionAndRedirect();
     setToken(null);
@@ -298,6 +312,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         token,
         login,
+        loginWithGoogle,
         logout,
         refreshProfile,
         hasPermission,

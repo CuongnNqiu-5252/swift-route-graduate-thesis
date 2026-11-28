@@ -19,7 +19,7 @@ interface NavItemConfig {
 const navGroups: { label?: string; items: NavItemConfig[] }[] = [
   {
     items: [
-      { href: '/', label: 'Tổng quan', icon: LayoutDashboard },
+      { href: '/overview', label: 'Tổng quan', icon: LayoutDashboard },
     ],
   },
   {
@@ -56,7 +56,7 @@ const navGroups: { label?: string; items: NavItemConfig[] }[] = [
   },
 ];
 
-const mobilePrimary = ['/', '/dispatch', '/operations'];
+const mobilePrimary = ['/overview', '/dispatch', '/operations'];
 const sidebarWidthKey = 'swiftroute.workspace.sidebar-width';
 const defaultSidebarWidth = 240;
 const minSidebarWidth = 216;
@@ -107,7 +107,7 @@ export function Sidebar() {
     ...group, items: group.items.filter(({ href }) => !mobilePrimary.includes(href)),
   })).filter(({ items: links }) => links.length > 0);
 
-  const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(href + '/'));
+  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/');
   const moreActive = moreGroups.some((group) => group.items.some(({ href }) => isActive(href)));
   const focusClass = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-600';
   const toggleLabel = collapsed ? t('Mở rộng sidebar') : t('Thu gọn sidebar');
@@ -169,7 +169,7 @@ export function Sidebar() {
           aria-current={active ? 'page' : undefined}
           onClick={() => setMenuOpen(false)}
           className={cn(
-            'flex min-h-11 items-center gap-2.5 overflow-hidden rounded-lg text-sm font-medium transition-colors',
+            'flex min-h-11 items-center gap-2.5 overflow-hidden rounded-sm text-sm font-medium transition-colors',
             focusClass,
             mobile ? 'px-3' : 'px-[19px]',
             active ? 'bg-white font-semibold text-slate-950' : 'text-slate-700 hover:bg-white/70',
@@ -201,7 +201,7 @@ export function Sidebar() {
       }}
     >
       <div className="hidden h-16 shrink-0 items-center gap-3 overflow-hidden pl-6 pr-3 lg:flex">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-blue-600">
           <Truck size={18} className="text-white" aria-hidden="true" />
         </div>
         <div className={cn(labelMotion, collapsedLabel)} aria-hidden={collapsed}>
@@ -234,7 +234,7 @@ export function Sidebar() {
           {mobileItems.map(({ href, label, icon: Icon }) => (
             <li key={href} className="min-w-0 flex-1">
               <Link href={href} onClick={() => setMenuOpen(false)} aria-current={isActive(href) ? 'page' : undefined}
-                className={cn('mx-0.5 flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg px-0.5 text-center text-[11px] leading-tight', focusClass, isActive(href) ? 'bg-slate-100 font-semibold text-slate-950' : 'text-slate-600')}>
+                className={cn('mx-0.5 flex min-h-12 flex-col items-center justify-center gap-1 rounded-sm px-0.5 text-center text-[11px] leading-tight', focusClass, isActive(href) ? 'bg-slate-100 font-semibold text-slate-950' : 'text-slate-600')}>
                 <Icon size={18} className="shrink-0" aria-hidden="true" />
                 <span>{t(label)}</span>
               </Link>
@@ -245,7 +245,7 @@ export function Sidebar() {
               <button ref={moreButton} type="button" aria-label={menuOpen ? t('Đóng menu') : t('Mở thêm mục')}
                 aria-expanded={menuOpen} aria-controls={menuOpen ? 'mobile-navigation' : undefined}
                 onClick={() => setMenuOpen((open) => !open)}
-                className={cn('mx-0.5 flex min-h-12 w-full flex-col items-center justify-center gap-1 rounded-lg text-[11px]', focusClass, moreActive || menuOpen ? 'bg-slate-100 font-semibold text-slate-950' : 'text-slate-600')}>
+                className={cn('mx-0.5 flex min-h-12 w-full flex-col items-center justify-center gap-1 rounded-sm text-[11px]', focusClass, moreActive || menuOpen ? 'bg-slate-100 font-semibold text-slate-950' : 'text-slate-600')}>
                 {menuOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
                 <span>{t('Thêm')}</span>
               </button>
@@ -269,7 +269,7 @@ export function Sidebar() {
       <div className="hidden py-3 pl-[18px] lg:block">
         <button type="button" onClick={() => setCollapsed((value) => !value)}
           aria-label={toggleLabel} title={toggleLabel} aria-expanded={!collapsed}
-          className={cn('grid size-11 cursor-pointer place-items-center rounded-lg text-slate-600 transition-colors hover:bg-white hover:text-slate-950', focusClass)}>
+          className={cn('grid size-11 cursor-pointer place-items-center rounded-sm text-slate-600 transition-colors hover:bg-white hover:text-slate-950', focusClass)}>
           {collapsed ? <PanelLeftOpen size={19} aria-hidden="true" /> : <PanelLeftClose size={19} aria-hidden="true" />}
         </button>
       </div>

@@ -1,11 +1,14 @@
 package com.swiftroute.orderservice.service;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -21,7 +24,6 @@ import com.swiftroute.orderservice.entity.DeliveryTask;
 import com.swiftroute.orderservice.entity.DispatchPlan;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OutboxEvent;
-import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.entity.enums.PlanStatus;
@@ -35,25 +37,20 @@ import com.swiftroute.orderservice.repository.DeliveryTaskRepository;
 import com.swiftroute.orderservice.repository.DispatchPlanRepository;
 import com.swiftroute.orderservice.repository.OrderRepository;
 import com.swiftroute.orderservice.repository.OutboxEventRepository;
-import com.swiftroute.orderservice.repository.ReturnRequestRepository;
 
 import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class DeliveryExecutionService {
+    private static final ZoneId DELIVERY_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final EnumSet<DeliveryTaskStatus> ACTIVE = EnumSet.of(
-            DeliveryTaskStatus.ASSIGNED,
-            DeliveryTaskStatus.ACCEPTED,
-            DeliveryTaskStatus.ARRIVED,
-            DeliveryTaskStatus.PICKED_UP,
             DeliveryTaskStatus.OUT_FOR_DELIVERY);
 
     private final DeliveryTaskRepository tasks;
     private final DeliveryAttemptRepository attempts;
     private final OrderRepository orders;
     private final AuditLogRepository auditLogs;
-    private final ReturnRequestRepository returnRequests;
     private final OutboxEventRepository outboxEvents;
     private final DispatchPlanRepository dispatchPlans;
     private final RecipientDeliveryEvents recipientDeliveryEvents;
@@ -80,6 +77,7 @@ public class DeliveryExecutionService {
                         .order(order)
                         .tenantId(order.getTenant().getId())
                         .driverId(driverId)
+                        .taskType("DELIVERY")
                         .status(DeliveryTaskStatus.OUT_FOR_DELIVERY)
                         .build()));
     }
@@ -87,6 +85,18 @@ public class DeliveryExecutionService {
     @Transactional
     public DeliveryTask markDeliveryTaskFailed(Order order, UUID driverId) {
         UUID effectiveDriver = driverId != null ? driverId : order.getAssignedDriverId();
+        if (effectiveDriver == null) {
+            return tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
+                    .map(task -> {
+                        if (task.getStatus() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
+                            task.setStatus(DeliveryTaskStatus.FAILED);
+                            task.setUpdatedAt(Instant.now());
+                            return tasks.save(task);
+                        }
+                        return task;
+                    })
+                    .orElse(null);
+        }
         DeliveryTask task = tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                 .orElseGet(() -> DeliveryTask.builder()
                         .order(order)
@@ -96,53 +106,6 @@ public class DeliveryExecutionService {
                         .build());
         task.setStatus(DeliveryTaskStatus.FAILED);
         task.setUpdatedAt(Instant.now());
-        return tasks.save(task);
-    }
-
-    @Transactional
-    public DeliveryTask createReturnTask(Order order, UUID driverId) {
-        return tasks.findByOrder_IdAndTaskType(order.getId(), "RETURN")
-                .map(task -> {
-                    if (task.getStatus() != DeliveryTaskStatus.CANCELLED
-                            && task.getStatus() != DeliveryTaskStatus.FAILED) {
-                        throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-                    }
-                    task.setDriverId(driverId);
-                    task.setStatus(DeliveryTaskStatus.OUT_FOR_DELIVERY);
-                    task.setUpdatedAt(Instant.now());
-                    return task;
-                })
-                .orElseGet(() -> tasks.save(DeliveryTask.builder()
-                        .order(order)
-                        .tenantId(order.getTenant().getId())
-                        .driverId(driverId)
-                        .taskType("RETURN")
-                        .status(DeliveryTaskStatus.OUT_FOR_DELIVERY)
-                        .build()));
-    }
-
-    @Transactional
-    public DeliveryTask reactivateForRedelivery(Order order, UUID driverId) {
-        DeliveryTask task = tasks.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
-                .orElseGet(() -> DeliveryTask.builder()
-                        .order(order)
-                        .tenantId(order.getTenant().getId())
-                        .driverId(driverId)
-                        .taskType("DELIVERY")
-                        .status(DeliveryTaskStatus.FAILED)
-                        .build());
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(task.getTenantId());
-        if (task.getStatus() == DeliveryTaskStatus.COMPLETED || task.getStatus() == DeliveryTaskStatus.CANCELLED) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-        OrderStatus previous = order.getStatus();
-        task.setDriverId(driverId);
-        task.setStatus(DeliveryTaskStatus.OUT_FOR_DELIVERY);
-        task.setUpdatedAt(Instant.now());
-        order.setAssignedDriverId(driverId);
-        order.setStatus(OrderStatus.IN_TRANSIT);
-        order.setUpdatedAt(Instant.now());
-        recordStatusChange(order, previous, OrderStatus.IN_TRANSIT, driverId, "OPERATOR", "Kích hoạt giao lại đơn hàng");
         return tasks.save(task);
     }
 
@@ -169,11 +132,23 @@ public class DeliveryExecutionService {
         return tasks.findByDriverIdAndStatusIn(driverId, ACTIVE).stream()
                 .filter(this::matchesCurrentDispatchPlan)
                 .filter(task -> task.getOrder().getStatus() != OrderStatus.CANCELLED)
-                .map(task -> "RETURN".equals(task.getTaskType())
-                        ? DriverDeliveryTaskResponse.from(task, returnRequests.findByReturnTask_Id(task.getId())
-                                .map(ReturnRequest::getReturnLocation).orElse(null))
-                        : DriverDeliveryTaskResponse.from(task))
+                .map(DriverDeliveryTaskResponse::from)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<DriverDeliveryTaskResponse> tasksForDriverToday(UUID driverId, String role, UUID tenantId) {
+        requireDriver(role);
+        if (tenantId == null) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        Instant startOfDay = LocalDate.now(DELIVERY_ZONE).atStartOfDay(DELIVERY_ZONE).toInstant();
+        var active = activeForDriver(driverId, role).stream()
+                .filter(task -> tenantId.equals(task.order().tenantId()));
+        var completed = tasks.findByTenantIdAndDriverIdAndStatusAndUpdatedAtGreaterThanEqualOrderByUpdatedAtDesc(
+                tenantId, driverId, DeliveryTaskStatus.COMPLETED, startOfDay)
+                .stream().map(DriverDeliveryTaskResponse::from);
+        return Stream.concat(active, completed).toList();
     }
 
     @Transactional
@@ -186,7 +161,6 @@ public class DeliveryExecutionService {
         }
 
         DeliveryTaskStatus previous = task.getStatus();
-        // The order remains authoritative even if a stale task is still active.
         if (task.getOrder().getStatus() == OrderStatus.CANCELLED) {
             throw new AppException(ErrorCode.ORDER_ALREADY_CANCELLED);
         }
@@ -198,15 +172,12 @@ public class DeliveryExecutionService {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
         if (previous == request.status()) {
-            if ("RETURN".equals(task.getTaskType()) && previous == DeliveryTaskStatus.COMPLETED) {
-                return task;
-            }
             Order order = task.getOrder();
-            applyOrderState(task, order, driverId, request);
+            applyOrderState(order, driverId, request);
             orders.save(order);
             return task;
         }
-        if (!allowed(task.getTaskType(), previous, request.status())) {
+        if (!allowed(previous, request.status())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
         if (request.status() == DeliveryTaskStatus.FAILED
@@ -216,8 +187,7 @@ public class DeliveryExecutionService {
 
         ProofPolicy successNotePolicy = ProofPolicy.OPTIONAL;
         ProofPolicy successPhotoPolicy = ProofPolicy.REQUIRED;
-        if ("DELIVERY".equals(task.getTaskType()) && request.status() == DeliveryTaskStatus.COMPLETED
-                && deliveryProofConfigs != null) {
+        if (request.status() == DeliveryTaskStatus.COMPLETED && deliveryProofConfigs != null) {
             DeliveryProofConfig proofConfig = deliveryProofConfigs.findByTenantId(task.getTenantId()).orElse(null);
             if (proofConfig != null) {
                 if (proofConfig.getSuccessNotePolicy() != null) {
@@ -242,25 +212,22 @@ public class DeliveryExecutionService {
         Order order = task.getOrder();
         task.setStatus(request.status());
         task.setUpdatedAt(Instant.now());
-        applyOrderState(task, order, driverId, request);
+        applyOrderState(order, driverId, request);
 
-        if (deliveryStartedEventEnabled && "DELIVERY".equals(task.getTaskType())
-                && request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
+        if (deliveryStartedEventEnabled && request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
             publishDeliveryStarted(task, order);
         }
 
-        if ("DELIVERY".equals(task.getTaskType()) && request.status() == DeliveryTaskStatus.COMPLETED) {
+        if (request.status() == DeliveryTaskStatus.COMPLETED) {
             publishDeliveryCompleted(task, order);
         }
 
         if (request.status() == DeliveryTaskStatus.COMPLETED || request.status() == DeliveryTaskStatus.FAILED) {
             String attemptNotes = request.status() == DeliveryTaskStatus.COMPLETED
-                    && "DELIVERY".equals(task.getTaskType())
                     && successNotePolicy == ProofPolicy.DISABLED
                             ? null
                             : request.notes();
             String attemptProofUrl = request.status() == DeliveryTaskStatus.COMPLETED
-                    && "DELIVERY".equals(task.getTaskType())
                     && successPhotoPolicy == ProofPolicy.DISABLED
                             ? null
                             : request.proofUrl();
@@ -276,9 +243,7 @@ public class DeliveryExecutionService {
                     .completedBy(driverId)
                     .build();
             attempts.save(attempt);
-            if ("DELIVERY".equals(task.getTaskType())) {
-                recipientDeliveryEvents.recordResult(attempt);
-            }
+            recipientDeliveryEvents.recordResult(attempt);
         }
 
         orders.save(order);
@@ -300,10 +265,12 @@ public class DeliveryExecutionService {
     }
 
     public void completeDeliveryPlanIfFinished(Order order) {
-        completeDeliveryPlanIfFinished(order.getPlanId());
+        if (order != null) {
+            completeDeliveryPlanIfFinished(order.getPlanId());
+        }
     }
 
-    private void completeDeliveryPlanIfFinished(UUID planId) {
+    public void completeDeliveryPlanIfFinished(UUID planId) {
         if (planId == null) {
             return;
         }
@@ -389,45 +356,12 @@ public class DeliveryExecutionService {
     }
 
     private void applyOrderState(
-            DeliveryTask task,
             Order order,
             UUID driverId,
             UpdateDeliveryTaskRequest request) {
         OrderStatus previous = order.getStatus();
-        if ("RETURN".equals(task.getTaskType())) {
-            if (request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
-                order.setStatus(OrderStatus.RETURNING);
-            }
-            if (request.status() == DeliveryTaskStatus.COMPLETED) {
-                ReturnRequest returnRequest = returnRequests.findByReturnTask_Id(task.getId())
-                        .orElseThrow(() -> new AppException(ErrorCode.INVALID_ORDER_STATUS));
-                returnRequest.setStatus("AWAITING_RECEIPT");
-                returnRequest.setUpdatedAt(Instant.now());
-                if (order.getStatus() != OrderStatus.RETURNED) {
-                    order.setStatus(OrderStatus.RETURNING);
-                }
-            }
-            if (request.status() == DeliveryTaskStatus.FAILED) {
-                returnRequests.findByReturnTask_Id(task.getId()).ifPresent(returnRequest -> {
-                    returnRequest.setStatus("EXECUTION_FAILED");
-                    returnRequest.setUpdatedAt(Instant.now());
-                });
-            }
-            order.setUpdatedAt(Instant.now());
-            recordStatusChange(order, previous, order.getStatus(), driverId, "DRIVER",
-                    buildTransitionReason(task, request, order.getStatus()));
-            return;
-        }
-
         if (order.getAssignedDriverId() == null || !order.getAssignedDriverId().equals(driverId)) {
             order.setAssignedDriverId(driverId);
-        }
-        if (request.status() == DeliveryTaskStatus.ACCEPTED
-                || request.status() == DeliveryTaskStatus.ARRIVED
-                || request.status() == DeliveryTaskStatus.PICKED_UP) {
-            if (order.getStatus() == OrderStatus.READY_FOR_DISPATCH) {
-                order.setStatus(OrderStatus.PLANNED);
-            }
         }
         if (request.status() == DeliveryTaskStatus.OUT_FOR_DELIVERY) {
             order.setStatus(OrderStatus.IN_TRANSIT);
@@ -440,7 +374,7 @@ public class DeliveryExecutionService {
         }
         order.setUpdatedAt(Instant.now());
         recordStatusChange(order, previous, order.getStatus(), driverId, "DRIVER",
-                buildTransitionReason(task, request, order.getStatus()));
+                buildTransitionReason(request, order.getStatus()));
     }
 
     private void recordStatusChange(
@@ -456,7 +390,6 @@ public class DeliveryExecutionService {
     }
 
     private static String buildTransitionReason(
-            DeliveryTask task,
             UpdateDeliveryTaskRequest request,
             OrderStatus targetStatus) {
         if (targetStatus == OrderStatus.FAILED) {
@@ -471,9 +404,7 @@ public class DeliveryExecutionService {
         return switch (targetStatus) {
             case IN_TRANSIT -> "Tài xế bắt đầu giao hàng";
             case DELIVERED -> "Tài xế xác nhận giao hàng thành công";
-            case RETURNING -> "RETURN".equals(task.getTaskType())
-                    ? "Tài xế mang hàng hoàn về kho"
-                    : "Cập nhật trạng thái hoàn hàng";
+            case RETURNING -> "Cập nhật trạng thái hoàn hàng";
             case PLANNED -> "Tài xế xác nhận tiếp nhận đơn";
             default -> "Cập nhật tiến độ giao hàng (" + request.status().name() + ")";
         };
@@ -506,10 +437,6 @@ public class DeliveryExecutionService {
     }
 
     private boolean matchesCurrentDispatchPlan(DeliveryTask task) {
-        if (!"DELIVERY".equals(task.getTaskType())) {
-            return true;
-        }
-        // Reject orphaned tasks whose order was released back to the queue or reassigned.
         UUID assignedDriverId = task.getOrder().getAssignedDriverId();
         if (assignedDriverId == null || !assignedDriverId.equals(task.getDriverId())) {
             return false;
@@ -518,37 +445,11 @@ public class DeliveryExecutionService {
                 || task.getDispatchPlanId().equals(task.getOrder().getPlanId());
     }
 
-    private boolean allowed(String taskType, DeliveryTaskStatus from, DeliveryTaskStatus to) {
-        if (to == DeliveryTaskStatus.FAILED) {
-            return ACTIVE.contains(from);
+    private boolean allowed(DeliveryTaskStatus from, DeliveryTaskStatus to) {
+        if (from != DeliveryTaskStatus.OUT_FOR_DELIVERY) {
+            return false;
         }
-        if ("RETURN".equals(taskType)) {
-            return switch (from) {
-                case ASSIGNED -> to == DeliveryTaskStatus.ACCEPTED || to == DeliveryTaskStatus.OUT_FOR_DELIVERY
-                        || to == DeliveryTaskStatus.COMPLETED;
-                case ACCEPTED -> to == DeliveryTaskStatus.OUT_FOR_DELIVERY || to == DeliveryTaskStatus.COMPLETED;
-                case ARRIVED -> to == DeliveryTaskStatus.COMPLETED;
-                case OUT_FOR_DELIVERY -> to == DeliveryTaskStatus.COMPLETED;
-                default -> false;
-            };
-        }
-        return switch (from) {
-            case ASSIGNED -> to == DeliveryTaskStatus.ACCEPTED
-                    || to == DeliveryTaskStatus.PICKED_UP
-                    || to == DeliveryTaskStatus.OUT_FOR_DELIVERY
-                    || to == DeliveryTaskStatus.COMPLETED;
-            case ACCEPTED -> to == DeliveryTaskStatus.ARRIVED
-                    || to == DeliveryTaskStatus.PICKED_UP
-                    || to == DeliveryTaskStatus.OUT_FOR_DELIVERY
-                    || to == DeliveryTaskStatus.COMPLETED;
-            case ARRIVED -> to == DeliveryTaskStatus.PICKED_UP
-                    || to == DeliveryTaskStatus.OUT_FOR_DELIVERY
-                    || to == DeliveryTaskStatus.COMPLETED;
-            case PICKED_UP -> to == DeliveryTaskStatus.OUT_FOR_DELIVERY
-                    || to == DeliveryTaskStatus.COMPLETED;
-            case OUT_FOR_DELIVERY -> to == DeliveryTaskStatus.COMPLETED;
-            default -> false;
-        };
+        return to == DeliveryTaskStatus.COMPLETED || to == DeliveryTaskStatus.FAILED;
     }
 
     private void requireDriver(String role) {

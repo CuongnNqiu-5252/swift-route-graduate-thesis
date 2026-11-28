@@ -39,6 +39,7 @@ public class SecurityConfig {
                                 "/internal/tenant-memberships/*/chat-members",
                                 "/internal/driver-activations/**",
                                 "/api/auth/login",
+                                "/api/auth/google/login",
                                 "/api/auth/driver/activate",
                                 "/api/auth/refresh",
                                 "/api/auth/invitations/accept",

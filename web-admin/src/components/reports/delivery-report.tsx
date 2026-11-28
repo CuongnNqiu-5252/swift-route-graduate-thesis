@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowUpRight } from 'lucide-react';
 import { formatIncidentType } from '@/application/operations-display';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n/provider';
@@ -11,11 +9,14 @@ import {
   type DeliveryReportDay,
   type DeliveryReportFilters,
 } from '@/infrastructure/repositories/delivery-report.repository';
+import { ArrowUpRight } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { DeliveryReportDetails } from './delivery-report-details';
+import { DeliveryReportCharts } from './delivery-report-charts';
 
 const zone = 'Asia/Ho_Chi_Minh';
 const dayMs = 86_400_000;
-const fieldClass = 'min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
+const fieldClass = 'min-h-11 w-full min-w-0 rounded-sm border border-slate-300 bg-white px-3 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 const linkClass = 'inline-flex min-h-11 items-center gap-1 rounded-sm text-sm font-medium text-blue-800 underline decoration-blue-300 underline-offset-4 hover:text-blue-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 const mobileCell = "max-sm:px-0 max-sm:py-0 max-sm:text-left max-sm:before:block max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]";
 const zeroDay = { delivered: 0, with_deadline: 0, on_time: 0, first_attempts: 0, first_successes: 0, failures: 0 };
@@ -164,10 +165,11 @@ function ReportResults({ report, filters, warehouses }: {
         ))}
       </dl>
 
+      {report.days.length > 0 && <DeliveryReportCharts days={days} />}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(16.5rem,1fr)]">
         <section aria-labelledby="report-by-day" className="min-w-0 rounded-xl border border-slate-200">
           <div className="flex flex-wrap items-center justify-between gap-x-4 px-4 py-2.5">
-            <h2 id="report-by-day" className="text-base font-semibold text-slate-950">{t('Kết quả theo ngày')}</h2>
+            <h2 id="report-by-day" className="text-base font-semibold text-slate-950">{t('Chi tiết theo ngày')}</h2>
             {late > 0 && (
               <DeliveryReportDetails title={t('Đơn giao trễ')} filters={filters} detail={{ kind: 'LATE' }} trigger={
                 <button type="button" className={linkClass}>
@@ -177,6 +179,8 @@ function ReportResults({ report, filters, warehouses }: {
             )}
           </div>
           {report.days.length === 0 && <p className="px-4 pb-3 text-sm text-slate-600">{t('Chưa ghi nhận lần giao nào trong kỳ này.')}</p>}
+          {report.days.length > 0 && <details>
+          <summary className="cursor-pointer px-4 pb-3 text-sm font-medium text-blue-800">{t('Xem bảng số liệu')}</summary>
           <div role="region" aria-labelledby="report-by-day" tabIndex={0} className="overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-700">
             <table role="table" className="w-full text-sm tabular-nums max-sm:block sm:min-w-[34rem]">
               <thead role="rowgroup" className="border-y border-slate-200 text-slate-600 max-sm:sr-only">
@@ -224,6 +228,7 @@ function ReportResults({ report, filters, warehouses }: {
               </tbody>
             </table>
           </div>
+          </details>}
         </section>
 
         <section aria-labelledby="report-failure-reasons" className="min-w-0 rounded-xl border border-slate-200">

@@ -2,23 +2,23 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useState, useEffect, useCallback } from 'react';
-import * as Tabs from '@radix-ui/react-tabs';
-import type { TenantSettings } from '@/domain/entities/tenant-settings.entity';
-import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
-import DeliveryZoneSection from '@/components/settings/delivery-zone-section';
 import { useAuth } from '@/application/contexts/auth-context';
 import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
+import DeliveryZoneSection from '@/components/settings/delivery-zone-section';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import type { TenantSettings } from '@/domain/entities/tenant-settings.entity';
+import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
+import * as Tabs from '@radix-ui/react-tabs';
 import {
-  Sliders,
-  Save,
-  RotateCcw,
   Clock,
   Gauge,
   MapPin,
+  RotateCcw,
+  Save,
+  Sliders,
 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 const ROUTE_PRIORITIES = [
@@ -168,7 +168,7 @@ export default function SettingsPage() {
       >
         <Tabs.List
           aria-label={t("Danh mục cài đặt")}
-          className="inline-flex rounded-lg border border-slate-200 bg-white p-1"
+          className="inline-flex rounded-sm border border-slate-200 bg-white p-1"
         >
           <Tabs.Trigger
             value="general"
@@ -235,7 +235,7 @@ export default function SettingsPage() {
                   disabled={!canEdit || isSaving}
                   value={timeWeight}
                   onChange={(e) => setTimeWeight(parseFloat(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer h-2 bg-gray-200 rounded-lg"
+                  className="w-full accent-blue-600 cursor-pointer h-2 bg-gray-200 rounded-sm"
                 />
               </div>
             </CardContent>
@@ -266,7 +266,7 @@ export default function SettingsPage() {
                       max="20"
                       value={maxOrders}
                       onChange={(e) => setMaxOrders(parseInt(e.target.value) || 1)}
-                      className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
+                      className="w-24 rounded-sm border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
                     />
                     <span className="text-xs text-gray-500">{t("đơn hàng / chuyến xe (Khuyến nghị 2 - 10)")}</span>
                   </div>
@@ -285,7 +285,7 @@ export default function SettingsPage() {
                       step="any"
                       value={maxWaitMinutes}
                       onChange={(e) => setMaxWaitMinutes(e.target.valueAsNumber || 0.5)}
-                      className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
+                      className="w-24 rounded-sm border border-gray-300 px-3 py-2 text-sm text-gray-900 font-semibold"
                     />
                     <span className="text-xs text-gray-500">{t("phút (Kích hoạt điều phối ngay cả khi chưa đủ số đơn)")}</span>
                   </div>

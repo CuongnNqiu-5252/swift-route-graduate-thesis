@@ -20,7 +20,6 @@ class AuthInterceptor extends Interceptor {
   });
 
   static const List<String> _publicPaths = [
-    '/auth/login',
     '/auth/driver/activate',
     '/auth/refresh',
   ];
@@ -173,7 +172,8 @@ class AuthInterceptor extends Interceptor {
             ),
           );
           final switchBody = switchResp.data;
-          final switchData = switchBody is Map<String, dynamic> &&
+          final switchData =
+              switchBody is Map<String, dynamic> &&
                   switchBody['data'] is Map<String, dynamic>
               ? switchBody['data'] as Map<String, dynamic>
               : (switchBody is Map<String, dynamic> ? switchBody : null);

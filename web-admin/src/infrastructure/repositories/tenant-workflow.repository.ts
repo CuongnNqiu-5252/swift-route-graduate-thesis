@@ -28,7 +28,7 @@ export async function switchTenant(id: string) {
       const currentPath = window.location.pathname;
       if (currentPath === '/onboarding' || currentPath.startsWith('/organizations')) {
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.assign('/');
+        window.location.assign('/overview');
       } else {
         window.location.reload();
       }

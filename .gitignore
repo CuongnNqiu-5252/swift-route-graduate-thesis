@@ -48,5 +48,14 @@ data/
 **/*.log
 .impeccable/
 .codex/
+.agent/
+.archify/
+.pytest_cache/
+**/.pytest_cache/
+dbml/
+docs/diagrams/
+order_db_schema.sql
 *.drawio
+*.mdj
+*.puml
 *.md

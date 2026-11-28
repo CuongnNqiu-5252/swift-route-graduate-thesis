@@ -2,34 +2,34 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice } from '@/components/auth/permission-guard';
+import LocationMapPicker from '@/components/locations/location-map-picker';
+import PickupLocationsMap from '@/components/locations/pickup-locations-map';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
-  PickupLocation,
-  PickupLocationStatus,
   PICKUP_LOCATION_STATUS_COLOR,
   PICKUP_LOCATION_STATUS_LABEL,
+  PickupLocation,
+  PickupLocationStatus,
 } from '@/domain/entities/pickup-location.entity';
 import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
-import { Button } from '@/components/ui/button';
-import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { Card, CardContent } from '@/components/ui/card';
 import {
+  Building2,
+  Edit2,
   MapPin,
+  Phone,
   Plus,
   RefreshCw,
   Star,
-  Edit2,
   Trash2,
-  Phone,
   User,
-  Building2,
   X,
 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import LocationMapPicker from '@/components/locations/location-map-picker';
-import PickupLocationsMap from '@/components/locations/pickup-locations-map';
-import { useAuth } from '@/application/contexts/auth-context';
-import { AccessDeniedNotice } from '@/components/auth/permission-guard';
 
 const messageFrom = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
 
@@ -227,25 +227,22 @@ export default function PickupLocationsPage() {
         <div className="flex gap-2">
           <button
             onClick={() => setStatusFilter(undefined)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              statusFilter === undefined ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
-            }`}
+            className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${statusFilter === undefined ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+              }`}
           >
             {t("Tất cả (")}{locations.length})
           </button>
           <button
             onClick={() => setStatusFilter('ACTIVE')}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              statusFilter === 'ACTIVE' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
-            }`}
+            className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${statusFilter === 'ACTIVE' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+              }`}
           >
             {t("Đang hoạt động (")}{locations.filter((l) => l.status === 'ACTIVE').length})
           </button>
           <button
             onClick={() => setStatusFilter('INACTIVE')}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              statusFilter === 'INACTIVE' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
-            }`}
+            className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${statusFilter === 'INACTIVE' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+              }`}
           >
             {t("Ngừng hoạt động (")}{locations.filter((l) => l.status === 'INACTIVE').length})
           </button>
@@ -353,9 +350,8 @@ export default function PickupLocationsPage() {
 
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium border ${
-                            PICKUP_LOCATION_STATUS_COLOR[loc.status]
-                          }`}
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium border ${PICKUP_LOCATION_STATUS_COLOR[loc.status]
+                            }`}
                         >
                           {t(PICKUP_LOCATION_STATUS_LABEL[loc.status])}
                         </span>
@@ -363,39 +359,39 @@ export default function PickupLocationsPage() {
 
                       <td className="px-6 py-4 text-right">
                         {canManageLocations && (
-                        <div className="flex items-center justify-end gap-2">
-                          {!loc.is_default && loc.status === 'ACTIVE' && (
+                          <div className="flex items-center justify-end gap-2">
+                            {!loc.is_default && loc.status === 'ACTIVE' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={t("Đặt làm mặc định")}
+                                onClick={() => handleSetDefault(loc.id)}
+                                className="h-8 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                              >
+                                <Star className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
-                              title={t("Đặt làm mặc định")}
-                              onClick={() => handleSetDefault(loc.id)}
-                              className="h-8 px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                              title={t("Chỉnh sửa")}
+                              onClick={() => openEditModal(loc)}
+                              className="h-8 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             >
-                              <Star className="h-4 w-4" />
+                              <Edit2 className="h-4 w-4" />
                             </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            title={t("Chỉnh sửa")}
-                            onClick={() => openEditModal(loc)}
-                            className="h-8 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          {loc.status === 'ACTIVE' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title={t("Ngừng hoạt động")}
-                              onClick={() => setDeleteTarget(loc)}
-                              className="h-8 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
+                            {loc.status === 'ACTIVE' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={t("Ngừng hoạt động")}
+                                onClick={() => setDeleteTarget(loc)}
+                                className="h-8 px-2 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -422,128 +418,128 @@ export default function PickupLocationsPage() {
 
             <form onSubmit={handleSubmit} className="mt-4 grid gap-6 lg:grid-cols-[1fr_1.15fr]">
               <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700">{t("Tên điểm lấy hàng / kho *")}</label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={t("Ví dụ: Kho Tổng Cần Thơ, Chi nhánh Ninh Kiều")}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700">{t("Địa chỉ chi tiết *")}</label>
-                <input
-                  type="text"
-                  required
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder={t("Ví dụ: 123 Đường 3/2, P. Xuân Khánh, Q. Ninh Kiều, Cần Thơ")}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="overflow-hidden rounded-xl border border-slate-200">
-                <LocationMapPicker
-                  lat={Number(lat)}
-                  lng={Number(lng)}
-                  address={address}
-                  onResolvingChange={setResolvingAddress}
-                  onChange={(nextLat, nextLng, resolvedAddress) => {
-                    setLat(nextLat.toFixed(6));
-                    setLng(nextLng.toFixed(6));
-                    setLocationConfirmed(true);
-                    if (resolvedAddress) setAddress(resolvedAddress);
-                  }}
-                />
-              </div>
-
-              <button type="button" onClick={() => setShowCoordinates((value) => !value)} className="text-left text-xs font-semibold text-blue-700 underline underline-offset-4">
-                {showCoordinates ? t("Ẩn tọa độ nâng cao") : t("Hiện tọa độ nâng cao")}
-              </button>
-
-              {showCoordinates && <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700">{t("Vĩ độ (Latitude) *")}</label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    required
-                    value={lat}
-                    onChange={(e) => setLat(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700">{t("Kinh độ (Longitude) *")}</label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    required
-                    value={lng}
-                    onChange={(e) => setLng(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700">{t("Người liên hệ")}</label>
+                  <label className="block text-xs font-medium text-gray-700">{t("Tên điểm lấy hàng / kho *")}</label>
                   <input
                     type="text"
-                    value={contactName}
-                    onChange={(e) => setContactName(e.target.value)}
-                    placeholder={t("Mặc định theo tên doanh nghiệp")}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t("Ví dụ: Kho Tổng Cần Thơ, Chi nhánh Ninh Kiều")}
+                    className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium text-gray-700">{t("Số điện thoại liên hệ")}</label>
+                  <label className="block text-xs font-medium text-gray-700">{t("Địa chỉ chi tiết *")}</label>
                   <input
                     type="text"
-                    value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value)}
-                    placeholder={t("Mặc định theo SĐT doanh nghiệp")}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    required
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder={t("Ví dụ: 123 Đường 3/2, P. Xuân Khánh, Q. Ninh Kiều, Cần Thơ")}
+                    className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                   />
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="isDefaultCheckbox"
-                  checked={isDefault}
-                  onChange={(e) => setIsDefault(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="isDefaultCheckbox" className="text-sm font-medium text-gray-700">
-                  {t("Đặt làm điểm lấy hàng mặc định của doanh nghiệp")}
-                </label>
-              </div>
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <LocationMapPicker
+                    lat={Number(lat)}
+                    lng={Number(lng)}
+                    address={address}
+                    onResolvingChange={setResolvingAddress}
+                    onChange={(nextLat, nextLng, resolvedAddress) => {
+                      setLat(nextLat.toFixed(6));
+                      setLng(nextLng.toFixed(6));
+                      setLocationConfirmed(true);
+                      if (resolvedAddress) setAddress(resolvedAddress);
+                    }}
+                  />
+                </div>
+
+                <button type="button" onClick={() => setShowCoordinates((value) => !value)} className="text-left text-xs font-semibold text-blue-700 underline underline-offset-4">
+                  {showCoordinates ? t("Ẩn tọa độ nâng cao") : t("Hiện tọa độ nâng cao")}
+                </button>
+
+                {showCoordinates && <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">{t("Vĩ độ (Latitude) *")}</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={lat}
+                      onChange={(e) => setLat(e.target.value)}
+                      className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">{t("Kinh độ (Longitude) *")}</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={lng}
+                      onChange={(e) => setLng(e.target.value)}
+                      className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">{t("Người liên hệ")}</label>
+                    <input
+                      type="text"
+                      value={contactName}
+                      onChange={(e) => setContactName(e.target.value)}
+                      placeholder={t("Mặc định theo tên doanh nghiệp")}
+                      className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700">{t("Số điện thoại liên hệ")}</label>
+                    <input
+                      type="text"
+                      value={contactPhone}
+                      onChange={(e) => setContactPhone(e.target.value)}
+                      placeholder={t("Mặc định theo SĐT doanh nghiệp")}
+                      className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <input
+                    type="checkbox"
+                    id="isDefaultCheckbox"
+                    checked={isDefault}
+                    onChange={(e) => setIsDefault(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="isDefaultCheckbox" className="text-sm font-medium text-gray-700">
+                    {t("Đặt làm điểm lấy hàng mặc định của doanh nghiệp")}
+                  </label>
+                </div>
 
               </div>
               <div className="space-y-4">
-              <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-                <p className="font-semibold text-slate-900">{t("Cách chọn vị trí")}</p>
-                <p className="mt-1">{t("Điền địa chỉ để lưu thông tin hiển thị, sau đó đặt ghim chính xác trên bản đồ. Tài xế sẽ được dẫn tới chính tọa độ này.")}</p>
-              </div>
-              <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
-                <Button type="button" variant="outline" onClick={closeModal}>
-                  {t("Hủy")}
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || resolvingAddress || !locationConfirmed}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {isSubmitting ? t("Đang lưu...") : resolvingAddress ? t("Đang lấy địa chỉ...") : t("Lưu điểm lấy hàng")}
-                </Button>
-              </div>
+                <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                  <p className="font-semibold text-slate-900">{t("Cách chọn vị trí")}</p>
+                  <p className="mt-1">{t("Điền địa chỉ để lưu thông tin hiển thị, sau đó đặt ghim chính xác trên bản đồ. Tài xế sẽ được dẫn tới chính tọa độ này.")}</p>
+                </div>
+                <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
+                  <Button type="button" variant="outline" onClick={closeModal}>
+                    {t("Hủy")}
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || resolvingAddress || !locationConfirmed}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isSubmitting ? t("Đang lưu...") : resolvingAddress ? t("Đang lấy địa chỉ...") : t("Lưu điểm lấy hàng")}
+                  </Button>
+                </div>
               </div>
             </form>
           </div>

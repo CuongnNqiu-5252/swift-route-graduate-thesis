@@ -1,7 +1,12 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { OrderStatusBadge } from '@/components/orders/order-status-badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import type { PublicOrderTracking } from '@/domain/entities/order.entity';
+import { useLocale } from '@/i18n/provider';
+import { orderRepository } from '@/infrastructure/repositories/order.repository';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   Banknote,
@@ -14,13 +19,8 @@ import {
   ShieldCheck,
   Truck,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { OrderStatusBadge } from '@/components/orders/order-status-badge';
-import type { PublicOrderTracking } from '@/domain/entities/order.entity';
-import { useLocale } from '@/i18n/provider';
-import { orderRepository } from '@/infrastructure/repositories/order.repository';
-import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState, type FormEvent } from 'react';
 
 const STEP_ITEMS = [
   { step: 1, label: 'Tiếp nhận đơn' },
@@ -156,7 +156,7 @@ export function PublicTrackingView({ token }: { token: string }) {
       <main className="mx-auto max-w-3xl space-y-5 px-4 py-6 sm:py-8">
         {state.loading && (
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6" role="status">
-            <div className="h-7 w-48 animate-pulse rounded-lg bg-slate-200" />
+            <div className="h-7 w-48 animate-pulse rounded-sm bg-slate-200" />
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="h-14 animate-pulse rounded-xl bg-slate-100" />
               <div className="h-14 animate-pulse rounded-xl bg-slate-100" />

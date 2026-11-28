@@ -1,6 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '@/application/contexts/auth-context';
+import { Button } from '@/components/ui/button';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { CustomSelect } from '@/components/ui/select';
+import {
+  DriverActivationKeyResult,
+  DriverActivationStatusItem,
+  DriverAppActivationStatus,
+} from '@/domain/entities/driver.entity';
+import { useLocale } from '@/i18n/provider';
+import { driverRepository } from '@/infrastructure/repositories/driver.repository';
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,18 +22,8 @@ import {
   Search,
   Smartphone,
 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { useAuth } from '@/application/contexts/auth-context';
-import {
-  DriverActivationKeyResult,
-  DriverActivationStatusItem,
-  DriverAppActivationStatus,
-} from '@/domain/entities/driver.entity';
-import { driverRepository } from '@/infrastructure/repositories/driver.repository';
-import { useLocale } from '@/i18n/provider';
-import { Button } from '@/components/ui/button';
-import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { CustomSelect } from '@/components/ui/select';
 import { DriverActivationCodeModal } from './driver-activation-code-modal';
 
 const STATUS_BADGE_CONFIG: Record<
@@ -511,7 +511,7 @@ export function DriverActivationPanel({ onDriversMutated }: DriverActivationPane
                 placeholder={t('Tên, mã DRV, SĐT, email…')}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                className="h-9 w-full rounded-lg border border-slate-300 bg-white pe-2 ps-8 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-2 focus-visible:outline-blue-600"
+                className="h-9 w-full rounded-sm border border-slate-300 bg-white pe-2 ps-8 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-2 focus-visible:outline-blue-600"
               />
             </label>
           </div>
@@ -667,18 +667,18 @@ export function DriverActivationPanel({ onDriversMutated }: DriverActivationPane
                           {(row.activation_status === 'NOT_ACTIVATED' ||
                             row.activation_status === 'KEY_EXPIRED' ||
                             row.activation_status === 'DEACTIVATED') && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 cursor-pointer px-2.5 text-xs"
-                              disabled={busyAction || isSuspended}
-                              onClick={() => void handleSingleActivate(row, false)}
-                            >
-                              <KeyRound size={13} aria-hidden="true" />
-                              {t('Kích hoạt')}
-                            </Button>
-                          )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 cursor-pointer px-2.5 text-xs"
+                                disabled={busyAction || isSuspended}
+                                onClick={() => void handleSingleActivate(row, false)}
+                              >
+                                <KeyRound size={13} aria-hidden="true" />
+                                {t('Kích hoạt')}
+                              </Button>
+                            )}
                           {(row.activation_status === 'KEY_CREATED' || row.activation_status === 'ACTIVATED') && (
                             <Button
                               type="button"
@@ -780,11 +780,11 @@ export function DriverActivationPanel({ onDriversMutated }: DriverActivationPane
           description={
             deactivateTargetIds.length === 1
               ? `${t('Tài xế')} ${deactivateDriverNames} ${t(
-                  'sẽ mất quyền truy cập vào ứng dụng di động ngay lập tức (phiên đăng nhập, Access Token và Refresh Token của thiết bị này sẽ bị thu hồi). Hồ sơ tài xế và lịch sử giao hàng vẫn được giữ nguyên.'
-                )}`
+                'sẽ mất quyền truy cập vào ứng dụng di động ngay lập tức (phiên đăng nhập, Access Token và Refresh Token của thiết bị này sẽ bị thu hồi). Hồ sơ tài xế và lịch sử giao hàng vẫn được giữ nguyên.'
+              )}`
               : `${deactivateTargetIds.length} ${t(
-                  'tài xế đã chọn sẽ mất quyền truy cập vào ứng dụng di động ngay lập tức. Để sử dụng lại, bạn cần tạo mã kích hoạt mới.'
-                )}`
+                'tài xế đã chọn sẽ mất quyền truy cập vào ứng dụng di động ngay lập tức. Để sử dụng lại, bạn cần tạo mã kích hoạt mới.'
+              )}`
           }
           confirmLabel={t('Xác nhận hủy kích hoạt')}
           destructive

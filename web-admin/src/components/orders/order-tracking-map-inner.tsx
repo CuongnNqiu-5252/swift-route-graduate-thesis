@@ -2,13 +2,13 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
-import type { GeoJSONSource } from 'maplibre-gl';
-import { AlertTriangle, LoaderCircle, Navigation } from 'lucide-react';
 import { useRoadRoute } from '@/application/hooks/use-road-route';
-import type { OrderTrackingMapProps } from './order-tracking-map';
+import { AlertTriangle, LoaderCircle, Navigation } from 'lucide-react';
+import type { GeoJSONSource } from 'maplibre-gl';
+import { AttributionControl, LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { OrderTrackingMapProps } from './order-tracking-map';
 
 if (typeof window !== 'undefined') {
   setWorkerUrl('/maplibre-gl-worker.mjs');
@@ -131,6 +131,6 @@ export default function OrderTrackingMap({ pickup, delivery, showRoute, driver, 
       <div className="flex items-center gap-2 text-xs font-semibold">{route.isLoading ? <LoaderCircle className="animate-spin text-blue-300" size={14} /> : route.error ? <AlertTriangle className="text-amber-300" size={14} /> : <Navigation className="text-blue-300" size={14} />}{route.isLoading ? 'Đang cập nhật tuyến' : driver ? `${driverName || t("Tài xế")} đang tới điểm giao` : driverName ? `Đang chờ GPS của ${driverName}` : 'Tuyến giao dự kiến'}</div>
       <p className="mt-1 text-[11px] text-slate-300">{route.coordinates.length ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.max(1, Math.round(route.durationSeconds / 60))} phút` : route.error || 'Đang chờ dữ liệu đường đi'}</p>
     </div>}
-    {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 z-10 rounded-lg bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}
+    {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 z-10 rounded-sm bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}
   </div>;
 }

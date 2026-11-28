@@ -1,5 +1,6 @@
 'use client';
 
+import { cn } from '@/lib/utils';
 import {
   ChangeEvent,
   FocusEvent,
@@ -9,7 +10,6 @@ import {
   useEffect,
   useState,
 } from 'react';
-import { cn } from '@/lib/utils';
 
 type ValidatableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
@@ -385,7 +385,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           onChange={handleChange}
           onBlur={handleBlur}
           className={cn(
-            'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-400 transition focus:outline-none',
+            'w-full rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-400 transition focus:outline-none',
             displayError && 'border-red-500 focus:border-red-500',
             className
           )}

@@ -70,7 +70,6 @@ export function DispatchRouteSequence({
   const [error, setError] = useState('');
   const [previous, setPrevious] = useState<{ ids: string[]; version?: number } | null>(null);
   const selectedIndex = stops.findIndex((stop) => stop.id === selectedId);
-  const selectedStop = stops[selectedIndex];
   const draggedIndex = stops.findIndex((stop) => stop.id === draggedId);
   const editable = Boolean(onReorder && stops.length > 1);
   const canDrag = editable || Boolean(onMoveStop);
@@ -221,6 +220,8 @@ export function DispatchRouteSequence({
     const late = !stop.delivered && Boolean(stop.lateBy);
     const lateLabel = late ? `${t('Dự kiến trễ')} ${stop.lateBy} ${t('phút')}` : '';
     const label = `${index + 1}. ${stop.label} · ${formatEta(stop.eta)}${late ? ` · ${lateLabel}` : ''}`;
+    const appointment = stop.appointment === undefined ? '' : stop.appointment
+      ? `${t('Khung giờ hẹn')} · ${stop.appointment}` : t('Giao linh hoạt');
     const selected = selectedId === stop.id;
     const isMapSelected = selectedStopIds?.has(stop.id);
     const isHighlighted = highlightedStopId === stop.id;
@@ -231,7 +232,7 @@ export function DispatchRouteSequence({
         type="button"
         data-stop-index={index}
         aria-label={label}
-        title={stop.address ? `${label} · ${stop.address}` : label}
+        title={[label, stop.address, appointment].filter(Boolean).join(' · ')}
         aria-pressed={Boolean(selected || isMapSelected)}
         onPointerEnter={(event) => { if (event.pointerType !== 'touch') onHighlightStop(stop.id); }}
         onPointerLeave={(event) => { if (event.pointerType !== 'touch' && !pointerDrag.current?.active) onHighlightStop(); }}
@@ -327,36 +328,18 @@ export function DispatchRouteSequence({
         </div>
       )}
       </div>
-      {selectedStop && (
-        <div className="flex min-w-0 flex-wrap items-center gap-2 px-4 pb-1 text-xs text-slate-700">
-          <span className="min-w-0 break-words">
-            <strong>{selectedIndex + 1}. {selectedStop.label}</strong>
-            {selectedStop.address && ` · ${selectedStop.address}`}
-            {selectedStop.eta !== undefined && ` · ${formatEta(selectedStop.eta)}`}
-            {selectedStop.delivered && ` · ${t('Đã giao')}`}
-            {!selectedStop.delivered && Boolean(selectedStop.lateBy) && (
-              <span className="ml-2 font-semibold text-amber-800">{t('Dự kiến trễ')} {selectedStop.lateBy} {t('phút')}</span>
-            )}
-            {selectedStop.appointment !== undefined && (
-              <span className="block text-slate-600">
-                {selectedStop.appointment ? `${t('Khung giờ hẹn')} · ${selectedStop.appointment}` : t('Giao linh hoạt')}
-              </span>
-            )}
-          </span>
-          {editable && (
-            <div className="flex items-center gap-1">
-              <Button type="button" size="sm" variant="ghost" className="size-10 px-0"
-                aria-label={t('Dời điểm lên trước')} disabled={isSaving || selectedIndex <= 0}
-                onClick={() => move(selectedIndex, selectedIndex - 1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
-              <Button type="button" size="sm" variant="ghost" className="size-10 px-0"
-                aria-label={t('Dời điểm ra sau')} disabled={isSaving || selectedIndex >= stops.length - 1}
-                onClick={() => move(selectedIndex, selectedIndex + 1)}><ArrowRight size={15} aria-hidden="true" /></Button>
-              {previous && previous.version === plan.version && (
-                <Button type="button" size="sm" variant="ghost" disabled={isSaving} onClick={() => void save(previous.ids, true)}>
-                  <Undo2 size={14} aria-hidden="true" />{t('Hoàn tác')}
-                </Button>
-              )}
-            </div>
+      {selectedIndex >= 0 && editable && (
+        <div className="flex items-center gap-1 px-4 pb-1">
+          <Button type="button" size="sm" variant="ghost" className="size-10 px-0"
+            aria-label={t('Dời điểm lên trước')} disabled={isSaving || selectedIndex <= 0}
+            onClick={() => move(selectedIndex, selectedIndex - 1)}><ArrowLeft size={15} aria-hidden="true" /></Button>
+          <Button type="button" size="sm" variant="ghost" className="size-10 px-0"
+            aria-label={t('Dời điểm ra sau')} disabled={isSaving || selectedIndex >= stops.length - 1}
+            onClick={() => move(selectedIndex, selectedIndex + 1)}><ArrowRight size={15} aria-hidden="true" /></Button>
+          {previous && previous.version === plan.version && (
+            <Button type="button" size="sm" variant="ghost" disabled={isSaving} onClick={() => void save(previous.ids, true)}>
+              <Undo2 size={14} aria-hidden="true" />{t('Hoàn tác')}
+            </Button>
           )}
         </div>
       )}

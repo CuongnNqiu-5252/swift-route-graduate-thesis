@@ -280,10 +280,9 @@ public class PublicOrderTrackingService {
         return switch (rawReason.trim().toUpperCase(Locale.ROOT)) {
             case "CUSTOMER_UNREACHABLE", "RECIPIENT_UNAVAILABLE" -> "Chưa liên lạc được với người nhận";
             case "WRONG_ADDRESS", "ADDRESS_NOT_FOUND" -> "Địa chỉ giao hàng cần xác nhận lại";
-            case "CUSTOMER_REFUSED", "RECIPIENT_REFUSED" -> "Người nhận từ chối nhận hàng";
+            case "CUSTOMER_REFUSED", "RECIPIENT_REFUSED", "REFUSED_BY_RECIPIENT" -> "Người nhận từ chối nhận hàng";
             case "RESCHEDULE_REQUESTED", "CUSTOMER_RESCHEDULED" -> "Người nhận hẹn giao lại vào thời gian khác";
             case "DAMAGED_GOODS", "PACKAGE_DAMAGED" -> "Kiện hàng gặp sự cố hư hỏng trong quá trình vận chuyển";
-            case "TRAFFIC_CONGESTION", "WEATHER_DELAY" -> "Chuyến giao bị chậm do giao thông hoặc thời tiết";
             default -> "Chưa thể hoàn tất giao hàng trong lượt này";
         };
     }

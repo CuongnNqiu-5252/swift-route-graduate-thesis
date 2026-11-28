@@ -1,16 +1,16 @@
 'use client';
 
-import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { ArrowRight, RefreshCw, Route } from 'lucide-react';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useDrivers } from '@/application/hooks/use-drivers';
 import { useOperationsQueue } from '@/application/hooks/use-operations-queue';
 import { OverviewDispatchMetrics } from '@/components/overview/dispatch-metrics';
-import type { DispatchPlanRecord } from '@/domain/entities/routing.entity';
-import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { Button } from '@/components/ui/button';
+import type { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
+import { orderRepository } from '@/infrastructure/repositories/order.repository';
+import { ArrowRight, RefreshCw, Route } from 'lucide-react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 const textLink = 'rounded-sm text-sm font-medium text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 const panel = 'min-w-0 rounded-xl border border-slate-200 p-4 sm:p-6';
@@ -81,7 +81,7 @@ export default function DashboardOverviewPage() {
             </Button>
           )}
           {(!canLoadQueue || canReadPlans) && (
-            <Link href={canLoadQueue ? '/dispatch' : '/organizations'} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <Link href={canLoadQueue ? '/dispatch' : '/organizations'} className="inline-flex min-h-10 items-center gap-2 rounded-sm bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
               <Route size={16} aria-hidden="true" />{t(canLoadQueue ? 'Mở điều phối' : 'Chọn doanh nghiệp')}
             </Link>
           )}

@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.swiftroute.orderservice.entity.DeliveryTask;
-import com.swiftroute.orderservice.entity.PickupLocation;
 import com.swiftroute.orderservice.entity.enums.DeliveryTaskStatus;
 
 public record DriverDeliveryTaskResponse(
@@ -14,20 +13,16 @@ public record DriverDeliveryTaskResponse(
         DeliveryTaskStatus status,
         long version,
         Instant updatedAt,
-        OrderResponse order,
-        ReturnDestination returnDestination) {
-    public record ReturnDestination(UUID id, String name, String address, Double lat, Double lng) {}
-    public static DriverDeliveryTaskResponse from(DeliveryTask task) {
-        return from(task, null);
-    }
+        OrderResponse order) {
 
-    public static DriverDeliveryTaskResponse from(DeliveryTask task, PickupLocation returnLocation) {
-        ReturnDestination destination = returnLocation == null ? null : new ReturnDestination(
-                returnLocation.getId(), returnLocation.getName(), returnLocation.getAddress(),
-                returnLocation.getLat(), returnLocation.getLng());
+    public static DriverDeliveryTaskResponse from(DeliveryTask task) {
         return new DriverDeliveryTaskResponse(
-                task.getId(), task.getOrder().getId(), task.getTaskType(), task.getStatus(),
-                task.getVersion() == null ? 0 : task.getVersion(), task.getUpdatedAt(),
-                OrderResponse.fromEntity(task.getOrder()), destination);
+                task.getId(),
+                task.getOrder().getId(),
+                task.getTaskType(),
+                task.getStatus(),
+                task.getVersion() == null ? 0 : task.getVersion(),
+                task.getUpdatedAt(),
+                OrderResponse.fromEntity(task.getOrder()));
     }
 }

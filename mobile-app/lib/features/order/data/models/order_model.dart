@@ -80,10 +80,6 @@ enum OrderStatus {
 }
 
 enum DeliveryTaskStatus {
-  assigned,
-  accepted,
-  arrived,
-  pickedUp,
   outForDelivery,
   completed,
   failed,
@@ -91,10 +87,10 @@ enum DeliveryTaskStatus {
 
   static DeliveryTaskStatus? fromString(String? value) =>
       switch (value?.toUpperCase()) {
-        'ASSIGNED' => DeliveryTaskStatus.assigned,
-        'ACCEPTED' => DeliveryTaskStatus.accepted,
-        'ARRIVED' => DeliveryTaskStatus.arrived,
-        'PICKED_UP' => DeliveryTaskStatus.pickedUp,
+        'ASSIGNED' ||
+        'ACCEPTED' ||
+        'ARRIVED' ||
+        'PICKED_UP' ||
         'OUT_FOR_DELIVERY' => DeliveryTaskStatus.outForDelivery,
         'COMPLETED' => DeliveryTaskStatus.completed,
         'FAILED' => DeliveryTaskStatus.failed,
@@ -103,10 +99,6 @@ enum DeliveryTaskStatus {
       };
 
   String get serverValue => switch (this) {
-    DeliveryTaskStatus.assigned => 'ASSIGNED',
-    DeliveryTaskStatus.accepted => 'ACCEPTED',
-    DeliveryTaskStatus.arrived => 'ARRIVED',
-    DeliveryTaskStatus.pickedUp => 'PICKED_UP',
     DeliveryTaskStatus.outForDelivery => 'OUT_FOR_DELIVERY',
     DeliveryTaskStatus.completed => 'COMPLETED',
     DeliveryTaskStatus.failed => 'FAILED',
@@ -114,10 +106,6 @@ enum DeliveryTaskStatus {
   };
 
   String get displayName => switch (this) {
-    DeliveryTaskStatus.assigned => 'Chờ lấy hàng',
-    DeliveryTaskStatus.accepted => 'Chờ lấy hàng',
-    DeliveryTaskStatus.arrived => 'Tại điểm lấy',
-    DeliveryTaskStatus.pickedUp => 'Đã lấy hàng',
     DeliveryTaskStatus.outForDelivery => 'Đang đi giao',
     DeliveryTaskStatus.completed => 'Đã hoàn tất',
     DeliveryTaskStatus.failed => 'Cần xử lý',

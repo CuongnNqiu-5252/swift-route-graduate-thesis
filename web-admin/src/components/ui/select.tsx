@@ -74,7 +74,7 @@ export function CustomSelect({
   const sizeStyles =
     size === 'sm'
       ? 'h-8 px-2.5 text-xs rounded-md'
-      : 'h-10 px-3 text-sm rounded-lg';
+      : 'h-10 px-3 text-sm rounded-sm';
 
   return (
     <>
@@ -116,7 +116,7 @@ export function CustomSelect({
                   value={encodeValue(option.value)}
                   disabled={option.disabled}
                   lang={option.lang}
-                  className="relative flex cursor-pointer select-none items-center justify-between gap-2 rounded-lg py-2 pl-3 pr-8 text-sm text-slate-800 outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-slate-100 data-[state=checked]:bg-blue-50/80 data-[state=checked]:font-semibold data-[state=checked]:text-blue-950 data-[disabled]:opacity-45"
+                  className="relative flex cursor-pointer select-none items-center justify-between gap-2 rounded-sm py-2 pl-3 pr-8 text-sm text-slate-800 outline-none transition-colors data-[disabled]:pointer-events-none data-[highlighted]:bg-slate-100 data-[state=checked]:bg-blue-50/80 data-[state=checked]:font-semibold data-[state=checked]:text-blue-950 data-[disabled]:opacity-45"
                 >
                   <div className="min-w-0 flex-1">
                     <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>

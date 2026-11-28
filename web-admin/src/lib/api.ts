@@ -51,6 +51,7 @@ mapsApi.interceptors.response.use(undefined, (error: AxiosError) => Promise.reje
 
 const publicAuthPaths = new Set([
   '/auth/login',
+  '/auth/google/login',
   '/auth/register',
   '/auth/email/verify',
   '/auth/email/resend-public',

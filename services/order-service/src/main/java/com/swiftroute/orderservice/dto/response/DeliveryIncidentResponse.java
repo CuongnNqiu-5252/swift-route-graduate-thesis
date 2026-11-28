@@ -16,7 +16,6 @@ public record DeliveryIncidentResponse(
         UUID driverId,
         UUID reportedBy,
         String incidentType,
-        String severity,
         String notes,
         List<String> evidenceUrls,
         String status,
@@ -26,9 +25,11 @@ public record DeliveryIncidentResponse(
         String resolutionNotes,
         Instant createdAt,
         Instant resolvedAt) {
+
     public static DeliveryIncidentResponse from(DeliveryIncident incident) {
-        if (incident == null)
+        if (incident == null) {
             return null;
+        }
 
         List<String> urls = Collections.emptyList();
         if (incident.getEvidenceUrls() != null && !incident.getEvidenceUrls().isBlank()) {
@@ -50,7 +51,6 @@ public record DeliveryIncidentResponse(
                 incident.getDriverId(),
                 incident.getReportedBy(),
                 incident.getIncidentType(),
-                incident.getSeverity(),
                 incident.getNotes(),
                 urls,
                 incident.getStatus(),

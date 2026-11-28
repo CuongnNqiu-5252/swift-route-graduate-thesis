@@ -10,25 +10,20 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.swiftroute.orderservice.config.TenantEventConfig;
 import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
-import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.request.UpdateOrderRequest;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
 import com.swiftroute.orderservice.dto.response.OrderListPageResponse;
 import com.swiftroute.orderservice.dto.response.OrderResponse;
 import com.swiftroute.orderservice.dto.response.PageResponse;
 import com.swiftroute.orderservice.entity.Order;
-import com.swiftroute.orderservice.entity.OrderEventPayload;
-import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.PickupLocation;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.entity.enums.OrderPriority;
@@ -39,7 +34,6 @@ import com.swiftroute.orderservice.entity.enums.TenantStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.OrderRepository;
-import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.PickupLocationRepository;
 import com.swiftroute.orderservice.repository.TenantRepository;
 
@@ -59,8 +53,6 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final TenantRepository tenantRepository;
-    private final OutboxEventRepository outboxEventRepository;
-    private final RabbitTemplate rabbitTemplate;
     private final PickupLocationRepository pickupLocationRepository;
     private final DeliveryZoneService deliveryZoneService;
     @org.springframework.beans.factory.annotation.Autowired
@@ -100,7 +92,6 @@ public class OrderService {
         if ("DRIVER".equalsIgnoreCase(creatorRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
-
 
         Tenant tenant = tenantRepository.findById(tenantIdFromHeader)
                 .orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
@@ -218,7 +209,6 @@ public class OrderService {
 
         Order saved = orderRepository.saveAndFlush(order);
         recordStatusChange(saved, null, OrderStatus.READY_FOR_DISPATCH, creatorUserId, creatorRole, "Tạo vận đơn mới");
-        emitOrderStatusEvent(saved, null, OrderStatus.READY_FOR_DISPATCH);
         log.info("Waybill created: orderId={}, tenantId={}, trackingToken={}, recipient={}, codAmount={}",
                 saved.getId(), tenantIdFromHeader, trackingToken, request.recipientName(), codAmount);
 
@@ -279,7 +269,8 @@ public class OrderService {
     public OperationsQueueResponse getOperationsQueue(UUID tenantId, UUID requesterId, String requesterRole) {
         assertTenantOperationsAccess(tenantId, requesterId, requesterRole);
 
-        // Cancelled orders are terminal and separated in Orders; FAILED and RETURNING orders require intervention.
+        // Cancelled orders are terminal and separated in Orders; FAILED and RETURNING
+        // orders require intervention.
         List<Order> orders = orderRepository.findAllByTenantIdAndStatusInOrderByUpdatedAtDesc(
                 tenantId,
                 List.of(OrderStatus.READY_FOR_DISPATCH, OrderStatus.PLANNED, OrderStatus.IN_TRANSIT,
@@ -432,89 +423,6 @@ public class OrderService {
         return orders.stream().map(OrderResponse::fromEntity).toList();
     }
 
-    private void emitOrderStatusEvent(Order order, OrderStatus previous, OrderStatus current) {
-        UUID eventId = UUID.randomUUID();
-        String eventType = "order.status_changed.v1";
-
-        OrderEventPayload payload = new OrderEventPayload(
-                eventId,
-                eventType,
-                order.getId(),
-                order.getTenant().getId(),
-                order.getExternalOrderCode(),
-                order.getTrackingToken(),
-                order.getRecipientName(),
-                order.getRecipientPhone(),
-                order.getAssignedDriverId(),
-                previous != null ? previous.name() : null,
-                current.name(),
-                order.getPickupLat(),
-                order.getPickupLng(),
-                order.getPickupAddress(),
-                order.getDeliveryLat(),
-                order.getDeliveryLng(),
-                order.getDeliveryAddress(),
-                order.getWeightKg(),
-                order.getPriority() != null ? order.getPriority().name() : "NORMAL",
-                order.getCodAmount() != null ? order.getCodAmount() : BigDecimal.ZERO,
-                order.getTimeWindowStart(),
-                order.getTimeWindowEnd(),
-                Instant.now());
-
-        outboxEventRepository.save(OutboxEvent.builder()
-                .eventId(eventId)
-                .aggregateType("order")
-                .aggregateId(order.getId())
-                .eventType(eventType)
-                .payload(payload)
-                .build());
-
-        try {
-            rabbitTemplate.convertAndSend(TenantEventConfig.EVENT_EXCHANGE, eventType, payload);
-        } catch (Exception ex) {
-            log.warn("Direct event publish to RabbitMQ failed for order {}, OutboxPublisher will retry: {}",
-                    order.getId(), ex.getMessage());
-        }
-    }
-
-    @Transactional
-    public OrderResponse reportIncident(UUID orderId, ReportIncidentRequest request, UUID requesterId,
-            String requesterRole) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
-        com.swiftroute.orderservice.security.TenantRequestInterceptor.assertRequestTenant(order.getTenant().getId());
-
-        boolean isDispatcher = List.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR")
-                .contains(requesterRole);
-        boolean isAssignedDriver = "DRIVER".equalsIgnoreCase(requesterRole)
-                && order.getAssignedDriverId() != null
-                && order.getAssignedDriverId().equals(requesterId);
-
-        if (!isDispatcher && !isAssignedDriver) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED
-                || order.getStatus() == OrderStatus.RETURNED) {
-            throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
-        }
-
-        OrderStatus previous = order.getStatus();
-        order.setStatus(OrderStatus.FAILED);
-
-        String incidentNote = String.format("[SỰ CỐ %s]: %s (Báo cáo bởi: %s)",
-                request.incidentType(), request.notes(), requesterId);
-        order.setNotes(order.getNotes() != null ? order.getNotes() + " | " + incidentNote : incidentNote);
-        order.setUpdatedAt(Instant.now());
-
-        Order saved = orderRepository.save(order);
-        recordStatusChange(saved, previous, OrderStatus.FAILED, requesterId, requesterRole,
-                joinReason(request.incidentType(), request.notes()));
-        emitOrderStatusEvent(saved, previous, OrderStatus.FAILED);
-        log.warn("Incident reported for order {}: type={}, notes={}", orderId, request.incidentType(), request.notes());
-        return OrderResponse.fromEntity(saved);
-    }
-
     @Transactional
     public OrderResponse cancelOrder(UUID orderId, CancelOrderRequest request, UUID requesterId, String requesterRole) {
         if ("DRIVER".equalsIgnoreCase(requesterRole)) {
@@ -545,7 +453,6 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
         recordStatusChange(saved, previous, OrderStatus.CANCELLED, requesterId, requesterRole, reason);
-        emitOrderStatusEvent(saved, previous, OrderStatus.CANCELLED);
         log.info("Order cancelled: orderId={}, reason={}", orderId, cancelNote);
         return OrderResponse.fromEntity(saved);
     }
@@ -568,7 +475,8 @@ public class OrderService {
         }
 
         if (request.externalOrderCode() != null) {
-            order.setExternalOrderCode(request.externalOrderCode().isBlank() ? null : request.externalOrderCode().trim());
+            order.setExternalOrderCode(
+                    request.externalOrderCode().isBlank() ? null : request.externalOrderCode().trim());
         }
         if (request.recipientName() != null) {
             if (request.recipientName().isBlank()) {
@@ -589,7 +497,8 @@ public class OrderService {
             order.setWeightKg(request.weightKg());
         }
         if (request.packageDescription() != null) {
-            order.setPackageDescription(request.packageDescription().isBlank() ? null : request.packageDescription().trim());
+            order.setPackageDescription(
+                    request.packageDescription().isBlank() ? null : request.packageDescription().trim());
         }
         if (request.notes() != null) {
             order.setNotes(request.notes().isBlank() ? null : request.notes().trim());

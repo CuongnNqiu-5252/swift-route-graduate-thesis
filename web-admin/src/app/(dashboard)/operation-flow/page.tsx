@@ -1,14 +1,5 @@
 'use client';
 
-import Link from 'next/link';
-import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
-import { addEdge, Background, Controls, Handle, Position, ReactFlow, useEdgesState, useNodesState, useStore,
-  type Edge, type Node, type NodeProps, type Connection, type ReactFlowInstance } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { CalendarClock, FileSpreadsheet, GitBranch, PackagePlus, Play, Plus, Power, Route, Save, Trash2, Undo2, Warehouse, X } from 'lucide-react';
-import { toast } from 'sonner';
-import { z } from 'zod';
 import { useAuth } from '@/application/contexts/auth-context';
 import { FLOW_PATHS, flowPath, isRunnableFlow, type FlowKind, type FlowStep } from '@/application/operation-flow-graph';
 import { readOrderCsv } from '@/application/order-import-csv';
@@ -17,11 +8,24 @@ import { DriveCsvPicker, type GoogleDriveSession } from '@/components/orders/dri
 import { OrderImportPanel } from '@/components/orders/order-import-panel';
 import { Button } from '@/components/ui/button';
 import { CustomSelect } from '@/components/ui/select';
-import { useLocale } from '@/i18n/provider';
-import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import type { PickupLocation } from '@/domain/entities/pickup-location.entity';
-import { PlanningRunHistory } from './planning-run-history';
+import { useLocale } from '@/i18n/provider';
 import { operationFlowRepository, type PlanningActivation } from '@/infrastructure/repositories/operation-flow.repository';
+import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
+import * as Dialog from '@radix-ui/react-dialog';
+import {
+  addEdge, Background, Controls, Handle, Position, ReactFlow, useEdgesState, useNodesState, useStore,
+  type Connection,
+  type Edge, type Node, type NodeProps,
+  type ReactFlowInstance
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { CalendarClock, FileSpreadsheet, GitBranch, PackagePlus, Play, Plus, Power, Route, Save, Trash2, Undo2, Warehouse, X } from 'lucide-react';
+import Link from 'next/link';
+import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { z } from 'zod';
+import { PlanningRunHistory } from './planning-run-history';
 
 const catalog = {
   schedule: { label: 'Lịch chạy', detail: 'Đặt giờ kích hoạt workflow.', icon: CalendarClock },
@@ -60,16 +64,18 @@ type SharedDraft = { revision: number; draft: Draft };
 
 function decodeSharedDraft(value: { revision: number; draft: Record<string, unknown> } | null): SharedDraft | null {
   if (!value) return null;
-  return { revision: value.revision, draft: draftSchema.parse({
-    ...value.draft,
-    resolveCoordinates: value.draft.resolve_coordinates,
-    stopOnCsvErrors: value.draft.stop_on_csv_errors,
-    pickupLocationId: value.draft.pickup_location_id,
-  }) };
+  return {
+    revision: value.revision, draft: draftSchema.parse({
+      ...value.draft,
+      resolveCoordinates: value.draft.resolve_coordinates,
+      stopOnCsvErrors: value.draft.stop_on_csv_errors,
+      pickupLocationId: value.draft.pickup_location_id,
+    })
+  };
 }
 type CanvasNode = Node<{ step: FlowStep }, 'workflow'>;
 const NODE_MIME = 'application/x-swiftroute-flow-node';
-const SelectNextStep = createContext<(step: FlowStep) => void>(() => {});
+const SelectNextStep = createContext<(step: FlowStep) => void>(() => { });
 
 const WorkflowNode = memo(function WorkflowNode({ data, id, selected }: NodeProps<CanvasNode>) {
   const { t } = useLocale();
@@ -83,7 +89,7 @@ const WorkflowNode = memo(function WorkflowNode({ data, id, selected }: NodeProp
   return (
     <div className={`relative flex min-h-14 w-[184px] items-center gap-2 rounded-xl border bg-white px-2.5 py-2 text-xs font-semibold text-slate-900 shadow-sm ${selected ? 'border-teal-600 ring-2 ring-teal-100' : 'border-slate-300'}`}>
       {data.step !== 'schedule' && <Handle type="target" position={Position.Left} />}
-      <span className={`grid size-8 shrink-0 place-items-center rounded-lg border ${stepColors[data.step]}`}>
+      <span className={`grid size-8 shrink-0 place-items-center rounded-sm border ${stepColors[data.step]}`}>
         <Icon size={16} aria-hidden />
       </span>
       <span className="flex-1">{t(label)}</span>
@@ -163,7 +169,7 @@ export default function OperationFlowPage() {
             <p className="mt-1 text-sm text-slate-600">{t('Thêm node, nối các bước và chạy thử workflow.')}</p>
           </div>
         </div>
-        <nav aria-label={t('Luồng vận hành')} className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+        <nav aria-label={t('Luồng vận hành')} className="flex flex-wrap gap-1 rounded-sm border border-slate-200 bg-slate-50 p-1">
           {(['import', 'planning'] as const).map((item) =>
             (item === 'import' ? canImport : canPlan) && (
               <Button key={item} size="sm" variant={kind === item ? 'default' : 'ghost'}
@@ -378,8 +384,10 @@ function FlowEditor({ kind, draftKey, sharedDraft, unavailable, initialActivatio
         const { resolveCoordinates, stopOnCsvErrors, pickupLocationId, ...rest } = draft.data;
         const data = await operationFlowRepository.saveDraft(kind, {
           revision,
-          draft: { ...rest, resolve_coordinates: resolveCoordinates, stop_on_csv_errors: stopOnCsvErrors,
-            pickup_location_id: pickupLocationId },
+          draft: {
+            ...rest, resolve_coordinates: resolveCoordinates, stop_on_csv_errors: stopOnCsvErrors,
+            pickup_location_id: pickupLocationId
+          },
         });
         setRevision(data.revision);
         setSaved(value);
@@ -504,7 +512,7 @@ function FlowEditor({ kind, draftKey, sharedDraft, unavailable, initialActivatio
             ? `${t('Chưa nối')}: ${t(catalog[missingLink].label)} → ${t(catalog[path[path.indexOf(missingLink) + 1]].label)}`
             : hasPickupFilter && !selectedPickup ? t('Chọn điểm lấy hàng trong node Lấy đơn chờ điều phối.')
               : !runnable ? t('Kiểm tra các dây nối trong luồng.')
-              : kind === 'import' && !prepared ? t('Chọn file CSV trong node Chuẩn bị CSV từ Drive để chạy.') : undefined}
+                : kind === 'import' && !prepared ? t('Chọn file CSV trong node Chuẩn bị CSV từ Drive để chạy.') : undefined}
         </p>
         {deleted && <Button size="sm" variant="outline" onClick={undoDelete}>
           <Undo2 size={15} aria-hidden />{t('Hoàn tác xóa')}
@@ -525,32 +533,32 @@ function FlowEditor({ kind, draftKey, sharedDraft, unavailable, initialActivatio
             addStep(step, undefined, position);
           }}>
           <SelectNextStep.Provider value={addNextStep}>
-          <ReactFlow
-            nodes={nodes}
-            nodeTypes={nodeTypes}
-            defaultEdgeOptions={edgeDefaults}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={connect}
-            onInit={setCanvas}
-            onDelete={(removed) => {
-              setDeleted(removed);
-              setRunOpen(false);
-            }}
-            onNodeClick={(_, node) => setSelected(node.data.step)}
-            onPaneClick={() => setSelected(undefined)}
-            fitView
-            minZoom={0.35}
-            maxZoom={1.8}
-          >
-            <Background gap={22} color="#b8cecd" />
-            <Controls />
-          </ReactFlow>
+            <ReactFlow
+              nodes={nodes}
+              nodeTypes={nodeTypes}
+              defaultEdgeOptions={edgeDefaults}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={connect}
+              onInit={setCanvas}
+              onDelete={(removed) => {
+                setDeleted(removed);
+                setRunOpen(false);
+              }}
+              onNodeClick={(_, node) => setSelected(node.data.step)}
+              onPaneClick={() => setSelected(undefined)}
+              fitView
+              minZoom={0.35}
+              maxZoom={1.8}
+            >
+              <Background gap={22} color="#b8cecd" />
+              <Controls />
+            </ReactFlow>
           </SelectNextStep.Provider>
           {nodes.length === 0 && (
             <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center p-4">
-              <section className="pointer-events-auto max-w-xs space-y-3 rounded-lg border border-slate-200 bg-white p-4 text-center">
+              <section className="pointer-events-auto max-w-xs space-y-3 rounded-sm border border-slate-200 bg-white p-4 text-center">
                 <h2 className="text-sm font-semibold text-slate-950">{t('Canvas đang trống')}</h2>
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button size="sm" onClick={() => addStep('schedule')}>
@@ -570,133 +578,133 @@ function FlowEditor({ kind, draftKey, sharedDraft, unavailable, initialActivatio
             <Dialog.Content className="fixed left-1/2 top-1/2 z-[61] max-h-[90dvh] w-[min(42rem,calc(100%_-_2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl"
               onInteractOutside={(event) => { if (driveBusy) event.preventDefault(); }}
               onEscapeKeyDown={(event) => { if (driveBusy) event.preventDefault(); }}>
-          <div className="flex items-start justify-between gap-3">
-            <Dialog.Title className="text-lg font-semibold text-slate-950">
-            {inspected ? t(catalog[inspected].label) : t('Cấu hình node')}
-            </Dialog.Title>
-            <Dialog.Close asChild><Button size="sm" variant="ghost" disabled={driveBusy} aria-label={t('Đóng')}>
-              <X size={17} aria-hidden />
-            </Button></Dialog.Close>
-          </div>
-          <Dialog.Description className="text-sm text-slate-600">{t(inspected ? catalog[inspected].detail : 'Chọn một node trên canvas để xem cấu hình.')}</Dialog.Description>
-          {inspected === 'schedule' && (
-            <div className="space-y-3">
-              <label className="block text-sm font-medium">
-                {t('Kiểu lịch')}
-                <CustomSelect
-                  className="mt-1"
-                  value={schedule.mode}
-                  onValueChange={(next) =>
-                    setSchedule({ ...schedule, mode: next === 'interval' ? 'interval' : 'daily' })
-                  }
-                  options={[
-                    { value: 'daily', label: t('Hằng ngày') },
-                    { value: 'interval', label: t('Lặp mỗi X giờ') },
-                  ]}
-                />
-              </label>
-              <label className="block text-sm font-medium">
-                {schedule.mode === 'daily' ? t('Giờ chạy (UTC+7)') : t('Khoảng lặp (giờ)')}
-                {schedule.mode === 'daily' ? (
-                  <input type="time" className="mt-1 block w-full rounded-md border border-slate-300 p-2" value={schedule.time}
-                    onChange={(event) => setSchedule({ ...schedule, time: event.target.value })} />
-                ) : (
-                  <input type="number" min={1} max={168} className="mt-1 block w-full rounded-md border border-slate-300 p-2"
-                    value={schedule.hours} onChange={(event) => setSchedule({ ...schedule, hours: Number(event.target.value) })} />
-                )}
-              </label>
-              <p className="text-xs text-slate-600">{t(kind === 'planning'
-                ? 'Lịch đã kích hoạt được chạy theo giờ Việt Nam, kể cả khi đóng trình duyệt.'
-                : 'Giờ chạy được lưu trong bản nháp. Luồng chưa tự chạy theo lịch.')}</p>
-            </div>
-          )}
-          {kind === 'import' && (
-            <div hidden={inspected !== 'prepare'} className="space-y-3">
-              <div className="space-y-2 rounded-lg border border-slate-200 p-3">
-              <p className="text-sm font-medium text-slate-900">{t('CSV hoặc Google Sheets trên Drive')}</p>
-              <p className="text-xs text-slate-600">{t('Chọn file từ tài khoản Google đang kết nối hoặc đổi tài khoản trong cửa sổ Google.')}</p>
-              <DriveCsvPicker disabled={driveBusy || runOpen} onBusy={setDriveBusy} onError={setDriveError}
-                buttonLabel={prepared ? 'Đổi file nguồn' : undefined}
-                session={driveSession}
-                allowAccountSwitch
-                onFile={async (file) => {
-                  setPrepared(undefined);
-                  try {
-                    setPrepared(await readOrderCsv(file));
-                  } catch (error) {
-                    setDriveError(error instanceof Error ? error.message : 'Không thể đọc file CSV.');
-                  }
-                }} />
-              {driveBusy && <p role="status" className="text-sm">{t('Đang lấy file từ Google Drive…')}</p>}
-              {driveError && <p role="alert" className="text-sm text-red-700">{t(driveError)}</p>}
-              {prepared && (
-                <div className="rounded-md bg-slate-50 p-2 text-sm text-slate-700">
-                  <p className="break-all font-medium">{prepared.name}</p>
-                  <p>{t('Dòng đọc được')}: {prepared.rows.length} · {t('Có lỗi')}: {prepared.errors.length}</p>
+              <div className="flex items-start justify-between gap-3">
+                <Dialog.Title className="text-lg font-semibold text-slate-950">
+                  {inspected ? t(catalog[inspected].label) : t('Cấu hình node')}
+                </Dialog.Title>
+                <Dialog.Close asChild><Button size="sm" variant="ghost" disabled={driveBusy} aria-label={t('Đóng')}>
+                  <X size={17} aria-hidden />
+                </Button></Dialog.Close>
+              </div>
+              <Dialog.Description className="text-sm text-slate-600">{t(inspected ? catalog[inspected].detail : 'Chọn một node trên canvas để xem cấu hình.')}</Dialog.Description>
+              {inspected === 'schedule' && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium">
+                    {t('Kiểu lịch')}
+                    <CustomSelect
+                      className="mt-1"
+                      value={schedule.mode}
+                      onValueChange={(next) =>
+                        setSchedule({ ...schedule, mode: next === 'interval' ? 'interval' : 'daily' })
+                      }
+                      options={[
+                        { value: 'daily', label: t('Hằng ngày') },
+                        { value: 'interval', label: t('Lặp mỗi X giờ') },
+                      ]}
+                    />
+                  </label>
+                  <label className="block text-sm font-medium">
+                    {schedule.mode === 'daily' ? t('Giờ chạy (UTC+7)') : t('Khoảng lặp (giờ)')}
+                    {schedule.mode === 'daily' ? (
+                      <input type="time" className="mt-1 block w-full rounded-md border border-slate-300 p-2" value={schedule.time}
+                        onChange={(event) => setSchedule({ ...schedule, time: event.target.value })} />
+                    ) : (
+                      <input type="number" min={1} max={168} className="mt-1 block w-full rounded-md border border-slate-300 p-2"
+                        value={schedule.hours} onChange={(event) => setSchedule({ ...schedule, hours: Number(event.target.value) })} />
+                    )}
+                  </label>
+                  <p className="text-xs text-slate-600">{t(kind === 'planning'
+                    ? 'Lịch đã kích hoạt được chạy theo giờ Việt Nam, kể cả khi đóng trình duyệt.'
+                    : 'Giờ chạy được lưu trong bản nháp. Luồng chưa tự chạy theo lịch.')}</p>
                 </div>
               )}
-              </div>
-              <label className="flex items-start gap-2 text-sm text-slate-800">
-                <input type="checkbox" className="mt-1" checked={resolveCoordinates} disabled={runOpen}
-                  onChange={(event) => setResolveCoordinates(event.target.checked)} />
-                {t('Tra tọa độ từ địa chỉ khi thiếu tọa độ')}
-              </label>
-              <p className="text-xs text-slate-600">{t('File đã chọn chỉ dùng trong phiên này. Các tùy chọn được lưu cùng bản nháp.')}</p>
-            </div>
-          )}
-          {inspected === 'import' && (
-            <div className="space-y-2">
-              <label className="flex items-start gap-2 text-sm text-slate-800">
-                <input type="checkbox" className="mt-1" checked={stopOnCsvErrors} disabled={runOpen}
-                  onChange={(event) => setStopOnCsvErrors(event.target.checked)} />
-                {t('Dừng nhập khi bản xem trước có dòng CSV lỗi')}
-              </label>
-              <p className="text-xs text-slate-600">{t('Dòng chưa có điểm giao vẫn vào Cần bổ sung địa chỉ.')}</p>
-            </div>
-          )}
-          {inspected === 'select-orders' && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium">
-                {t('Điểm lấy hàng')}
-                <CustomSelect
-                  className="mt-1"
-                  disabled={!activePickups.length}
-                  value={selectedPickup?.id ?? ''}
-                  onValueChange={(next) => setPickupLocationId(next || null)}
-                  options={[
-                    { value: '', label: t('Chọn điểm lấy hàng') },
-                    ...activePickups.map((pickup) => ({ value: pickup.id, label: pickup.name })),
-                  ]}
-                />
-              </label>
-              {pickupError ? <div className="flex items-center gap-2 text-sm">
-                <span role="alert">{t('Không thể tải điểm lấy hàng.')}</span>
-                <Button size="sm" variant="outline" onClick={() => { setPickupError(false); setPickupAttempt((attempt) => attempt + 1); }}>
-                  {t('Thử lại')}
-                </Button>
-              </div> : pickups === null ? <p role="status" className="text-sm">{t('Đang tải điểm lấy hàng…')}</p>
-                : activePickups.length === 0 ? <Link href="/locations" className="text-sm text-blue-700 underline">{t('Thêm điểm lấy hàng')}</Link>
-                  : pickupLocationId && !selectedPickup ? <p role="status" className="text-sm">{t('Điểm lấy hàng đã chọn không còn hoạt động.')}</p> : null}
-            </div>
-          )}
-          {inspected === 'plan' && (
-            <div className="space-y-2 text-sm text-slate-600">
-              <p>{hasPickupFilter ? `${t('Điểm lấy hàng')} · ${selectedPickup?.name ?? '—'}`
-                : t('Phạm vi: đơn đủ điều kiện của doanh nghiệp.')}</p>
-              <p>{t('Quy tắc duyệt và chọn tài xế lấy từ Cài đặt doanh nghiệp.')}</p>
-              <Link href="/settings" className="font-medium text-blue-700 underline">{t('Mở cài đặt doanh nghiệp')}</Link>
-            </div>
-          )}
-          {inspected && <Button size="sm" variant="outline" onClick={() => {
-            setDeleted({
-              nodes: nodes.filter(({ id }) => id === inspected),
-              edges: edges.filter(({ source, target }) => source === inspected || target === inspected),
-            });
-            setNodes((current) => current.filter(({ id }) => id !== inspected));
-            setEdges((current) => current.filter(({ source, target }) => source !== inspected && target !== inspected));
-            setSelected(undefined);
-            setRunOpen(false);
-          }}><Trash2 size={14} aria-hidden />{t('Xóa node')}</Button>}
+              {kind === 'import' && (
+                <div hidden={inspected !== 'prepare'} className="space-y-3">
+                  <div className="space-y-2 rounded-sm border border-slate-200 p-3">
+                    <p className="text-sm font-medium text-slate-900">{t('CSV hoặc Google Sheets trên Drive')}</p>
+                    <p className="text-xs text-slate-600">{t('Chọn file từ tài khoản Google đang kết nối hoặc đổi tài khoản trong cửa sổ Google.')}</p>
+                    <DriveCsvPicker disabled={driveBusy || runOpen} onBusy={setDriveBusy} onError={setDriveError}
+                      buttonLabel={prepared ? 'Đổi file nguồn' : undefined}
+                      session={driveSession}
+                      allowAccountSwitch
+                      onFile={async (file) => {
+                        setPrepared(undefined);
+                        try {
+                          setPrepared(await readOrderCsv(file));
+                        } catch (error) {
+                          setDriveError(error instanceof Error ? error.message : 'Không thể đọc file CSV.');
+                        }
+                      }} />
+                    {driveBusy && <p role="status" className="text-sm">{t('Đang lấy file từ Google Drive…')}</p>}
+                    {driveError && <p role="alert" className="text-sm text-red-700">{t(driveError)}</p>}
+                    {prepared && (
+                      <div className="rounded-md bg-slate-50 p-2 text-sm text-slate-700">
+                        <p className="break-all font-medium">{prepared.name}</p>
+                        <p>{t('Dòng đọc được')}: {prepared.rows.length} · {t('Có lỗi')}: {prepared.errors.length}</p>
+                      </div>
+                    )}
+                  </div>
+                  <label className="flex items-start gap-2 text-sm text-slate-800">
+                    <input type="checkbox" className="mt-1" checked={resolveCoordinates} disabled={runOpen}
+                      onChange={(event) => setResolveCoordinates(event.target.checked)} />
+                    {t('Tra tọa độ từ địa chỉ khi thiếu tọa độ')}
+                  </label>
+                  <p className="text-xs text-slate-600">{t('File đã chọn chỉ dùng trong phiên này. Các tùy chọn được lưu cùng bản nháp.')}</p>
+                </div>
+              )}
+              {inspected === 'import' && (
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 text-sm text-slate-800">
+                    <input type="checkbox" className="mt-1" checked={stopOnCsvErrors} disabled={runOpen}
+                      onChange={(event) => setStopOnCsvErrors(event.target.checked)} />
+                    {t('Dừng nhập khi bản xem trước có dòng CSV lỗi')}
+                  </label>
+                  <p className="text-xs text-slate-600">{t('Dòng chưa có điểm giao vẫn vào Cần bổ sung địa chỉ.')}</p>
+                </div>
+              )}
+              {inspected === 'select-orders' && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium">
+                    {t('Điểm lấy hàng')}
+                    <CustomSelect
+                      className="mt-1"
+                      disabled={!activePickups.length}
+                      value={selectedPickup?.id ?? ''}
+                      onValueChange={(next) => setPickupLocationId(next || null)}
+                      options={[
+                        { value: '', label: t('Chọn điểm lấy hàng') },
+                        ...activePickups.map((pickup) => ({ value: pickup.id, label: pickup.name })),
+                      ]}
+                    />
+                  </label>
+                  {pickupError ? <div className="flex items-center gap-2 text-sm">
+                    <span role="alert">{t('Không thể tải điểm lấy hàng.')}</span>
+                    <Button size="sm" variant="outline" onClick={() => { setPickupError(false); setPickupAttempt((attempt) => attempt + 1); }}>
+                      {t('Thử lại')}
+                    </Button>
+                  </div> : pickups === null ? <p role="status" className="text-sm">{t('Đang tải điểm lấy hàng…')}</p>
+                    : activePickups.length === 0 ? <Link href="/locations" className="text-sm text-blue-700 underline">{t('Thêm điểm lấy hàng')}</Link>
+                      : pickupLocationId && !selectedPickup ? <p role="status" className="text-sm">{t('Điểm lấy hàng đã chọn không còn hoạt động.')}</p> : null}
+                </div>
+              )}
+              {inspected === 'plan' && (
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p>{hasPickupFilter ? `${t('Điểm lấy hàng')} · ${selectedPickup?.name ?? '—'}`
+                    : t('Phạm vi: đơn đủ điều kiện của doanh nghiệp.')}</p>
+                  <p>{t('Quy tắc duyệt và chọn tài xế lấy từ Cài đặt doanh nghiệp.')}</p>
+                  <Link href="/settings" className="font-medium text-blue-700 underline">{t('Mở cài đặt doanh nghiệp')}</Link>
+                </div>
+              )}
+              {inspected && <Button size="sm" variant="outline" onClick={() => {
+                setDeleted({
+                  nodes: nodes.filter(({ id }) => id === inspected),
+                  edges: edges.filter(({ source, target }) => source === inspected || target === inspected),
+                });
+                setNodes((current) => current.filter(({ id }) => id !== inspected));
+                setEdges((current) => current.filter(({ source, target }) => source !== inspected && target !== inspected));
+                setSelected(undefined);
+                setRunOpen(false);
+              }}><Trash2 size={14} aria-hidden />{t('Xóa node')}</Button>}
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
@@ -711,7 +719,7 @@ function FlowEditor({ kind, draftKey, sharedDraft, unavailable, initialActivatio
             stopOnCsvErrors={stopOnCsvErrors} onDiscard={() => { setPrepared(undefined); setRunOpen(false); }} />}
         </section>
       ) : (
-        <section className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 p-4">
+        <section className="flex flex-wrap items-center gap-3 rounded-sm border border-slate-200 p-4">
           <span className="text-sm text-slate-700">{t('Chạy lập kế hoạch cho các đơn đang chờ?')}</span>
           {selectedPickup && <span className="text-sm font-medium">{selectedPickup.name}</span>}
           <Button size="sm" isLoading={planning} onClick={() => void runPlanning()}>{t('Xác nhận chạy')}</Button>

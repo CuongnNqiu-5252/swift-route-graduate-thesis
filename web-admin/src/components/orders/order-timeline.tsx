@@ -1,6 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ORDER_STATUS_COLOR, ORDER_STATUS_LABEL, type OrderStatus, type OrderTimeline, type OrderTimelineEvent } from '@/domain/entities/order.entity';
+import { useLocale } from '@/i18n/provider';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle,
   ArrowRight,
@@ -11,20 +15,15 @@ import {
   PackageCheck,
   RotateCcw,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ORDER_STATUS_COLOR, ORDER_STATUS_LABEL, type OrderStatus, type OrderTimeline, type OrderTimelineEvent } from '@/domain/entities/order.entity';
-import { useLocale } from '@/i18n/provider';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
-type CategoryFilter = 'ALL' | 'STATUS' | 'DELIVERY' | 'INCIDENT' | 'RETURN' | 'COD';
+type CategoryFilter = 'ALL' | 'STATUS' | 'DELIVERY' | 'INCIDENT' | 'COD';
 
 const FILTER_LABELS: Array<{ key: CategoryFilter; label: string }> = [
   { key: 'ALL', label: 'Tất cả' },
   { key: 'STATUS', label: 'Trạng thái' },
   { key: 'DELIVERY', label: 'Giao hàng' },
   { key: 'INCIDENT', label: 'Sự cố' },
-  { key: 'RETURN', label: 'Hoàn kho' },
   { key: 'COD', label: 'COD' },
 ];
 
@@ -65,13 +64,14 @@ function eventVisual(event: OrderTimelineEvent): {
         return { icon: CheckCircle2, dotClass: 'border-teal-600 bg-teal-50 text-teal-700' };
       }
       return { icon: AlertTriangle, dotClass: 'border-amber-600 bg-amber-50 text-amber-700' };
-    case 'RETURN':
-      return { icon: RotateCcw, dotClass: 'border-orange-600 bg-orange-50 text-orange-700' };
     case 'COD':
       return { icon: Banknote, dotClass: 'border-emerald-600 bg-emerald-50 text-emerald-700' };
     default:
       if (event.to_status === 'DELIVERED') {
         return { icon: PackageCheck, dotClass: 'border-emerald-600 bg-emerald-50 text-emerald-700' };
+      }
+      if (event.to_status === 'RETURNING' || event.to_status === 'RETURNED') {
+        return { icon: RotateCcw, dotClass: 'border-orange-600 bg-orange-50 text-orange-700' };
       }
       if (event.to_status === 'FAILED' || event.to_status === 'CANCELLED') {
         return { icon: AlertTriangle, dotClass: 'border-rose-600 bg-rose-50 text-rose-700' };
@@ -260,7 +260,7 @@ export function OrderTimelinePanel({
                           target="_blank"
                           rel="noopener noreferrer"
                           title={t('Mở ảnh kích thước đầy đủ')}
-                          className="group relative block h-16 w-16 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-white transition-colors hover:border-slate-300"
+                          className="group relative block h-16 w-16 cursor-pointer overflow-hidden rounded-sm border border-slate-200 bg-white transition-colors hover:border-slate-300"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img

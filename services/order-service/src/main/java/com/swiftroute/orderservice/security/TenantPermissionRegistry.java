@@ -242,9 +242,6 @@ public class TenantPermissionRegistry {
             if (path.endsWith("/cancel")) {
                 return Set.of("order:cancel");
             }
-            if (path.endsWith("/incident") || path.endsWith("/incidents")) {
-                return Set.of("order:deliver", "order:update");
-            }
             if (path.contains("/tracking/simulate")) {
                 return Set.of("dispatch:execute", "order:update", "order:deliver");
             }
@@ -259,15 +256,12 @@ public class TenantPermissionRegistry {
             return Set.of("order:deliver", "order:update");
         }
 
-        // 6. Operations & Exceptions (Incidents & Returns)
+        // 6. Operations & Exceptions (Incidents & Warehouse Return Check-in)
         if (path.startsWith("/api/operations")) {
             if ("GET".equals(m)) {
                 return Set.of("order:read", "sla:read");
             }
-            if (path.equals("/api/operations/incidents")
-                    || path.endsWith("/incidents")
-                    || path.endsWith("/arrive")
-                    || path.endsWith("/handover")) {
+            if (path.equals("/api/operations/incidents")) {
                 return Set.of("order:deliver", "order:update", "sla:manage");
             }
             return Set.of("order:update", "hub:manage", "sla:manage");

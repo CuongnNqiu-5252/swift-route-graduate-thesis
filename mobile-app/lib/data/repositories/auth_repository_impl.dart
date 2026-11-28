@@ -19,20 +19,6 @@ class AuthRepositoryImpl implements AuthRepository {
       _tokenStorage = tokenStorage;
 
   @override
-  Future<User> login(String identifier, String password) async {
-    try {
-      final request = LoginRequest(username: identifier, password: password);
-      final response = await _dio.post('/auth/login', data: request.toJson());
-      return await _persistAndResolveUser(
-        response.data as Map<String, dynamic>,
-        fallbackEmail: identifier,
-      );
-    } on DioException catch (e) {
-      throw _handleDioError(e);
-    }
-  }
-
-  @override
   Future<User> activateWithCode(String activationCode) async {
     final normalized = activationCode.replaceAll(RegExp(r'[\s-]+'), '');
     if (!RegExp(r'^\d{12}$').hasMatch(normalized)) {
@@ -55,28 +41,25 @@ class AuthRepositoryImpl implements AuthRepository {
       _lastDeviceSyncAt = DateTime.now();
       return user;
     } on DioException catch (e) {
-      throw _handleDioError(e, isActivation: true);
+      throw _handleDioError(e);
     }
   }
 
-  Future<User> _persistAndResolveUser(
-    Map<String, dynamic> responseMap, {
-    String fallbackEmail = '',
-  }) async {
-    final loginResponse = LoginResponse.fromJson(responseMap);
+  Future<User> _persistAndResolveUser(Map<String, dynamic> responseMap) async {
+    final tokens = ActivationTokens.fromJson(responseMap);
 
     final previousToken = await _tokenStorage.getAccessToken();
     final previousUser = previousToken == null
         ? null
         : _decodeUserFromToken(previousToken);
-    final nextUser = _decodeUserFromToken(loginResponse.accessToken);
+    final nextUser = _decodeUserFromToken(tokens.accessToken);
     if (previousUser == null || previousUser.id != nextUser.id) {
       await SqliteOfflineStore.instance.clearAll();
     }
 
     await _tokenStorage.saveTokens(
-      accessToken: loginResponse.accessToken,
-      refreshToken: loginResponse.refreshToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
     );
 
     final dataPayload = responseMap['data'];
@@ -86,7 +69,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final mePermissions = UserModel.parsePermissions(userJson['permissions']);
       return UserModel(
         id: (userJson['id'] ?? nextUser.id).toString(),
-        email: (userJson['email'] ?? fallbackEmail).toString(),
+        email: (userJson['email'] ?? nextUser.email).toString(),
         name: (userJson['full_name'] ?? userJson['fullName'] ?? nextUser.name)
             .toString(),
         role: nextUser.role,
@@ -103,7 +86,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final mePermissions = UserModel.parsePermissions(meData['permissions']);
       return UserModel(
         id: meData['id'] as String? ?? '',
-        email: meData['email'] as String? ?? fallbackEmail,
+        email: meData['email'] as String? ?? nextUser.email,
         name: meData['full_name'] as String? ?? '',
         role: nextUser.role,
         permissions: mePermissions.isNotEmpty
@@ -248,7 +231,7 @@ class AuthRepositoryImpl implements AuthRepository {
     return null;
   }
 
-  Exception _handleDioError(DioException e, {bool isActivation = false}) {
+  Exception _handleDioError(DioException e) {
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.receiveTimeout:
@@ -270,19 +253,13 @@ class AuthRepositoryImpl implements AuthRepository {
 
         return switch (statusCode) {
           400 => Exception(
-            isActivation
-                ? 'Mã kích hoạt không hợp lệ, đã hết hạn hoặc đã sử dụng.'
-                : 'Thông tin không hợp lệ (400).',
+            'Mã kích hoạt không hợp lệ, đã hết hạn hoặc đã sử dụng.',
           ),
           401 => Exception(
-            isActivation
-                ? 'Mã kích hoạt không chính xác. Vui lòng kiểm tra lại.'
-                : 'Email hoặc mật khẩu không chính xác (401).',
+            'Mã kích hoạt không chính xác. Vui lòng kiểm tra lại.',
           ),
           403 => Exception(
-            isActivation
-                ? 'Hồ sơ tài xế chưa sẵn sàng hoạt động hoặc đã bị tạm ngưng.'
-                : 'Tài khoản không có quyền truy cập (403).',
+            'Hồ sơ tài xế chưa sẵn sàng hoạt động hoặc đã bị tạm ngưng.',
           ),
           404 => Exception('Không tìm thấy tài nguyên (404).'),
           409 => Exception('Tài khoản hoặc dữ liệu đã tồn tại (409).'),

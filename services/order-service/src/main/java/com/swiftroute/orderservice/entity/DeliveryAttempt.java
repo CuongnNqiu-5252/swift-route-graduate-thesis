@@ -47,8 +47,6 @@ public class DeliveryAttempt {
     private String proofUrl;
     private Double lat;
     private Double lng;
-    @Builder.Default
-    private Integer contactAttempts = 1;
     private UUID completedBy;
     @Builder.Default
     private Instant completedAt = Instant.now();

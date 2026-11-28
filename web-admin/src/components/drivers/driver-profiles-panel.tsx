@@ -1,28 +1,28 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
-import { KeyRound, MessageSquare, ShieldCheck } from 'lucide-react';
-import Link from 'next/link';
-import { toast } from 'sonner';
 import { useAuth } from '@/application/contexts/auth-context';
-import { useLocale } from '@/i18n/provider';
+import { formatBankDisplay, stripVietnameseDiacritics, VIETQR_BANKS } from '@/application/vietqr';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Modal } from '@/components/ui/modal';
+import { CustomSelect } from '@/components/ui/select';
 import {
   CreateDriverPayload,
   Driver,
   DriverActivationKeyResult,
   UpdateDriverPayload,
 } from '@/domain/entities/driver.entity';
-import { getCurrentTenantId } from '@/infrastructure/repositories/member.repository';
+import { useLocale } from '@/i18n/provider';
 import { driverRepository } from '@/infrastructure/repositories/driver.repository';
-import { VIETQR_BANKS, formatBankDisplay, stripVietnameseDiacritics } from '@/application/vietqr';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Modal } from '@/components/ui/modal';
+import { getCurrentTenantId } from '@/infrastructure/repositories/member.repository';
+import { KeyRound, MessageSquare, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
+import { FormEvent, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { DriverActivationCodeModal } from './driver-activation-code-modal';
+import { driverVehicleLabel, formatDriverShift } from './driver-formatters';
 import { DriverProfileDialog } from './driver-profile-dialog';
 import { DriverProfilesTable, DriverProfileStatus } from './driver-profiles-table';
-import { driverVehicleLabel, formatDriverShift } from './driver-formatters';
-import { CustomSelect } from '@/components/ui/select';
 
 interface DriverProfilesPanelProps {
   drivers: Driver[];
@@ -276,9 +276,8 @@ export function DriverProfilesPanel({
   const actionFeedback = (actionError || message) && (
     <div
       role={actionError ? 'alert' : 'status'}
-      className={`rounded-lg px-3 py-2 text-sm ${
-        actionError ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'
-      }`}
+      className={`rounded-sm px-3 py-2 text-sm ${actionError ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'
+        }`}
     >
       {actionError || message}
     </div>
@@ -297,9 +296,9 @@ export function DriverProfilesPanel({
         onAdd={
           isManager
             ? () => {
-                setActionError('');
-                onCreateOpenChange(true);
-              }
+              setActionError('');
+              onCreateOpenChange(true);
+            }
             : undefined
         }
       />
@@ -315,7 +314,7 @@ export function DriverProfilesPanel({
           className="max-h-[calc(100dvh-1.5rem)] w-[calc(100%-1.5rem)] max-w-xl overflow-y-auto"
         >
           {actionError && (
-            <div role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+            <div role="alert" className="mb-3 rounded-sm bg-red-50 px-3 py-2 text-sm text-red-800">
               {actionError}
             </div>
           )}
@@ -407,7 +406,7 @@ export function DriverProfilesPanel({
                         setEditFullName(event.target.value);
                         if (profileError) setProfileError('');
                       }}
-                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                   </label>
                   <label className={fieldRow}>
@@ -423,7 +422,7 @@ export function DriverProfilesPanel({
                         setEditPhone(event.target.value);
                         if (profileError) setProfileError('');
                       }}
-                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                   </label>
                   <label className={fieldRow}>
@@ -438,7 +437,7 @@ export function DriverProfilesPanel({
                         if (profileError) setProfileError('');
                       }}
                       placeholder={t('Dùng để nhận mã kích hoạt ứng dụng')}
-                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                   </label>
                   <DriverDetailRows
@@ -525,7 +524,7 @@ export function DriverProfilesPanel({
                       if (profileError) setProfileError('');
                     }}
                     placeholder={t('VD: 65-B1 123.45')}
-                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase tabular-nums text-slate-950 placeholder:normal-case placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm uppercase tabular-nums text-slate-950 placeholder:normal-case placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </label>
                 <label className={fieldRow}>
@@ -541,7 +540,7 @@ export function DriverProfilesPanel({
                       setEditCapacity(event.target.value);
                       if (profileError) setProfileError('');
                     }}
-                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </label>
                 <div className={fieldRow}>
@@ -553,7 +552,7 @@ export function DriverProfilesPanel({
                       disabled={savingProfile}
                       value={editShiftStart}
                       onChange={(event) => setEditShiftStart(event.target.value)}
-                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                     <input
                       type="time"
@@ -561,7 +560,7 @@ export function DriverProfilesPanel({
                       disabled={savingProfile}
                       value={editShiftEnd}
                       onChange={(event) => setEditShiftEnd(event.target.value)}
-                      className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-950 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     />
                   </div>
                 </div>
@@ -584,9 +583,9 @@ export function DriverProfilesPanel({
           }
           review={
             profileDriver.onboarding_status === 'PENDING_APPROVAL' ||
-            profileDriver.review_note ||
-            selection?.review ||
-            message ? (
+              profileDriver.review_note ||
+              selection?.review ||
+              message ? (
               <div className="space-y-3">
                 <DriverProfileStatus driver={profileDriver} />
                 {profileDriver.review_note && (
@@ -607,7 +606,7 @@ export function DriverProfilesPanel({
                       }
                       maxLength={1000}
                       disabled={busy}
-                      className="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-blue-600"
+                      className="min-h-20 w-full rounded-sm border border-slate-300 px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-blue-600"
                       placeholder={t('Bắt buộc khi yêu cầu bổ sung')}
                     />
                     <div className="flex flex-wrap justify-end gap-2">
@@ -669,11 +668,10 @@ export function DriverProfilesPanel({
                       if (bankError) setBankError('');
                     }}
                     placeholder={t('VD: 0123456789')}
-                    className={`h-10 rounded-lg border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
-                      bankError
+                    className={`h-10 rounded-sm border bg-white px-3 text-sm tabular-nums text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${bankError
                         ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
                         : 'border-slate-300 focus:border-blue-500 focus:ring-blue-500/20'
-                    }`}
+                      }`}
                   />
                 </label>
                 <label className={fieldRow}>
@@ -685,7 +683,7 @@ export function DriverProfilesPanel({
                     value={bankAccountName}
                     onChange={(event) => setBankAccountName(event.target.value)}
                     placeholder={profileDriver ? stripVietnameseDiacritics(profileDriver.name) : ''}
-                    className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="h-10 rounded-sm border border-slate-300 bg-white px-3 text-sm uppercase text-slate-950 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </label>
                 {bankError && (

@@ -64,7 +64,8 @@ class _DriverActivationScreenState
     if (_isSubmitting) return;
     final clip = await Clipboard.getData(Clipboard.kTextPlain);
     final raw = clip?.text;
-    if (raw == null || raw.trim().isEmpty) return;
+    if (!mounted || raw == null || raw.trim().isEmpty) return;
+    ref.read(authProvider.notifier).clearError();
     final formatted = _TwelveDigitActivationFormatter.formatDigits(raw);
     if (formatted.isEmpty) {
       setState(() {
@@ -96,16 +97,9 @@ class _DriverActivationScreenState
           .read(authProvider.notifier)
           .activateWithCode(digits);
       if (!mounted) return;
-      if (success) {
-        ref.read(authProvider.notifier).clearError();
-        Navigator.of(context).popUntil((route) => route.isFirst);
-      } else {
-        final message = ref.read(authProvider).errorMessage;
-        ref.read(authProvider.notifier).clearError();
+      if (!success && ref.read(authProvider).errorMessage == null) {
         setState(() {
-          _error =
-              message ??
-              'Không thể kích hoạt ứng dụng. Vui lòng kiểm tra mã kích hoạt và thử lại.';
+          _error = 'Không thể kích hoạt ứng dụng. Vui lòng thử lại.';
         });
       }
     } finally {
@@ -117,14 +111,12 @@ class _DriverActivationScreenState
 
   @override
   Widget build(BuildContext context) {
+    final error =
+        _error ?? ref.watch(authProvider.select((state) => state.errorMessage));
     return Scaffold(
       appBar: AppBar(
         title: const Text('Kích hoạt bằng mã'),
-        leading: IconButton(
-          tooltip: 'Quay lại đăng nhập',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
-        ),
+        automaticallyImplyLeading: false,
       ),
       body: SafeArea(
         child: Center(
@@ -166,7 +158,7 @@ class _DriverActivationScreenState
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Nhập hoặc dán mã kích hoạt 12 chữ số do quản trị viên doanh nghiệp cấp để đăng nhập ngay không cần mật khẩu.',
+                      'Nhập hoặc dán mã kích hoạt 12 chữ số do quản trị viên doanh nghiệp cấp để vào ứng dụng.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
@@ -185,6 +177,7 @@ class _DriverActivationScreenState
                         _TwelveDigitActivationFormatter(),
                       ],
                       onChanged: (_) {
+                        ref.read(authProvider.notifier).clearError();
                         if (_error != null) {
                           setState(() => _error = null);
                         }
@@ -233,7 +226,7 @@ class _DriverActivationScreenState
                         color: AppColors.textSecondary,
                       ),
                     ),
-                    if (_error != null) ...[
+                    if (error != null) ...[
                       const SizedBox(height: 18),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -258,7 +251,7 @@ class _DriverActivationScreenState
                               child: Semantics(
                                 liveRegion: true,
                                 child: Text(
-                                  _error!,
+                                  error,
                                   style: const TextStyle(
                                     color: AppColors.error,
                                     fontSize: 13,
@@ -298,17 +291,6 @@ class _DriverActivationScreenState
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 48,
-                      child: TextButton.icon(
-                        onPressed: _isSubmitting
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                        label: const Text('Quay lại đăng nhập email'),
                       ),
                     ),
                   ],

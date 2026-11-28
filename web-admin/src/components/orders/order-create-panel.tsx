@@ -2,19 +2,19 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Banknote, CheckCircle2, Loader2, MapPin, ShieldAlert } from 'lucide-react';
-import { toast } from 'sonner';
+import LocationMapPicker from '@/components/locations/location-map-picker';
 import { Button } from '@/components/ui/button';
 import { CustomSelect } from '@/components/ui/select';
-import LocationMapPicker from '@/components/locations/location-map-picker';
 import type { DeliveryZoneCheckResult, TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
 import { ORDER_PRIORITY_LABEL, type OrderPriority } from '@/domain/entities/order.entity';
 import { PickupLocation } from '@/domain/entities/pickup-location.entity';
 import { deliveryZoneRepository } from '@/infrastructure/repositories/delivery-zone.repository';
-import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
+import { pickupLocationRepository } from '@/infrastructure/repositories/pickup-location.repository';
 import { parseVNDateTimeInput } from '@/lib/utils';
+import { AlertTriangle, Banknote, CheckCircle2, Loader2, MapPin, ShieldAlert } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 function numberToVietnameseWords(num: number): string {
   if (!num || num <= 0) return '';
@@ -160,7 +160,7 @@ export function OrderCreatePanel({
     return () => {
       active = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t]);
 
   const activeZone = Boolean(deliveryZone?.configured && deliveryZone.is_active);
@@ -247,8 +247,8 @@ export function OrderCreatePanel({
         />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-xs font-semibold text-slate-700">{t("Người nhận")}<input required value={recipient} onChange={(event) => setRecipient(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
-        <label className="text-xs font-semibold text-slate-700">{t("Số điện thoại")}<input required value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+        <label className="text-xs font-semibold text-slate-700">{t("Người nhận")}<input required value={recipient} onChange={(event) => setRecipient(event.target.value)} className="mt-1 w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+        <label className="text-xs font-semibold text-slate-700">{t("Số điện thoại")}<input required value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1 w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
       </div>
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium text-slate-900">{t('Khung giờ giao hàng (tùy chọn)')}</legend>
@@ -286,7 +286,7 @@ export function OrderCreatePanel({
           <div className="mt-3 space-y-2">
             <label className="block text-xs font-semibold text-slate-700">
               {t("Số tiền cần thu từ người nhận (VND)")}
-              <div className="mt-1 flex min-h-11 items-center overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-100">
+              <div className="mt-1 flex min-h-11 items-center overflow-hidden rounded-sm border border-slate-300 bg-white focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-100">
                 <input
                   required
                   autoFocus
@@ -342,11 +342,10 @@ export function OrderCreatePanel({
                   key={item.val}
                   type="button"
                   onClick={() => setCodThousands(item.val)}
-                  className={`rounded border px-2 py-0.5 text-xs font-medium transition ${
-                    codThousands === item.val
+                  className={`rounded border px-2 py-0.5 text-xs font-medium transition ${codThousands === item.val
                       ? 'border-emerald-600 bg-emerald-600 text-white'
                       : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </button>
@@ -356,10 +355,10 @@ export function OrderCreatePanel({
         )}
       </fieldset>
       <label className="block text-xs font-semibold text-slate-700">{t("Địa chỉ giao")}
-        <textarea required rows={3} value={address} onChange={(event) => setAddress(event.target.value)} placeholder={t("Địa chỉ sẽ tự điền sau khi chọn vị trí trên bản đồ")} className="mt-1 w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+        <textarea required rows={3} value={address} onChange={(event) => setAddress(event.target.value)} placeholder={t("Địa chỉ sẽ tự điền sau khi chọn vị trí trên bản đồ")} className="mt-1 w-full resize-none rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm" />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs font-semibold text-slate-700">{t("Tổng khối lượng (kg)")}<input required min="0.1" step="0.1" type="number" value={weight} onChange={(event) => setWeight(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
+        <label className="block text-xs font-semibold text-slate-700">{t("Tổng khối lượng (kg)")}<input required min="0.1" step="0.1" type="number" value={weight} onChange={(event) => setWeight(event.target.value)} className="mt-1 w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm" /></label>
         <label className="block text-xs font-semibold text-slate-700">{t("Mức độ ưu tiên")}
           <CustomSelect
             value={priority}
@@ -378,8 +377,7 @@ export function OrderCreatePanel({
       </div>
       {activeZone && deliveryZone && (
         <div
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            !locationSelected
+          className={`rounded-sm border px-3 py-2 text-xs ${!locationSelected
               ? 'border-slate-200 bg-white text-slate-600'
               : checkingZone
                 ? 'border-slate-200 bg-white text-slate-600'
@@ -390,7 +388,7 @@ export function OrderCreatePanel({
                     : zoneCheck?.allowed
                       ? 'border-amber-200 bg-amber-50 text-amber-900'
                       : 'border-rose-200 bg-rose-50 text-rose-900'
-          }`}
+            }`}
         >
           {!locationSelected ? (
             <p>

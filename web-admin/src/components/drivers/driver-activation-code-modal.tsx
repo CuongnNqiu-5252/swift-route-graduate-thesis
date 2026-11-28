@@ -1,14 +1,14 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Copy, KeyRound, Mail, Send, ShieldAlert } from 'lucide-react';
-import { toast } from 'sonner';
-import { DriverActivationKeyResult } from '@/domain/entities/driver.entity';
-import { driverRepository } from '@/infrastructure/repositories/driver.repository';
-import { useLocale } from '@/i18n/provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
+import { DriverActivationKeyResult } from '@/domain/entities/driver.entity';
+import { useLocale } from '@/i18n/provider';
+import { driverRepository } from '@/infrastructure/repositories/driver.repository';
+import { Check, Copy, KeyRound, Mail, Send, ShieldAlert } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 interface DriverActivationCodeModalProps {
   items: DriverActivationKeyResult[];
@@ -89,7 +89,7 @@ export function DriverActivationCodeModal({
       className="max-h-[calc(100dvh-2rem)] w-[calc(100%-1.5rem)] max-w-xl overflow-y-auto"
     >
       <div className="space-y-4">
-        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900">
+        <div className="flex items-start gap-2.5 rounded-sm border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900">
           <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-700" aria-hidden="true" />
           <p>
             {t(
@@ -121,7 +121,7 @@ export function DriverActivationCodeModal({
                   </span>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-slate-200 bg-white px-4 py-3">
                   <span className="font-mono text-xl font-bold tracking-wider tabular-nums text-slate-950 sm:text-2xl">
                     {item.formatted_activation_key}
                   </span>
@@ -190,7 +190,7 @@ export function DriverActivationCodeModal({
           })}
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-3.5 text-xs leading-5 text-slate-700">
+        <div className="rounded-sm border border-slate-200 bg-white p-3.5 text-xs leading-5 text-slate-700">
           <p className="font-semibold text-slate-900">{t('Hướng dẫn kích hoạt trên ứng dụng SwiftRoute Driver:')}</p>
           <ul className="mt-1.5 list-disc space-y-1 ps-4">
             <li>{t('Tài xế mở ứng dụng SwiftRoute Driver trên điện thoại Android hoặc iOS.')}</li>

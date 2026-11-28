@@ -2,11 +2,11 @@
 
 import { useLocale } from '@/i18n/provider';
 
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
 import { CheckCircle2, LoaderCircle, MailWarning, Route } from 'lucide-react';
 import Link from 'next/link';
-import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { authRepository } from '@/infrastructure/repositories/auth.repository';
+import { Suspense, useEffect, useState } from 'react';
 
 type State = 'checking' | 'verified' | 'invalid';
 
@@ -103,13 +103,12 @@ function VerificationContent() {
           <Route size={22} aria-hidden="true" />
         </div>
         <div
-          className={`mx-auto mt-8 flex h-16 w-16 items-center justify-center rounded-full ${
-            state === 'verified'
+          className={`mx-auto mt-8 flex h-16 w-16 items-center justify-center rounded-full ${state === 'verified'
               ? 'bg-emerald-50 text-emerald-700'
               : state === 'invalid'
                 ? 'bg-red-50 text-red-700'
                 : 'bg-teal-50 text-[#17766c]'
-          }`}
+            }`}
         >
           <Icon size={30} aria-hidden="true" className={state === 'checking' ? 'animate-spin' : ''} />
         </div>
@@ -126,7 +125,7 @@ function VerificationContent() {
         {state === 'verified' && (
           <Link
             href="/login"
-            className="mt-8 inline-flex min-h-11 cursor-pointer items-center rounded-lg bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058]"
+            className="mt-8 inline-flex min-h-11 cursor-pointer items-center rounded-sm bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058]"
           >
             {t('Đăng nhập và tiếp tục')}
           </Link>
@@ -136,13 +135,13 @@ function VerificationContent() {
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
               <Link
                 href="/login"
-                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058]"
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-sm bg-[#17766c] px-5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#136058]"
               >
                 {t('Đi đến đăng nhập')}
               </Link>
               <Link
                 href="/register"
-                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-slate-300 px-5 text-sm font-medium text-slate-800 transition-colors duration-150 hover:bg-slate-50"
+                className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-sm border border-slate-300 px-5 text-sm font-medium text-slate-800 transition-colors duration-150 hover:bg-slate-50"
               >
                 {t('Đăng ký tài khoản')}
               </Link>

@@ -20,7 +20,24 @@ public record UserProfileResponseDTO(
         String status,
         LocalDateTime createdAt,
         boolean emailVerified,
-        List<String> permissions) {
+        List<String> permissions,
+        Long permissionsVersion) {
+
+    public UserProfileResponseDTO(
+            UUID id,
+            String email,
+            String phone,
+            String fullName,
+            Role accountRole,
+            String role,
+            UUID tenantId,
+            String status,
+            LocalDateTime createdAt,
+            boolean emailVerified,
+            List<String> permissions) {
+        this(id, email, phone, fullName, accountRole, role, tenantId, status, createdAt, emailVerified,
+                permissions, null);
+    }
 
     public UserProfileResponseDTO(
             UUID id,
@@ -34,6 +51,6 @@ public record UserProfileResponseDTO(
             LocalDateTime createdAt,
             boolean emailVerified) {
         this(id, email, phone, fullName, accountRole, role, tenantId, status, createdAt, emailVerified,
-                TenantPermission.defaultPermissionsForRoleName(role, accountRole));
+                TenantPermission.defaultPermissionsForRoleName(role, accountRole), null);
     }
 }

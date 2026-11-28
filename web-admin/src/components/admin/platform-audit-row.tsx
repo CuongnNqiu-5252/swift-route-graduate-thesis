@@ -1,10 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { AUDIT_ACTIONS, AUDIT_CATEGORIES } from '@/application/platform-audit';
-import type { PlatformAuditEntry } from '@/infrastructure/repositories/platform.repository';
 import { useLocale } from '@/i18n/provider';
+import type { PlatformAuditEntry } from '@/infrastructure/repositories/platform.repository';
 import { formatVNDate } from '@/lib/utils';
+import Link from 'next/link';
 
 export function PlatformAuditRow({ entry, compact = false }: { entry: PlatformAuditEntry; compact?: boolean }) {
   const { t } = useLocale();
@@ -24,7 +24,7 @@ export function PlatformAuditRow({ entry, compact = false }: { entry: PlatformAu
       </p>}
       {!compact && <details className="mt-2 text-xs">
         <summary className="w-fit cursor-pointer rounded py-1 text-slate-600 focus-visible:outline-2 focus-visible:outline-teal-700">{t('Chi tiết sự kiện')}</summary>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg bg-slate-50 p-3 text-slate-700">
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-sm bg-slate-50 p-3 text-slate-700">
           <dt>{t('Mã sự kiện')}</dt><dd className="break-all">{entry.id}</dd>
           <dt>{t('Hành động')}</dt><dd className="break-all">{entry.action}</dd>
           <dt>{t('Đối tượng')}</dt><dd className="break-all">{entry.aggregate_type} · {entry.aggregate_id}</dd>

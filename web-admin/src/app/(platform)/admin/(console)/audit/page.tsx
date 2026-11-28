@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Pause, Play, Search } from 'lucide-react';
 import { AUDIT_CATEGORIES, matchesAudit, mergeAuditEntries } from '@/application/platform-audit';
 import { PlatformAuditRow } from '@/components/admin/platform-audit-row';
 import { PlatformConnection, usePlatformLive } from '@/components/admin/platform-live-provider';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n/provider';
-import { platformRepository, type PlatformAuditEntry, type PlatformAuditFilter, type PlatformAuditPage as AuditHistoryPage } from '@/infrastructure/repositories/platform.repository';
+import { platformRepository, type PlatformAuditPage as AuditHistoryPage, type PlatformAuditEntry, type PlatformAuditFilter } from '@/infrastructure/repositories/platform.repository';
+import { Pause, Play, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 
 const initial: PlatformAuditFilter = { query: '', category: '', severity: '', days: 7 };
 
@@ -59,11 +59,11 @@ export default function PlatformAuditPage() {
       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{t('Theo dõi xét duyệt, vòng đời doanh nghiệp, cấp workspace, vùng giao và luồng lập kế hoạch. Chỉ nhận thay đổi sau khi giao dịch thành công.')}</p></div><PlatformConnection /></header>
     <form onSubmit={apply} className="grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_auto_auto_auto_auto]">
       <label className="text-xs font-medium text-slate-600">{t('Tìm trong nhật ký')}
-        <input value={draft.query} maxLength={120} onChange={(event) => setDraft({ ...draft, query: event.target.value })} placeholder={t('Doanh nghiệp, hành động hoặc mã tài khoản')} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-teal-700" />
+        <input value={draft.query} maxLength={120} onChange={(event) => setDraft({ ...draft, query: event.target.value })} placeholder={t('Doanh nghiệp, hành động hoặc mã tài khoản')} className="mt-1 block w-full rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-teal-700" />
       </label>
-      <label className="text-xs font-medium text-slate-600">{t('Nhóm hoạt động')}<select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"><option value="">{t('Tất cả nhóm')}</option>{Object.entries(AUDIT_CATEGORIES).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></label>
-      <label className="text-xs font-medium text-slate-600">{t('Mức độ')}<select value={draft.severity} onChange={(event) => setDraft({ ...draft, severity: event.target.value })} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"><option value="">{t('Tất cả mức độ')}</option><option value="INFO">{t('Thông tin')}</option><option value="WARNING">{t('Cần chú ý')}</option><option value="ERROR">{t('Lỗi')}</option></select></label>
-      <label className="text-xs font-medium text-slate-600">{t('Khoảng thời gian')}<select value={draft.days} onChange={(event) => setDraft({ ...draft, days: Number(event.target.value) })} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900">{[1, 7, 30, 90].map((days) => <option key={days} value={days}>{days} {t('ngày gần nhất')}</option>)}</select></label>
+      <label className="text-xs font-medium text-slate-600">{t('Nhóm hoạt động')}<select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} className="mt-1 block w-full rounded-sm border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"><option value="">{t('Tất cả nhóm')}</option>{Object.entries(AUDIT_CATEGORIES).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}</select></label>
+      <label className="text-xs font-medium text-slate-600">{t('Mức độ')}<select value={draft.severity} onChange={(event) => setDraft({ ...draft, severity: event.target.value })} className="mt-1 block w-full rounded-sm border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"><option value="">{t('Tất cả mức độ')}</option><option value="INFO">{t('Thông tin')}</option><option value="WARNING">{t('Cần chú ý')}</option><option value="ERROR">{t('Lỗi')}</option></select></label>
+      <label className="text-xs font-medium text-slate-600">{t('Khoảng thời gian')}<select value={draft.days} onChange={(event) => setDraft({ ...draft, days: Number(event.target.value) })} className="mt-1 block w-full rounded-sm border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900">{[1, 7, 30, 90].map((days) => <option key={days} value={days}>{days} {t('ngày gần nhất')}</option>)}</select></label>
       <Button type="submit" className="self-end"><Search size={15} aria-hidden="true" />{t('Lọc nhật ký')}</Button>
     </form>
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3"><p className="text-sm text-slate-600">{visible.length} {t('sự kiện đang hiển thị')}{paused && <span className="ml-2 font-medium text-amber-900">{t('Đã tạm dừng hiển thị')}</span>}</p>

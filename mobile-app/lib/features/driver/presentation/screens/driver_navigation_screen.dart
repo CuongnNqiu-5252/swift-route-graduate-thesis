@@ -5,11 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/core/theme/app_theme.dart';
-import 'package:swiftroute_app/core/utils/formatters.dart';
 import 'package:swiftroute_app/core/utils/location_helper.dart';
 import 'package:swiftroute_app/core/utils/polyline_decoder.dart';
 import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
-import 'package:swiftroute_app/core/widgets/slide_to_confirm_button.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
 import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
@@ -78,14 +76,8 @@ class _DriverNavigationScreenState
     return activeStops.firstOrNull;
   }
 
-  bool _isNavigatingToDepot(OrderModel order) => order.isReturnTask;
-
   LatLngPoint _destinationFor(OrderModel order) {
-    final toDepot = _isNavigatingToDepot(order);
-    return LatLngPoint(
-      toDepot ? order.pickupLat : order.deliveryLat,
-      toDepot ? order.pickupLng : order.deliveryLng,
-    );
+    return LatLngPoint(order.deliveryLat, order.deliveryLng);
   }
 
   Future<void> _syncRouteForCurrentStop({bool force = false}) async {
@@ -95,7 +87,7 @@ class _DriverNavigationScreenState
 
     final dest = _destinationFor(current);
     final destKey =
-        '${current.id}:${_isNavigatingToDepot(current)}:${dest.latitude.toStringAsFixed(5)},${dest.longitude.toStringAsFixed(5)}';
+        '${current.id}:${dest.latitude.toStringAsFixed(5)},${dest.longitude.toStringAsFixed(5)}';
     if (!force && _lastDestinationKey == destKey) return;
     _lastDestinationKey = destKey;
     _activeOrderId = current.id;
@@ -145,7 +137,7 @@ class _DriverNavigationScreenState
       setState(() {
         _isLoadingRoute = false;
         _routeError =
-            'Không tải được đường đi. Kiểm tra mạng hoặc quyền vị trí rồi thử lại.';
+            'Không tải được đường đi. Kiểm tra mạng và quyền vị trí để tiếp tục.';
       });
     }
   }
@@ -185,33 +177,6 @@ class _DriverNavigationScreenState
     await _syncRouteForCurrentStop(force: true);
   }
 
-  Future<void> _handleReturnSwipe(OrderModel current) async {
-    final taskId = current.deliveryTaskId;
-    if (taskId == null) return;
-    try {
-      await ref
-          .read(driverOrdersProvider.notifier)
-          .updateDeliveryTask(
-            orderId: current.id,
-            taskId: taskId,
-            nextStatus: DeliveryTaskStatus.completed,
-            notes: 'Đã bàn giao kiện hoàn cho kho',
-          );
-      if (!mounted) return;
-      await _syncRouteForCurrentStop(force: true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.error,
-          content: Text(
-            'Không cập nhật được đơn hoàn: ${AppFormatters.errorMessage(e)}',
-          ),
-        ),
-      );
-    }
-  }
-
   void _focus(MapFocusMode mode) {
     setState(() {
       _focusMode = mode;
@@ -247,14 +212,12 @@ class _DriverNavigationScreenState
 
     final dest = _destinationFor(current);
     final destKey =
-        '${current.id}:${_isNavigatingToDepot(current)}:${dest.latitude.toStringAsFixed(5)},${dest.longitude.toStringAsFixed(5)}';
+        '${current.id}:${dest.latitude.toStringAsFixed(5)},${dest.longitude.toStringAsFixed(5)}';
     if (_lastDestinationKey != null && _lastDestinationKey != destKey) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _syncRouteForCurrentStop(force: true);
       });
     }
-
-    final toDepot = _isNavigatingToDepot(current);
 
     final activeRemainingCount = allOrders
         .where(
@@ -275,8 +238,7 @@ class _DriverNavigationScreenState
         fit: StackFit.expand,
         children: [
           GoongMapWidget(
-            pickupLocation: toDepot ? dest : null,
-            deliveryLocation: toDepot ? null : dest,
+            deliveryLocation: dest,
             driverLocation: _driverPosition,
             routePoints: _direction?.points ?? const [],
             focusMode: _focusMode,
@@ -343,13 +305,9 @@ class _DriverNavigationScreenState
                   ),
                   const SizedBox(height: 10),
                   _TopTurnBanner(
-                    isReturn: current.isReturnTask,
-                    title: toDepot
-                        ? 'Hoàn kiện về ${current.pickupDisplayName}'
-                        : 'Điểm giao · ${current.recipientName ?? current.displayCode}',
-                    subtitle: toDepot
-                        ? current.pickupAddress
-                        : current.deliveryAddress,
+                    title:
+                        'Điểm giao · ${current.recipientName ?? current.displayCode}',
+                    subtitle: current.deliveryAddress,
                     distanceText: _direction?.distanceText,
                   ),
                 ],
@@ -385,14 +343,11 @@ class _DriverNavigationScreenState
             alignment: Alignment.bottomCenter,
             child: _BottomTripCockpit(
               order: current,
-              toDepot: toDepot,
               isNearStop: isNearStop,
               direction: _direction,
-              isLoadingRoute: _isLoadingRoute,
               isFallback: _isUsingPickupFallback,
               routeError: _routeError,
               bottomInset: bottomInset,
-              onRefreshRoute: () => _syncRouteForCurrentStop(force: true),
               onOpenDetails: () => DriverStopDetailSheet.show(
                 context,
                 order: current,
@@ -403,7 +358,6 @@ class _DriverNavigationScreenState
                 await DriverIncidentSheet.show(context, current);
                 if (mounted) await _syncRouteForCurrentStop(force: true);
               },
-              onSwipeReturn: () => _handleReturnSwipe(current),
             ),
           ),
         ],
@@ -414,26 +368,22 @@ class _DriverNavigationScreenState
 
 class _TopTurnBanner extends StatelessWidget {
   const _TopTurnBanner({
-    required this.isReturn,
     required this.title,
     required this.subtitle,
     required this.distanceText,
   });
 
-  final bool isReturn;
   final String title;
   final String subtitle;
   final String? distanceText;
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = isReturn ? AppColors.errorDark : AppColors.primary;
-
     return Container(
       constraints: const BoxConstraints(maxWidth: 560),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: AppColors.primary,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
@@ -452,10 +402,8 @@ class _TopTurnBanner extends StatelessWidget {
               color: Colors.white.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              isReturn
-                  ? Icons.assignment_return_rounded
-                  : Icons.location_on_rounded,
+            child: const Icon(
+              Icons.location_on_rounded,
               color: Colors.white,
               size: 24,
             ),
@@ -508,38 +456,28 @@ class _TopTurnBanner extends StatelessWidget {
 class _BottomTripCockpit extends StatelessWidget {
   const _BottomTripCockpit({
     required this.order,
-    required this.toDepot,
     required this.isNearStop,
     required this.direction,
-    required this.isLoadingRoute,
     required this.isFallback,
     required this.routeError,
     required this.bottomInset,
-    required this.onRefreshRoute,
     required this.onOpenDetails,
     required this.onCompleteDelivery,
     required this.onReportIncident,
-    required this.onSwipeReturn,
   });
 
   final OrderModel order;
-  final bool toDepot;
   final bool isNearStop;
   final GoongDirection? direction;
-  final bool isLoadingRoute;
   final bool isFallback;
   final String? routeError;
   final double bottomInset;
-  final VoidCallback onRefreshRoute;
   final VoidCallback onOpenDetails;
   final VoidCallback onCompleteDelivery;
   final VoidCallback onReportIncident;
-  final Future<void> Function() onSwipeReturn;
 
   @override
   Widget build(BuildContext context) {
-    final contactPhone = toDepot ? order.senderPhone : order.recipientPhone;
-
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(maxWidth: 720),
@@ -583,44 +521,22 @@ class _BottomTripCockpit extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
               ],
-              if (!toDepot)
-                CodBadge(amount: order.codAmount)
-              else
-                const StatusPill(
-                  label: 'Trả kiện hoàn về kho',
-                  foreground: AppColors.warning,
-                  background: AppColors.warningSoft,
-                  borderColor: AppColors.warningBorder,
-                  icon: Icons.inventory_2_outlined,
-                ),
+              CodBadge(amount: order.codAmount),
               const Spacer(),
               IconButton(
                 tooltip: 'Chi tiết vận đơn',
                 onPressed: onOpenDetails,
                 icon: const Icon(Icons.info_outline_rounded, size: 22),
               ),
-              IconButton(
-                tooltip: 'Làm mới tuyến đường',
-                onPressed: isLoadingRoute ? null : onRefreshRoute,
-                icon: isLoadingRoute
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh_rounded, size: 22),
-              ),
-              PhoneCallButton(phone: contactPhone, compact: true),
+              PhoneCallButton(phone: order.recipientPhone, compact: true),
             ],
           ),
           const SizedBox(height: 8),
 
           Text(
-            toDepot
-                ? '${order.pickupDisplayName} — ${order.pickupAddress}'
-                : (order.recipientName?.isNotEmpty == true
-                      ? '${order.recipientName} · ${order.deliveryAddress}'
-                      : order.deliveryAddress),
+            order.recipientName?.isNotEmpty == true
+                ? '${order.recipientName} · ${order.deliveryAddress}'
+                : order.deliveryAddress,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
@@ -631,9 +547,7 @@ class _BottomTripCockpit extends StatelessWidget {
             ),
           ),
 
-          if (!toDepot &&
-              order.notes != null &&
-              order.notes!.trim().isNotEmpty) ...[
+          if (order.notes != null && order.notes!.trim().isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               'Ghi chú: ${order.notes!.trim()}',
@@ -713,53 +627,44 @@ class _BottomTripCockpit extends StatelessWidget {
               ),
             ),
 
-          if (order.isReturnTask)
-            SlideToConfirmButton(
-              label: 'Vuốt xác nhận đã bàn giao tại kho',
-              subtitle: 'Kho sẽ kiểm nhận để hoàn tất yêu cầu',
-              backgroundColor: AppColors.primary,
-              icon: Icons.assignment_return_rounded,
-              onConfirmed: onSwipeReturn,
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  flex: 4,
-                  child: SizedBox(
-                    height: 54,
-                    child: OutlinedButton.icon(
-                      onPressed: onReportIncident,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.error,
-                        side: const BorderSide(
-                          color: AppColors.errorBorder,
-                          width: 1.5,
-                        ),
-                        backgroundColor: AppColors.errorSoft,
+          Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: SizedBox(
+                  height: 54,
+                  child: OutlinedButton.icon(
+                    onPressed: onReportIncident,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: const BorderSide(
+                        color: AppColors.errorBorder,
+                        width: 1.5,
                       ),
-                      icon: const Icon(Icons.report_problem_rounded, size: 19),
-                      label: const Text('Sự cố'),
+                      backgroundColor: AppColors.errorSoft,
                     ),
+                    icon: const Icon(Icons.report_problem_rounded, size: 19),
+                    label: const Text('Sự cố'),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 7,
-                  child: SizedBox(
-                    height: 54,
-                    child: FilledButton.icon(
-                      onPressed: onCompleteDelivery,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.success,
-                      ),
-                      icon: const Icon(Icons.check_circle_rounded, size: 20),
-                      label: const Text('Giao thành công'),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 7,
+                child: SizedBox(
+                  height: 54,
+                  child: FilledButton.icon(
+                    onPressed: onCompleteDelivery,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.success,
                     ),
+                    icon: const Icon(Icons.check_circle_rounded, size: 20),
+                    label: const Text('Giao thành công'),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -46,6 +46,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
     // Danh sách path cho phép không cần JWT — phải đồng bộ với SecurityConfig
     private static final List<String> PUBLIC_PATHS = List.of(
             "/api/auth/login",
+            "/api/auth/google/login",
             "/api/auth/driver/activate",
             "/api/auth/register",
             "/api/auth/email/verify",

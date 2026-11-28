@@ -629,7 +629,10 @@ public class DispatchOrchestrationService {
         for (Order order : plan.getOrders()) {
             deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                     .ifPresent(task -> {
-                        if (task.getStatus().ordinal() < DeliveryTaskStatus.OUT_FOR_DELIVERY.ordinal()) {
+                        if (task.getStatus() != DeliveryTaskStatus.OUT_FOR_DELIVERY
+                                && task.getStatus() != DeliveryTaskStatus.COMPLETED
+                                && task.getStatus() != DeliveryTaskStatus.FAILED
+                                && task.getStatus() != DeliveryTaskStatus.CANCELLED) {
                             task.setStatus(DeliveryTaskStatus.OUT_FOR_DELIVERY);
                             task.setUpdatedAt(Instant.now());
                             deliveryTaskRepository.save(task);
@@ -646,23 +649,52 @@ public class DispatchOrchestrationService {
         if (plan.getPlanStatus() == PlanStatus.COMPLETED) {
             throw new AppException(ErrorCode.INVALID_PLAN_STATUS);
         }
+        List<UUID> releasedOrderIds = releasePlanStops(plan);
+        orderRepository.flush();
+
+        if (plan.getOrders().isEmpty()) {
+            if (publishOutbox) {
+                publishOutboxEvent(plan, "plan.cancelled");
+            }
+            if (plan.getId() != null) {
+                dispatchPlanRepository.clearIncidentReferences(plan.getId());
+                dispatchPlanRepository.clearTaskReferences(plan.getId());
+            }
+            dispatchPlanRepository.delete(plan);
+            return;
+        }
+
+        // Partially completed route: retain DELIVERED/FAILED/RETURNING/RETURNED stops on the plan
+        // and close the plan cleanly instead of deleting it (which would violate fk_orders_current_dispatch_plan).
+        if (plan.getId() != null && !releasedOrderIds.isEmpty()) {
+            deliveryTaskRepository.cancelTasksForPlanOrders(plan.getId(), releasedOrderIds);
+        }
+        List<Order> retainedOrders = plan.getOrdersInStopOrder();
+        for (int index = 0; index < retainedOrders.size(); index++) {
+            retainedOrders.get(index).setPlanStopIndex(index + 1);
+        }
+        double retainedDistanceKm = estimateRouteDistanceKm(plan.getTenant(), retainedOrders);
+        plan.setTotalDistanceKm(BigDecimal.valueOf(retainedDistanceKm));
+        plan.setEstimatedDurationMinutes(Math.max(
+                5,
+                (int) Math.ceil((retainedDistanceKm / 28.0) * 60.0 + retainedOrders.size() * 5.0)));
+        if (plan.getPlanStatus() == PlanStatus.DISPATCHED) {
+            plan.complete();
+        }
+        DispatchPlan saved = dispatchPlanRepository.save(plan);
         if (publishOutbox) {
-            publishOutboxEvent(plan, "plan.cancelled");
+            publishOutboxEvent(saved, "plan.cancelled");
         }
-        releasePlanStops(plan);
-        if (plan.getId() != null) {
-            dispatchPlanRepository.clearIncidentReferences(plan.getId());
-            dispatchPlanRepository.clearTaskReferences(plan.getId());
-        }
-        dispatchPlanRepository.delete(plan);
     }
 
-    private void releasePlanStops(DispatchPlan plan) {
+    private List<UUID> releasePlanStops(DispatchPlan plan) {
         List<Order> released = plan.getOrders().stream()
                 .filter(order -> order.getStatus() == OrderStatus.PLANNED
                         || order.getStatus() == OrderStatus.IN_TRANSIT)
                 .toList();
+        List<UUID> releasedIds = new ArrayList<>(released.size());
         for (Order order : released) {
+            releasedIds.add(order.getId());
             OrderStatus previous = order.getStatus();
             plan.removeOrder(order);
             order.setStatus(OrderStatus.READY_FOR_DISPATCH);
@@ -672,6 +704,56 @@ public class DispatchOrchestrationService {
             orderRepository.save(order);
         }
         retainCurrentWaypoints(plan);
+        return releasedIds;
+    }
+
+    /**
+     * Detaches a failed or returning order from its dispatch plan and resets its delivery task
+     * so the order can return cleanly to {@code READY_FOR_DISPATCH} for the next route.
+     */
+    @Transactional
+    public void detachOrderForRequeue(Order order) {
+        UUID planId = order.getPlanId();
+        if (planId != null) {
+            DispatchPlan plan = loadPlan(planId);
+            if (plan.removeOrder(order)) {
+                orderRepository.saveAndFlush(order);
+                if (plan.getPlanStatus() == PlanStatus.COMPLETED) {
+                    List<Order> remaining = plan.getOrdersInStopOrder();
+                    for (int index = 0; index < remaining.size(); index++) {
+                        remaining.get(index).setPlanStopIndex(index + 1);
+                    }
+                    retainCurrentWaypoints(plan);
+                    plan.setUpdatedAt(Instant.now());
+                    dispatchPlanRepository.save(plan);
+                } else if (plan.getOrders().isEmpty()) {
+                    if (plan.getPlanStatus() == PlanStatus.DISPATCHED) {
+                        plan.complete();
+                        plan.setRouteWaypoints("[]");
+                        plan.setTotalDistanceKm(BigDecimal.ZERO);
+                        plan.setEstimatedDurationMinutes(0);
+                        plan.setUpdatedAt(Instant.now());
+                        dispatchPlanRepository.save(plan);
+                    } else {
+                        discardPlan(plan, false);
+                    }
+                } else {
+                    refreshRemainingRoute(plan, "ORDER_REQUEUED");
+                    plan.setUpdatedAt(Instant.now());
+                    dispatchPlanRepository.save(plan);
+                    deliveryExecutionService.completeDeliveryPlanIfFinished(planId);
+                }
+            }
+        }
+        deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
+                .ifPresent(task -> {
+                    task.setDispatchPlanId(null);
+                    if (task.getStatus() != DeliveryTaskStatus.COMPLETED) {
+                        task.setStatus(DeliveryTaskStatus.CANCELLED);
+                    }
+                    task.setUpdatedAt(Instant.now());
+                    deliveryTaskRepository.save(task);
+                });
     }
 
     private void retainCurrentWaypoints(DispatchPlan plan) {
@@ -701,8 +783,7 @@ public class DispatchOrchestrationService {
 
     /**
      * Moves one physical package responsibility between drivers and keeps every
-     * execution projection in sync. Delivery transfers move the stop between
-     * active plans; return transfers only remove the stale delivery stop.
+     * execution projection in sync across active delivery plans.
      */
     @Transactional
     public void synchronizePackageTransfer(
@@ -715,17 +796,17 @@ public class DispatchOrchestrationService {
                 || fromDriverId == null
                 || toDriverId == null
                 || fromDriverId.equals(toDriverId)
-                || !Set.of("DELIVERY", "RETURN").contains(taskType)
+                || !"DELIVERY".equals(taskType)
                 || !fromDriverId.equals(order.getAssignedDriverId())) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATUS);
         }
 
-        DeliveryTask task = deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), taskType)
+        DeliveryTask task = deliveryTaskRepository.findByOrder_IdAndTaskType(order.getId(), "DELIVERY")
                 .orElseGet(() -> DeliveryTask.builder()
                         .order(order)
                         .tenantId(order.getTenant().getId())
                         .driverId(fromDriverId)
-                        .taskType(taskType)
+                        .taskType("DELIVERY")
                         .status(DeliveryTaskStatus.OUT_FOR_DELIVERY)
                         .build());
         if (task.getStatus() == DeliveryTaskStatus.COMPLETED
@@ -739,11 +820,8 @@ public class DispatchOrchestrationService {
             detachTransferredOrder(sourcePlan, order, fromDriverId);
         }
 
-        DispatchPlan targetPlan = null;
-        if ("DELIVERY".equals(taskType)) {
-            targetPlan = findOrCreateTransferTargetPlan(order, toDriverId);
-            attachTransferredOrder(targetPlan, order);
-        }
+        DispatchPlan targetPlan = findOrCreateTransferTargetPlan(order, toDriverId);
+        attachTransferredOrder(targetPlan, order);
 
         Instant now = Instant.now();
         order.setAssignedDriverId(toDriverId);

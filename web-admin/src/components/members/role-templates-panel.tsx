@@ -1,10 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Check, Info, RotateCcw, Save, ShieldCheck } from 'lucide-react';
-import { toast } from 'sonner';
 import { useAuth } from '@/application/contexts/auth-context';
-import { useLocale } from '@/i18n/provider';
+import { extractApiErrorMessage, groupPermissionsByModule } from '@/components/members/permission-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -13,8 +10,11 @@ import {
   PermissionCatalog,
   TenantMembershipRole,
 } from '@/domain/entities/member.entity';
+import { useLocale } from '@/i18n/provider';
 import { memberRepository } from '@/infrastructure/repositories/member.repository';
-import { extractApiErrorMessage, groupPermissionsByModule } from '@/components/members/permission-utils';
+import { Check, Info, RotateCcw, Save, ShieldCheck } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 const EDITABLE_TEMPLATE_ROLES: TenantMembershipRole[] = [
   'TENANT_ADMIN',
@@ -126,18 +126,16 @@ export function RoleTemplatesPanel({ catalog, tenantId, onUpdated }: RoleTemplat
                   setSelectedRole(roleKey);
                   setDraftOverride(null);
                 }}
-                className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors ${
-                  active
+                className={`inline-flex items-center gap-2 rounded-sm px-3.5 py-2 text-sm font-medium transition-colors ${active
                     ? 'bg-slate-900 text-white'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
+                  }`}
               >
                 <ShieldCheck className="h-4 w-4" />
                 <span>{t(MEMBER_ROLE_LABEL[roleKey])}</span>
                 <span
-                  className={`rounded-full px-1.5 py-0.5 text-xs ${
-                    active ? 'bg-white/20 text-white' : 'bg-white text-slate-600'
-                  }`}
+                  className={`rounded-full px-1.5 py-0.5 text-xs ${active ? 'bg-white/20 text-white' : 'bg-white text-slate-600'
+                    }`}
                 >
                   {count}
                 </span>
@@ -189,9 +187,8 @@ export function RoleTemplatesPanel({ catalog, tenantId, onUpdated }: RoleTemplat
                 return (
                   <label
                     key={perm.code}
-                    className={`flex items-start gap-3 px-4 py-3 ${
-                      isOwner ? 'cursor-pointer hover:bg-slate-50/70' : 'cursor-default'
-                    }`}
+                    className={`flex items-start gap-3 px-4 py-3 ${isOwner ? 'cursor-pointer hover:bg-slate-50/70' : 'cursor-default'
+                      }`}
                   >
                     <button
                       type="button"
@@ -199,11 +196,10 @@ export function RoleTemplatesPanel({ catalog, tenantId, onUpdated }: RoleTemplat
                       aria-checked={checked}
                       disabled={!isOwner}
                       onClick={() => toggleCode(perm.code)}
-                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
-                        checked
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${checked
                           ? 'border-blue-600 bg-blue-600 text-white'
                           : 'border-slate-300 bg-white text-transparent'
-                      } disabled:opacity-75`}
+                        } disabled:opacity-75`}
                     >
                       <Check className="h-3.5 w-3.5" />
                     </button>

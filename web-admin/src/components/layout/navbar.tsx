@@ -1,19 +1,19 @@
 'use client';
 
-import { useLocale } from '@/i18n/provider';
 import { LanguageSelect } from '@/components/layout/language-select';
+import { useLocale } from '@/i18n/provider';
 
-import { accountRoleLabel } from '@/domain/entities/member.entity';
-import Link from 'next/link';
-import { LogOut, User } from 'lucide-react';
 import { useAuth } from '@/application/contexts/auth-context';
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { Membership, switchTenant, tenantWorkflow } from '@/infrastructure/repositories/tenant-workflow.repository';
 import { NotificationBell } from '@/components/layout/notification-bell';
 import { WorkspaceAssistant } from '@/components/layout/workspace-assistant';
 import { CustomSelect } from '@/components/ui/select';
+import { accountRoleLabel } from '@/domain/entities/member.entity';
 import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
+import { Membership, switchTenant, tenantWorkflow } from '@/infrastructure/repositories/tenant-workflow.repository';
+import { LogOut, User } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 export function Navbar() {
   const { t } = useLocale();
@@ -75,7 +75,7 @@ export function Navbar() {
         <NotificationBell />
         {user?.tenantId && canUseAssistant && <WorkspaceAssistant key={user.tenantId} tenantId={user.tenantId} />}
 
-        <div className="flex items-center rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+        <div className="flex items-center rounded-sm border border-gray-200 bg-white px-2 py-1.5">
           <Link href="/profile" className="flex items-center gap-2.5 px-1" aria-label={t("Mở hồ sơ cá nhân")}>
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100">
               <User size={14} className="text-blue-600" />

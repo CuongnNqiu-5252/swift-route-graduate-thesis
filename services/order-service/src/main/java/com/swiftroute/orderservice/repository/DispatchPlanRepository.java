@@ -68,7 +68,7 @@ public interface DispatchPlanRepository extends JpaRepository<DispatchPlan, UUID
                         UPDATE delivery_tasks
                         SET dispatch_plan_id = NULL,
                             status = CASE
-                                WHEN status IN ('ASSIGNED', 'ACCEPTED', 'ARRIVED') THEN 'CANCELLED'
+                                WHEN status = 'OUT_FOR_DELIVERY' THEN 'CANCELLED'
                                 ELSE status
                             END,
                             updated_at = NOW()

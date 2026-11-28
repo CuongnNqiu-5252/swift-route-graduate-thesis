@@ -365,7 +365,7 @@ function Chat({ initialPeer }: { initialPeer: string }) {
       <span className="text-xs text-slate-500">{connected ? 'Đã kết nối' : 'Đang kết nối…'}</span>
     </header>
     {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
-    <div className="grid min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white md:grid-cols-[18rem_minmax(0,1fr)]">
+    <div className="grid min-h-0 flex-1 overflow-hidden rounded-sm border border-slate-200 bg-white md:grid-cols-[18rem_minmax(0,1fr)]">
       <aside className={`min-h-0 flex-col border-slate-200 md:flex md:border-r ${contact ? 'hidden' : 'flex'}`}>
         <div className="border-b border-slate-200 p-3">
           <input aria-label="Tìm người nhận" placeholder="Tìm người nhận" value={query} onChange={(event) => setQuery(event.target.value)}
@@ -397,7 +397,7 @@ function Chat({ initialPeer }: { initialPeer: string }) {
             className="mx-auto block text-sm font-medium text-blue-800">Xem tin cũ hơn</button>}
           {!messages.length && !visibleOptimisticImages.length && <p className="pt-4 text-center text-sm text-slate-500">{historyLoading ? 'Đang tải tin nhắn…' : 'Chưa có tin nhắn.'}</p>}
           {messages.map((message) => <div key={message.id} className={`flex ${message.sender_id === inbox?.user_id ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 md:max-w-[70%] ${message.sender_id === inbox?.user_id ? 'bg-blue-50' : 'bg-slate-100'}`}>
+            <div className={`max-w-[85%] rounded-sm px-3 py-2 md:max-w-[70%] ${message.sender_id === inbox?.user_id ? 'bg-blue-50' : 'bg-slate-100'}`}>
               {message.has_image && <ChatImage id={message.id} cachedUrl={savedImageUrls[message.id]} />}
               {message.body && <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>}
               <time dateTime={message.created_at} className="mt-1 block text-[11px] text-slate-600">
@@ -406,7 +406,7 @@ function Chat({ initialPeer }: { initialPeer: string }) {
             </div>
           </div>)}
           {visibleOptimisticImages.map((item) => <div key={item.clientMessageId} className="flex justify-end">
-            <div className="max-w-[85%] rounded-lg bg-blue-50 px-3 py-2 opacity-80 md:max-w-[70%]">
+            <div className="max-w-[85%] rounded-sm bg-blue-50 px-3 py-2 opacity-80 md:max-w-[70%]">
               {/* eslint-disable-next-line @next/next/no-img-element -- Local object URL for immediate upload preview. */}
               <img src={item.previewUrl} alt="Ảnh đang gửi" className="max-h-64 max-w-full rounded-md object-contain" />
               <p className="mt-1 text-[11px] text-slate-600">Đang gửi…</p>
@@ -415,7 +415,7 @@ function Chat({ initialPeer }: { initialPeer: string }) {
         </div>
         <form className="border-t border-slate-200 p-3" onSubmit={(event) => { event.preventDefault(); void send(); }}>
           <div className="flex items-end gap-2">
-            <label aria-label="Chọn ảnh" className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white hover:bg-slate-50 focus-within:ring-2 focus-within:ring-blue-600">
+            <label aria-label="Chọn ảnh" className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-sm border border-slate-300 bg-white hover:bg-slate-50 focus-within:ring-2 focus-within:ring-blue-600">
               <ImagePlus size={18} />
               <input type="file" className="sr-only" disabled={sending} accept="image/jpeg,image/png,image/webp" aria-label="Chọn ảnh"
                 onChange={(event) => {
@@ -432,7 +432,7 @@ function Chat({ initialPeer }: { initialPeer: string }) {
                     <img
                       src={filePreviewUrl}
                       alt="Ảnh xem trước"
-                      className="h-20 max-w-40 rounded-lg border border-slate-200 bg-slate-50 object-contain"
+                      className="h-20 max-w-40 rounded-sm border border-slate-200 bg-slate-50 object-contain"
                     />
                     <button
                       type="button"

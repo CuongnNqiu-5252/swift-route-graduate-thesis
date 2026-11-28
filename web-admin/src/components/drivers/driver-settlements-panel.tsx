@@ -1,13 +1,13 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Landmark, QrCode } from 'lucide-react';
-import { toast } from 'sonner';
-import { useLocale } from '@/i18n/provider';
-import { DriverEarning, DriverSettlement, SettlementStatus } from '@/domain/entities/earning.entity';
-import { earningRepository } from '@/infrastructure/repositories/earning.repository';
 import { maskAccountNumber } from '@/application/vietqr';
 import { Button } from '@/components/ui/button';
+import { DriverEarning, DriverSettlement, SettlementStatus } from '@/domain/entities/earning.entity';
+import { useLocale } from '@/i18n/provider';
+import { earningRepository } from '@/infrastructure/repositories/earning.repository';
+import { ChevronDown, ChevronRight, Landmark, QrCode } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
   formatPeriodDate,
   formatPeriodDateTime,
@@ -284,11 +284,10 @@ export function DriverSettlementsPanel({
                   key={option.key}
                   type="button"
                   onClick={() => setStatusFilter(option.key)}
-                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
-                    statusFilter === option.key
+                  className={`rounded-sm border px-2.5 py-1 text-xs font-medium transition-colors ${statusFilter === option.key
                       ? 'border-slate-900 bg-slate-900 text-white'
                       : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
+                    }`}
                 >
                   {option.label} <span className="tabular-nums opacity-75">({option.count})</span>
                 </button>

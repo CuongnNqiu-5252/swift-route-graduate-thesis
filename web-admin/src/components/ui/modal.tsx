@@ -1,9 +1,9 @@
 'use client';
 
+import { useLocale } from '@/i18n/provider';
+import { cn } from '@/lib/utils';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useLocale } from '@/i18n/provider';
 
 interface ModalProps {
   open: boolean;
@@ -39,7 +39,7 @@ export function Modal({ open, onOpenChange, title, description, children, classN
                 </Dialog.Description>
               )}
             </div>
-            <Dialog.Close aria-label={t('Đóng')} className="cursor-pointer rounded-lg p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700">
+            <Dialog.Close aria-label={t('Đóng')} className="cursor-pointer rounded-sm p-1 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700">
               <X size={18} />
             </Dialog.Close>
           </div>

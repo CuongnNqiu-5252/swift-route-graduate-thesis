@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
-import Link from 'next/link';
-import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useLocale } from '@/i18n/provider';
+import { ShieldAlert } from 'lucide-react';
+import Link from 'next/link';
+import React from 'react';
 
 interface PermissionGuardProps {
   permission: string | string[];
@@ -53,8 +53,8 @@ export function AccessDeniedNotice({ requiredPermission }: AccessDeniedNoticePro
       )}
       <div className="mt-5">
         <Link
-          href="/"
-          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          href="/overview"
+          className="inline-flex items-center justify-center rounded-sm bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
         >
           {t('Quay về tổng quan')}
         </Link>

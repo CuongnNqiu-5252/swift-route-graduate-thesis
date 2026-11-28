@@ -2,17 +2,17 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '@/application/contexts/auth-context';
 import { useTenantVerifications } from '@/application/hooks/use-tenant-verifications';
+import { usePlatformLive } from '@/components/admin/platform-live-provider';
 import { VerificationDetailDialog } from '@/components/admin/verification-detail-dialog';
 import { VerificationQueueTable } from '@/components/admin/verification-queue-table';
 import { Button } from '@/components/ui/button';
 import { VERIFICATION_FILTER_OPTIONS } from '@/domain/entities/platform-verification.entity';
 import { isSystemAdmin } from '@/lib/portal-access';
-import { usePlatformLive } from '@/components/admin/platform-live-provider';
+import { RefreshCw, Search } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 
 export default function TenantVerificationsPage() {
   const { t } = useLocale();
@@ -60,7 +60,7 @@ export default function TenantVerificationsPage() {
 
   if (!allowed) {
     return (
-      <div className="rounded-lg border border-rose-200 bg-rose-50/70 p-4 text-sm text-rose-700">
+      <div className="rounded-sm border border-rose-200 bg-rose-50/70 p-4 text-sm text-rose-700">
         {t("Chỉ tài khoản System Admin mới có quyền xét duyệt hồ sơ doanh nghiệp.")}
       </div>
     );
@@ -114,7 +114,7 @@ export default function TenantVerificationsPage() {
       {queueError && !detail && (
         <div
           role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-800"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-800"
         >
           <span>{queueError}</span>
           <Button variant="outline" size="sm" onClick={() => void loadQueue()}>
@@ -127,7 +127,7 @@ export default function TenantVerificationsPage() {
         <div
           role="tablist"
           aria-label={t("Lọc theo trạng thái hồ sơ")}
-          className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/70 p-1"
+          className="flex flex-wrap items-center gap-1 rounded-sm border border-slate-200 bg-slate-50/70 p-1"
         >
           {VERIFICATION_FILTER_OPTIONS.map((option) => {
             const active = statusFilter === option.value;
@@ -138,11 +138,10 @@ export default function TenantVerificationsPage() {
                 type="button"
                 aria-selected={active}
                 onClick={() => changeStatusFilter(option.value)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  active
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${active
                     ? 'border border-slate-200 bg-white text-slate-950'
                     : 'text-slate-600 hover:text-slate-900'
-                }`}
+                  }`}
               >
                 {t(option.label)}
               </button>
@@ -161,7 +160,7 @@ export default function TenantVerificationsPage() {
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder={t("Tìm tên doanh nghiệp…")}
               aria-label={t("Tìm theo tên doanh nghiệp")}
-              className="w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500"
+              className="w-full rounded-sm border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500"
             />
           </div>
           <Button type="submit" variant="outline" className="shrink-0 bg-white">

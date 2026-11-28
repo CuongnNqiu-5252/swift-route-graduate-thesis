@@ -1,12 +1,12 @@
 'use client';
 
-import { ChevronRight, RefreshCw, Search, UserPlus } from 'lucide-react';
-import { useState } from 'react';
 import { stripVietnameseDiacritics } from '@/application/vietqr';
 import { driverVehicleLabel, formatDriverShift } from '@/components/drivers/driver-formatters';
 import { Button } from '@/components/ui/button';
 import type { Driver } from '@/domain/entities/driver.entity';
 import { useLocale } from '@/i18n/provider';
+import { ChevronRight, RefreshCw, Search, UserPlus } from 'lucide-react';
+import { useState } from 'react';
 
 const onboardingCopy: Record<Driver['onboarding_status'], { label: string; className: string }> = {
   INACTIVE: { label: 'Cần hoàn thiện', className: 'bg-amber-50 text-amber-800' },
@@ -67,7 +67,7 @@ export function DriverProfilesTable({
             <Search size={15} aria-hidden="true" className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
             <input type="search" aria-label={t('Tìm tài xế')} placeholder={t('Tên, số điện thoại hoặc biển số')}
               value={query} onChange={(event) => setQuery(event.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-300 bg-white pe-2 ps-8 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-2 focus-visible:outline-blue-600" />
+              className="h-9 w-full rounded-sm border border-slate-300 bg-white pe-2 ps-8 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-2 focus-visible:outline-blue-600" />
           </label>
         </div>
       </div>

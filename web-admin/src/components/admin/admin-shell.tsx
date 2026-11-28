@@ -1,16 +1,16 @@
 'use client';
 
-import { useLocale } from '@/i18n/provider';
 import { LanguageSelect } from '@/components/layout/language-select';
+import { useLocale } from '@/i18n/provider';
 
+import { Button } from '@/components/ui/button';
 import { accountRoleLabel } from '@/domain/entities/member.entity';
-import { useState } from 'react';
+import { cn } from '@/lib/utils';
+import { ClipboardCheck, LayoutDashboard, LogOut, Menu, ScrollText, ShieldCheck, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ClipboardCheck, LogOut, Menu, ShieldCheck, X, LayoutDashboard, ScrollText } from 'lucide-react';
+import { useState } from 'react';
 import { PlatformConnection } from './platform-live-provider';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 
 interface AdminShellProps {
   userName?: string | null;
@@ -45,7 +45,7 @@ export function AdminShell({
     <div className="flex h-dvh overflow-hidden bg-[#eef1f4] text-slate-900">
       <aside className="hidden w-60 shrink-0 flex-col bg-[#eef1f4] lg:flex">
         <div className="flex h-16 shrink-0 items-center gap-3 px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#17766c] text-white">
+          <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-[#17766c] text-white">
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
           </div>
           <div className="min-w-0">
@@ -64,7 +64,7 @@ export function AdminShell({
                     href={href}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      'flex min-h-11 items-center gap-3 rounded-sm px-3 py-2 text-sm font-medium transition-colors',
                       active
                         ? 'border border-slate-200 bg-white text-slate-950'
                         : 'text-slate-600 hover:bg-white/60 hover:text-slate-950',
@@ -91,7 +91,7 @@ export function AdminShell({
               type="button"
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               aria-label={mobileMenuOpen ? t("Đóng điều hướng") : t("Mở điều hướng")}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 lg:hidden"
+              className="flex h-10 w-10 items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-700 lg:hidden"
             >
               {mobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>
@@ -127,7 +127,7 @@ export function AdminShell({
                   href={href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium',
+                    'flex min-h-11 items-center gap-3 rounded-sm px-3 py-2 text-sm font-medium',
                     active ? 'bg-slate-100 text-slate-950' : 'text-slate-600',
                   )}
                 >

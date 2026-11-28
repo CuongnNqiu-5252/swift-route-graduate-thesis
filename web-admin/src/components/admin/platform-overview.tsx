@@ -1,11 +1,11 @@
 'use client';
 
-import Link from 'next/link';
-import { ArrowRight, ClipboardCheck, ScrollText } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { PlatformConnection, usePlatformLive } from './platform-live-provider';
-import { PlatformAuditRow } from './platform-audit-row';
 import { formatVNDate } from '@/lib/utils';
+import { ArrowRight, ClipboardCheck, ScrollText } from 'lucide-react';
+import Link from 'next/link';
+import { PlatformAuditRow } from './platform-audit-row';
+import { PlatformConnection, usePlatformLive } from './platform-live-provider';
 
 const statusLabels: Record<string, string> = { PENDING: 'Chờ xét duyệt', APPROVED: 'Đã phê duyệt', SUSPENDED: 'Tạm ngừng', REJECTED: 'Bị từ chối' };
 const statusColors: Record<string, string> = { PENDING: 'bg-amber-500', APPROVED: 'bg-[#17766c]', SUSPENDED: 'bg-rose-600', REJECTED: 'bg-slate-400' };
@@ -29,8 +29,8 @@ export function PlatformOverview() {
     </div> : data && <>
       <div className="grid grid-cols-3 gap-3 border-y border-slate-200 py-4 sm:gap-6 sm:py-6">
         {[{ value: totalTenants, label: 'Doanh nghiệp trên nền tảng', note: 'Tất cả trạng thái' },
-          { value: data.pending_reviews, label: 'Hồ sơ chờ xử lý', note: 'Đã gửi hoặc đang xét duyệt' },
-          { value: data.provisioning_retries, label: 'Workspace cần kiểm tra', note: 'Cấp workspace cần thử lại' }].map((metric) => <div key={metric.label}>
+        { value: data.pending_reviews, label: 'Hồ sơ chờ xử lý', note: 'Đã gửi hoặc đang xét duyệt' },
+        { value: data.provisioning_retries, label: 'Workspace cần kiểm tra', note: 'Cấp workspace cần thử lại' }].map((metric) => <div key={metric.label}>
           <p className="h-14 text-xs leading-4 text-slate-600 sm:h-auto sm:text-sm sm:leading-5">{t(metric.label)}</p><p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-slate-950 sm:text-4xl">{number.format(metric.value)}</p>
           <p className="mt-2 hidden text-xs text-slate-500 sm:block">{t(metric.note)}</p>
         </div>)}
@@ -50,7 +50,7 @@ export function PlatformOverview() {
             {!data.review_priority.length && <p className="mt-4 text-sm text-slate-600">{t('Không có hồ sơ đang chờ xử lý.')}</p>}
             <Link href="/admin/tenant-verifications" className="mt-3 inline-block text-sm font-semibold text-[#17766c] underline underline-offset-4">{t('Mở hàng đợi xét duyệt')}</Link>
           </section>
-          {data.provisioning_attention.length > 0 && <section className="rounded-lg bg-amber-50 p-4">
+          {data.provisioning_attention.length > 0 && <section className="rounded-sm bg-amber-50 p-4">
             <h2 className="font-semibold text-amber-950">{t('Cấp workspace cần kiểm tra')}</h2>
             <ul className="mt-2 space-y-3">{data.provisioning_attention.map((item) => <li key={item.tenant_id}>
               <p className="break-words text-sm font-medium text-amber-950">{item.business_name}</p>

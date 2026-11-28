@@ -2,13 +2,13 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useAuth } from '@/application/contexts/auth-context';
-import { authRepository, type InvitationPreview } from '@/infrastructure/repositories/auth.repository';
-import { memberRepository } from '@/infrastructure/repositories/member.repository';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { authRepository, type InvitationPreview } from '@/infrastructure/repositories/auth.repository';
+import { memberRepository } from '@/infrastructure/repositories/member.repository';
+import Link from 'next/link';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 
 export default function InvitationPage() {
   const { t, intlLocale } = useLocale();
@@ -142,8 +142,8 @@ export default function InvitationPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-slate-950">{headingText}</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">{subheadingText}</p>
 
-        {error && <p role="alert" className="mt-5 rounded-lg bg-red-50 p-3 text-sm text-red-800">{t(error)}</p>}
-        {notice && <p role="status" className="mt-5 rounded-lg bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
+        {error && <p role="alert" className="mt-5 rounded-sm bg-red-50 p-3 text-sm text-red-800">{t(error)}</p>}
+        {notice && <p role="status" className="mt-5 rounded-sm bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
 
         {!accepted && !invitation && (
           <div className="mt-6 space-y-4">
@@ -174,7 +174,7 @@ export default function InvitationPage() {
 
         {!accepted && invitation && (
           <>
-            <dl className="my-6 space-y-3 rounded-lg bg-slate-50 p-4 text-sm">
+            <dl className="my-6 space-y-3 rounded-sm bg-slate-50 p-4 text-sm">
               <div>
                 <dt className="text-slate-600">{t('Doanh nghiệp')}</dt>
                 <dd className="mt-1 font-medium">{invitation.business_name || 'SwiftRoute Business'}</dd>

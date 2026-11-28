@@ -30,7 +30,7 @@ void main() {
     });
   }
 
-  testWidgets('An assigned order offers pickup immediately', (tester) async {
+  testWidgets('An assigned order shows active customer delivery spotlight immediately', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
@@ -43,9 +43,9 @@ void main() {
       ),
     );
 
-    expect(find.text('Mở Bản đồ Dẫn đường tới Kho'), findsOneWidget);
-    expect(find.text('Vuốt xác nhận Đã lấy hàng'), findsOneWidget);
-    expect(find.textContaining('Bắt đầu chuyến'), findsNothing);
+    expect(find.text('dtruyt'), findsOneWidget);
+    expect(find.text('Mở Bản đồ Dẫn đường tới Kho'), findsNothing);
+    expect(find.text('Vuốt xác nhận Đã lấy hàng'), findsNothing);
   });
 
   testWidgets(

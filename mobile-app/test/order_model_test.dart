@@ -9,20 +9,21 @@ void main() {
     ...fields,
   });
 
-  test('Pickup is available only before physical collection', () {
-    for (final status in ['ASSIGNED', 'ACCEPTED', 'ARRIVED']) {
-      expect(order({'delivery_task_status': status}).needsPickup, isTrue);
+  test('Assigned forward stops are immediately ready for delivery without depot pickup', () {
+    for (final status in ['ASSIGNED', 'ACCEPTED', 'ARRIVED', 'PICKED_UP', 'OUT_FOR_DELIVERY']) {
+      final item = order({'delivery_task_status': status});
+      expect(item.needsPickup, isFalse);
+      expect(item.isOutForDelivery, isTrue);
     }
-    for (final status in [
-      'PICKED_UP',
-      'OUT_FOR_DELIVERY',
-      'COMPLETED',
-      'FAILED',
-      'CANCELLED',
-    ]) {
-      expect(order({'delivery_task_status': status}).needsPickup, isFalse);
+    for (final status in ['COMPLETED', 'FAILED', 'CANCELLED']) {
+      final item = order({'delivery_task_status': status});
+      expect(item.needsPickup, isFalse);
+      expect(item.isOutForDelivery, isFalse);
     }
-    expect(order({'delivery_task_type': 'RETURN'}).needsPickup, isFalse);
+    final returnItem = order({'delivery_task_type': 'RETURN', 'delivery_task_status': 'OUT_FOR_DELIVERY'});
+    expect(returnItem.needsPickup, isFalse);
+    expect(returnItem.isOutForDelivery, isFalse);
+    expect(returnItem.isReturnTask, isTrue);
   });
 
   test('Warehouse identity takes priority over coordinate grouping', () {

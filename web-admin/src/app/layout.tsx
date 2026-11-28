@@ -1,12 +1,13 @@
-import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
-import { Inter } from 'next/font/google';
-import './globals.css';
 import { AuthProvider } from '@/application/contexts/auth-context';
-import { Toaster } from 'sonner';
-import { LocaleProvider } from '@/i18n/provider';
+import { GoogleAuthProvider } from '@/application/providers/google-auth-provider';
 import { localeCookie, resolveLocale } from '@/i18n/locale';
+import { LocaleProvider } from '@/i18n/provider';
 import { translate } from '@/i18n/translate';
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import { cookies } from 'next/headers';
+import { Toaster } from 'sonner';
+import './globals.css';
 
 const inter = Inter({
   variable: '--font-geist-sans',
@@ -36,7 +37,9 @@ export default async function RootLayout({
       <body className="min-h-full bg-gray-50 text-gray-900 antialiased font-sans" suppressHydrationWarning>
         <LocaleProvider locale={locale}>
           <AuthProvider>
-            {children}
+            <GoogleAuthProvider>
+              {children}
+            </GoogleAuthProvider>
             <Toaster richColors position="top-right" />
           </AuthProvider>
         </LocaleProvider>

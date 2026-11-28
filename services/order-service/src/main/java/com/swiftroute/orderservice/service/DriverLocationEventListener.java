@@ -26,10 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class DriverLocationEventListener {
     private static final EnumSet<DeliveryTaskStatus> ACTIVE = EnumSet.of(
-            DeliveryTaskStatus.ASSIGNED,
-            DeliveryTaskStatus.ACCEPTED,
-            DeliveryTaskStatus.ARRIVED,
-            DeliveryTaskStatus.PICKED_UP,
             DeliveryTaskStatus.OUT_FOR_DELIVERY);
 
     private final ObjectMapper objectMapper;

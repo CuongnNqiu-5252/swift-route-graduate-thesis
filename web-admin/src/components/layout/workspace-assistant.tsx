@@ -1,10 +1,5 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { ArrowRight, Play, Send, Sparkles, Square, Sun, X } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { toast } from 'sonner';
 import { createAssistantTextStream } from '@/application/assistant-text-stream';
 import { reportDispatchPlanning } from '@/application/dispatch-planning';
 import { Button } from '@/components/ui/button';
@@ -18,6 +13,11 @@ import {
 } from '@/infrastructure/repositories/assistant.repository';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
 import { ApiError } from '@/lib/api';
+import { ArrowRight, Play, Send, Sparkles, Square, Sun, X } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { toast } from 'sonner';
 
 type Message = AssistantTurn & {
   actions?: AssistantAction[];
@@ -68,7 +68,7 @@ function AssistantMessageActions({ message, planningId, onPlanning, onOpen }: {
         </Button>
       ) : (
         <Link key={action.id} href={action.payload.href} onNavigate={() => onOpen(action.payload.href)}
-          className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-700">
+          className="inline-flex min-h-11 items-center gap-2 rounded-sm border border-slate-200 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-700">
           {action.label}<ArrowRight size={14} className="shrink-0" aria-hidden="true" />
         </Link>
       ))}
@@ -201,8 +201,10 @@ function WorkspaceAssistantSession({ tenantId }: { tenantId: string }) {
             update((message) => ({ ...message, actions: payload as AssistantAction[] }));
           } else if (event === 'error') {
             const { code } = payload as { code: string };
-            update((message) => ({ ...message, error: code === 'assistant_not_configured'
-              ? 'Trợ lý chưa được cấu hình Gemini API key.' : 'Gemini chưa trả lời được. Hãy thử lại.' }));
+            update((message) => ({
+              ...message, error: code === 'assistant_not_configured'
+                ? 'Trợ lý chưa được cấu hình Gemini API key.' : 'Gemini chưa trả lời được. Hãy thử lại.'
+            }));
           }
         });
     } catch {
@@ -237,7 +239,7 @@ function WorkspaceAssistantSession({ tenantId }: { tenantId: string }) {
     <>
       <button ref={launcher} type="button" aria-label={t('Mở trợ lý AI')} aria-expanded={open} aria-controls={open ? 'workspace-assistant' : undefined}
         onClick={() => open ? close() : setOpen(true)}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-sm border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
         <Sparkles size={15} aria-hidden="true" /> AI
       </button>
       {open && (
@@ -251,7 +253,7 @@ function WorkspaceAssistantSession({ tenantId }: { tenantId: string }) {
                 <Button size="sm" variant="ghost" disabled={streaming || !!planningId} onClick={() => setMessages([])}>{t('Cuộc trò chuyện mới')}</Button>
               )}
               <button type="button" onClick={close} aria-label={t('Đóng trợ lý AI')}
-                className="grid size-9 place-items-center rounded-lg text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-blue-700">
+                className="grid size-9 place-items-center rounded-sm text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-blue-700">
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
@@ -265,7 +267,7 @@ function WorkspaceAssistantSession({ tenantId }: { tenantId: string }) {
                   <Sun size={16} aria-hidden="true" /> {t('Tóm tắt ca trực')}
                 </Button>
                 {suggestions.map((suggestion) => (
-                  <button type="button" key={suggestion} onClick={() => void send(t(suggestion))} className="flex min-h-10 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-700">
+                  <button type="button" key={suggestion} onClick={() => void send(t(suggestion))} className="flex min-h-10 w-full items-center justify-between gap-2 rounded-sm border border-slate-200 px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-700">
                     {t(suggestion)} <ArrowRight className="shrink-0 text-slate-500" size={14} aria-hidden="true" />
                   </button>
                 ))}
@@ -300,7 +302,7 @@ function WorkspaceAssistantSession({ tenantId }: { tenantId: string }) {
                     }
                   }
                 }}
-                className="min-w-0 flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none" />
+                className="min-w-0 flex-1 resize-none rounded-sm border border-slate-300 px-3 py-2 text-sm focus:outline-none" />
               {streaming ? (
                 <Button type="button" size="sm" variant="outline" onClick={stop} aria-label={t('Dừng trả lời')}><Square size={14} aria-hidden="true" /></Button>
               ) : (

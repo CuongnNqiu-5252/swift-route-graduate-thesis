@@ -169,9 +169,9 @@ export function PlanApprovalPanel({
                 key={key}
                 type="button"
                 aria-pressed={active}
-                className={`shrink-0 cursor-pointer whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-medium transition-colors duration-150 ${active
-                    ? 'bg-slate-900 text-white shadow-2xs'
-                    : 'text-slate-700 hover:bg-white hover:text-slate-950'
+                className={`shrink-0 cursor-pointer whitespace-nowrap rounded-sm px-2.5 py-1 text-xs font-medium transition-colors duration-150 ${active
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'text-slate-700 hover:bg-white hover:text-slate-950'
                   }`}
                 onClick={() => { onHighlightPlan(null); setFilter(key); }}
               >
@@ -235,10 +235,10 @@ export function PlanApprovalPanel({
                   onFocus={() => onHighlightPlan({ planId: id })}
                   onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onHighlightPlan(null); }}
                   className={`${GRID} border-b border-slate-100 transition-colors duration-150 motion-reduce:transition-none ${isDropTarget ? 'bg-teal-50 ring-2 ring-inset ring-teal-600' : isDropCandidate ? 'bg-teal-50/50' : isHovered
-                      ? 'bg-blue-50/40'
-                      : selected
-                        ? 'bg-slate-50'
-                        : 'bg-white hover:bg-slate-50/80'
+                    ? 'bg-blue-50/40'
+                    : selected
+                      ? 'bg-slate-50'
+                      : 'bg-white hover:bg-slate-50/80'
                     }`}>
                   <div className={`sticky left-0 z-10 border-r border-slate-100 px-3.5 py-2.5 transition-colors duration-150 motion-reduce:transition-none ${isDropTarget ? 'bg-teal-50 ring-2 ring-inset ring-teal-600' : isHovered ? 'bg-blue-50/90' : selected ? 'bg-slate-50' : 'bg-white'
                     }`}>
@@ -300,7 +300,7 @@ export function PlanApprovalPanel({
                               disabled={busy || driverChoices.length === 0}
                               aria-label={`${t('Gán tài xế')} #${id.slice(0, 8)}`}
                               title={driverChoices.length === 0 ? t('Chưa có tài xế hoạt động') : t('Chọn tài xế để gán ngay')}
-                              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-slate-900 px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-sm bg-slate-900 px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <UserPlus size={12} aria-hidden="true" />
                               <span>{t('Gán tài xế & duyệt')}</span>
@@ -337,7 +337,7 @@ export function PlanApprovalPanel({
                           type="button"
                           disabled={busy}
                           onClick={() => void runAction(id, () => onDispatchPlan(id))}
-                          className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[#17766c] px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-[#136058] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-sm bg-[#17766c] px-2.5 text-xs font-medium text-white transition-colors duration-150 hover:bg-[#136058] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Play size={11} aria-hidden="true" />
                           <span>{t('Giao tuyến')}</span>
@@ -351,7 +351,7 @@ export function PlanApprovalPanel({
                               type="button"
                               disabled={busy || (typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver)}
                               title={typeof maxOrdersPerDriver === 'number' && plan.order_count >= maxOrdersPerDriver ? t('Tuyến đích đã đạt số đơn gộp tối đa mỗi chuyến.') : undefined}
-                              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-sm border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <UserPlus size={12} aria-hidden="true" />
                               <span>{t('Chèn đơn')} ({eligibleOrders.length})</span>
@@ -379,7 +379,7 @@ export function PlanApprovalPanel({
                           type="button"
                           disabled={busy}
                           onClick={() => void runAction(id, () => onCancelPlan(id, 'Điều phối viên hủy kế hoạch để lập lại lộ trình'))}
-                          className="ml-auto inline-flex h-7 shrink-0 cursor-pointer items-center rounded-lg px-2 text-xs font-medium text-rose-700 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="ml-auto inline-flex h-7 shrink-0 cursor-pointer items-center rounded-sm px-2 text-xs font-medium text-rose-700 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {t('Hủy')}
                         </button>

@@ -1,7 +1,6 @@
 package com.swiftroute.orderservice.controller;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -14,7 +13,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -22,7 +20,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.swiftroute.orderservice.dto.request.CancelOrderRequest;
 import com.swiftroute.orderservice.dto.request.CreateOrderRequest;
 import com.swiftroute.orderservice.dto.request.ManualAssignmentRequest;
-import com.swiftroute.orderservice.dto.request.ReportIncidentRequest;
 import com.swiftroute.orderservice.dto.request.UpdateOrderRequest;
 import com.swiftroute.orderservice.dto.response.ApiResponse;
 import com.swiftroute.orderservice.dto.response.OperationsQueueResponse;
@@ -40,14 +37,6 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * Controller xử lý API cho Order.
- *
- * TenantRequestInterceptor xác thực chữ ký JWT và gắn các request attribute
- * đáng tin cậy:
- * - authorizedUserId: UUID người gọi từ JWT subject
- * - effectiveRole: Role từ JWT đã verify (SYSTEM_ADMIN, USER, OWNER,
- * TENANT_ADMIN, OPERATOR, DRIVER, VIEWER)
- * - authorizedTenantId: UUID doanh nghiệp từ JWT tenant_id (hoặc target
- * workspace của SYSTEM_ADMIN)
  */
 @RestController
 @RequestMapping("/api/orders")
@@ -68,17 +57,13 @@ public class OrderController {
         if (!com.swiftroute.orderservice.security.TenantRequestInterceptor.isAuthorizedForPermission(
                 role,
                 "dispatch:execute",
-                java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR", "DRIVER")))
+                java.util.Set.of("OWNER", "TENANT_ADMIN", "SYSTEM_ADMIN", "OPERATOR", "DRIVER"))) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
         orchestration.assignManualBatch(requireTenantId(tenantId), operatorId, request);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
-    /**
-     * GET /api/orders
-     * Danh sách tất cả đơn hàng (lọc theo tenant đã xác thực và status nếu có).
-     * Dùng cho Web Admin và Dispatch console.
-     */
     @Operation(summary = "Lấy danh sách tất cả đơn hàng (hỗ trợ lọc status, tenant)")
     @GetMapping
     public ResponseEntity<ApiResponse<List<OrderResponse>>> getAllOrders(
@@ -114,11 +99,6 @@ public class OrderController {
                 tenantId, status, pickupLocationId, query, driverIds, page, size, sortBy, sortDir));
     }
 
-    /**
-     * GET /api/orders/operations/queue
-     * Tenant-scoped dispatcher queues: ready to assign, active execution, and
-     * intervention.
-     */
     @Operation(summary = "Get tenant-scoped dispatch operations queues")
     @GetMapping("/operations/queue")
     public ResponseEntity<ApiResponse<OperationsQueueResponse>> getOperationsQueue(
@@ -130,12 +110,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(queue));
     }
 
-    /**
-     * POST /api/orders
-     * Tạo vận đơn giao hàng mới (Delivery Waybill).
-     * Không yêu cầu tài khoản người nhận; nhận thông tin người gửi, người nhận,
-     * kiện hàng và COD.
-     */
     @Operation(summary = "Create a delivery waybill / order")
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
@@ -156,13 +130,8 @@ public class OrderController {
                 .body(ApiResponse.success(response));
     }
 
-    /**
-     * GET /api/orders/{orderId}
-     * Lấy chi tiết một đơn hàng.
-     * Role được phép: USER (chỉ đơn của mình), OWNER, TENANT_ADMIN, OPERATOR,
-     * SYSTEM_ADMIN
-     */
     @GetMapping("/{orderId}")
+    @Operation(summary = "Get order details by ID")
     public ResponseEntity<ApiResponse<OrderResponse>> getOrderById(
             @PathVariable UUID orderId,
             @RequestAttribute("authorizedUserId") UUID userId,
@@ -174,27 +143,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    /**
-     * PATCH /api/orders/{orderId}/incident
-     * Driver reports an unexpected delivery incident.
-     */
-    @Operation(summary = "Report delivery incident — transitions order to FAILED")
-    @RequestMapping(
-            value = {"/{orderId}/incident", "/{orderId}/incidents"},
-            method = {RequestMethod.PATCH, RequestMethod.POST})
-    public ResponseEntity<ApiResponse<OrderResponse>> reportIncident(
-            @PathVariable UUID orderId,
-            @Valid @RequestBody ReportIncidentRequest request,
-            @RequestAttribute("authorizedUserId") UUID userId,
-            @RequestAttribute("effectiveRole") String userRole) {
-        OrderResponse response = orderService.reportIncident(orderId, request, userId, userRole);
-        return ResponseEntity.ok(ApiResponse.success(response));
-    }
-
-    /**
-     * PATCH /api/orders/{orderId}/cancel
-     * Cancels an order before it is dispatched or delivered.
-     */
     @Operation(summary = "Cancel order — transitions order to CANCELLED")
     @PatchMapping("/{orderId}/cancel")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
@@ -213,11 +161,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    /**
-     * PATCH /api/orders/{orderId}
-     * Partially updates order attributes (priority, notes, recipient info, weight, time window)
-     * before the order enters transit.
-     */
     @Operation(summary = "Partially update an order before it enters transit")
     @PatchMapping("/{orderId}")
     public ResponseEntity<ApiResponse<OrderResponse>> updateOrder(
@@ -235,10 +178,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    /**
-     * GET /api/orders/{orderId}/tracking/stream
-     * Server-Sent Events (SSE) live real-time location stream.
-     */
     @Operation(summary = "Subscribe to live real-time SSE tracking stream for an order")
     @GetMapping(value = "/{orderId}/tracking/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamOrderTracking(

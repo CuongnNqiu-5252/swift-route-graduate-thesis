@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.swiftroute.orderservice.dto.request.UpdateDeliveryTaskRequest;
@@ -25,9 +26,15 @@ import lombok.RequiredArgsConstructor;
 public class DeliveryTaskController {
     private final DeliveryExecutionService execution;
 
-    @Operation(summary = "List active delivery and return tasks assigned to the authenticated driver")
+    @Operation(summary = "List the driver's active tasks and optionally today's completed tasks")
     @GetMapping("/mine")
-    public ResponseEntity<?> mine(@RequestAttribute("authorizedUserId") UUID userId, @RequestAttribute("effectiveRole") String role) {
+    public ResponseEntity<?> mine(@RequestAttribute("authorizedUserId") UUID userId,
+            @RequestAttribute("effectiveRole") String role,
+            @RequestAttribute(name = "authorizedTenantId", required = false) UUID tenantId,
+            @RequestParam(name = "include_completed", defaultValue = "false") boolean includeCompleted) {
+        if (includeCompleted) {
+            return ResponseEntity.ok(execution.tasksForDriverToday(userId, role, tenantId));
+        }
         return ResponseEntity.ok(execution.activeForDriver(userId, role));
     }
 

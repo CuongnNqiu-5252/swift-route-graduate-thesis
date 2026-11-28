@@ -1,9 +1,6 @@
 'use client';
 
-import * as Tabs from '@radix-ui/react-tabs';
-import { Check, Copy, ExternalLink, Link2 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
-import { toast } from 'sonner';
+import { useAuth } from '@/application/contexts/auth-context';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import {
@@ -15,10 +12,13 @@ import {
 } from '@/domain/entities/order.entity';
 import { useLocale } from '@/i18n/provider';
 import { orderRepository } from '@/infrastructure/repositories/order.repository';
+import * as Tabs from '@radix-ui/react-tabs';
+import { Check, Copy, ExternalLink, Link2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { OrderStatusBadge } from './order-status-badge';
 import { OrderTimelinePanel } from './order-timeline';
 import { RecipientNotificationHistory } from './recipient-notification-history';
-import { useAuth } from '@/application/contexts/auth-context';
 
 const codStatusLabel: Record<string, string> = {
   NOT_APPLICABLE: 'Không COD',
@@ -165,7 +165,7 @@ function OrderDetail({ orderId }: { orderId: string }) {
               type="button"
               onClick={copyTrackingToken}
               title={t('Sao chép mã tra cứu')}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-700 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-100"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs tabular-nums text-slate-700 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-100"
             >
               <span>{trackingToken}</span>
               {copiedToken
@@ -175,7 +175,7 @@ function OrderDetail({ orderId }: { orderId: string }) {
             <button
               type="button"
               onClick={copyTrackingLink}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#17766c]/25 bg-[#17766c]/10 px-2.5 py-1 text-xs font-medium text-[#115e56] transition-colors duration-150 hover:bg-[#17766c]/15"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm border border-[#17766c]/25 bg-[#17766c]/10 px-2.5 py-1 text-xs font-medium text-[#115e56] transition-colors duration-150 hover:bg-[#17766c]/15"
             >
               {copiedLink
                 ? <Check className="h-3.5 w-3.5 text-emerald-700" aria-hidden="true" />
@@ -188,7 +188,7 @@ function OrderDetail({ orderId }: { orderId: string }) {
               rel="noopener noreferrer"
               title={t('Mở trang theo dõi công khai')}
               aria-label={t('Mở trang theo dõi công khai')}
-              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-600 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
             >
               <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
             </a>

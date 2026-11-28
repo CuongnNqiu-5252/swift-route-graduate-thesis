@@ -218,9 +218,6 @@ export function OrderTable({
           const order = info.row.original;
           return (
             <div className="max-w-md">
-              <div className="font-medium text-slate-900">
-                {order.customer_name || t('Khách nhận hàng')}
-              </div>
               <div className="mt-0.5 line-clamp-1 text-xs text-slate-600" title={order.delivery_address}>
                 {order.delivery_address}
               </div>

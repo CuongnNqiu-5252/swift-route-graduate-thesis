@@ -44,112 +44,170 @@ class DriverProfileTab extends ConsumerWidget {
           ),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (driverState.isLoading) const LinearProgressIndicator(),
-          if (driverState.hasError)
-            ListTile(
-              leading: const Icon(Icons.error_outline, color: AppColors.error),
-              title: const Text('Không tải được hồ sơ tài xế'),
-              trailing: TextButton(
-                onPressed: () =>
-                    ref.read(driverProvider.notifier).refreshProfile(),
-                child: const Text('Thử lại'),
+      body: RefreshIndicator(
+        onRefresh: ref.read(driverProvider.notifier).refreshProfile,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (driverState.isLoading) const LinearProgressIndicator(),
+            if (driverState.hasError)
+              ListTile(
+                leading: const Icon(
+                  Icons.error_outline,
+                  color: AppColors.error,
+                ),
+                title: const Text('Không tải được hồ sơ tài xế'),
+                subtitle: const Text('Kéo xuống để tải lại hồ sơ.'),
               ),
-            ),
-          // 1. Profile Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor: AppColors.primary,
-                  child: Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+            // 1. Profile Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.divider),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 32,
+                    backgroundColor: AppColors.primary,
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        user?.email.trim().isNotEmpty == true
-                            ? user!.email
-                            : 'Chưa có email',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: driver?.status == 'ACTIVE'
-                              ? AppColors.successSoft
-                              : AppColors.warningSoft,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          switch (driver?.status) {
-                            'ACTIVE' => 'Hồ sơ đã được duyệt',
-                            'PENDING_APPROVAL' => 'Hồ sơ đang chờ duyệt',
-                            'SUSPENDED' => 'Tài khoản tạm ngưng',
-                            null || '' => 'Chưa tải được trạng thái hồ sơ',
-                            _ => 'Hồ sơ chưa được duyệt',
-                          },
-                          style: TextStyle(
-                            fontSize: 11,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          style: const TextStyle(
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: driver?.status == 'ACTIVE'
-                                ? AppColors.success
-                                : AppColors.warning,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          user?.email.trim().isNotEmpty == true
+                              ? user!.email
+                              : 'Chưa có email',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: driver?.status == 'ACTIVE'
+                                ? AppColors.successSoft
+                                : AppColors.warningSoft,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            switch (driver?.status) {
+                              'ACTIVE' => 'Hồ sơ đã được duyệt',
+                              'PENDING_APPROVAL' => 'Hồ sơ đang chờ duyệt',
+                              'SUSPENDED' => 'Tài khoản tạm ngưng',
+                              null || '' => 'Chưa tải được trạng thái hồ sơ',
+                              _ => 'Hồ sơ chưa được duyệt',
+                            },
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: driver?.status == 'ACTIVE'
+                                  ? AppColors.success
+                                  : AppColors.warning,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-          driverState.maybeWhen(
-            data: (driver) => driver == null
-                ? const SizedBox.shrink()
-                : _OnboardingPanel(driver: driver),
-            orElse: () => const SizedBox.shrink(),
-          ),
-          const SizedBox(height: 16),
+            driverState.maybeWhen(
+              data: (driver) => driver == null
+                  ? const SizedBox.shrink()
+                  : _OnboardingPanel(driver: driver),
+              orElse: () => const SizedBox.shrink(),
+            ),
+            const SizedBox(height: 16),
 
-          // 2. Vehicle & Work Details
-          driverState.maybeWhen(
-            data: (driver) => Container(
+            // 2. Vehicle & Work Details
+            driverState.maybeWhen(
+              data: (driver) => Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.divider),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Phương tiện và ca làm',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const Divider(height: 20, color: AppColors.divider),
+                    _DetailRow(
+                      label: 'Biển số xe',
+                      value: driver?.licensePlate.isNotEmpty == true
+                          ? driver!.licensePlate
+                          : 'Chưa bổ sung',
+                      icon: Icons.pin_rounded,
+                    ),
+                    _DetailRow(
+                      label: 'Loại phương tiện',
+                      value: driver?.vehicleTypeLabel ?? 'Chưa bổ sung',
+                      icon: Icons.two_wheeler_rounded,
+                    ),
+                    _DetailRow(
+                      label: 'Số điện thoại',
+                      value: driver?.phone.isNotEmpty == true
+                          ? driver!.phone
+                          : 'Chưa bổ sung',
+                      icon: Icons.phone_rounded,
+                    ),
+                    _DetailRow(
+                      label: 'Hình thức tài xế',
+                      value: driver?.driverTypeLabel ?? 'Chưa bổ sung',
+                      icon: Icons.work_outline_rounded,
+                    ),
+                    _DetailRow(
+                      label: 'Khung giờ ca',
+                      value: driver?.shiftDisplay ?? 'Chưa xếp ca',
+                      icon: Icons.access_time_rounded,
+                    ),
+                  ],
+                ),
+              ),
+              orElse: () => const SizedBox.shrink(),
+            ),
+            const SizedBox(height: 16),
+
+            // 3. Shift Performance Report (D09)
+            Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -160,7 +218,7 @@ class DriverProfileTab extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Phương tiện và ca làm',
+                    'Thống kê danh sách đơn hiện tại',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -168,149 +226,94 @@ class DriverProfileTab extends ConsumerWidget {
                     ),
                   ),
                   const Divider(height: 20, color: AppColors.divider),
-                  _DetailRow(
-                    label: 'Biển số xe',
-                    value: driver?.licensePlate.isNotEmpty == true
-                        ? driver!.licensePlate
-                        : 'Chưa bổ sung',
-                    icon: Icons.pin_rounded,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Tỷ lệ giao hàng thành công',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        '$rate%',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.success,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
                   ),
-                  _DetailRow(
-                    label: 'Loại phương tiện',
-                    value: driver?.vehicleTypeLabel ?? 'Chưa bổ sung',
-                    icon: Icons.two_wheeler_rounded,
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: total > 0 ? (delivered / total) : 0.0,
+                      minHeight: 8,
+                      backgroundColor: AppColors.surfaceVariant,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppColors.success,
+                      ),
+                    ),
                   ),
-                  _DetailRow(
-                    label: 'Số điện thoại',
-                    value: driver?.phone.isNotEmpty == true
-                        ? driver!.phone
-                        : 'Chưa bổ sung',
-                    icon: Icons.phone_rounded,
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      _StatBox(
+                        label: 'Tổng số điểm',
+                        value: '$total',
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      _StatBox(
+                        label: 'Đã hoàn tất',
+                        value: '$delivered',
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 8),
+                      _StatBox(
+                        label: 'Thất bại',
+                        value: '$failed',
+                        color: AppColors.error,
+                      ),
+                    ],
                   ),
-                  _DetailRow(
-                    label: 'Hình thức tài xế',
-                    value: driver?.driverTypeLabel ?? 'Chưa bổ sung',
-                    icon: Icons.work_outline_rounded,
-                  ),
-                  _DetailRow(
-                    label: 'Khung giờ ca',
-                    value: driver?.shiftDisplay ?? 'Chưa xếp ca',
-                    icon: Icons.access_time_rounded,
-                  ),
+                  const SizedBox(height: 12),
                 ],
               ),
             ),
-            orElse: () => const SizedBox.shrink(),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 24),
 
-          // 3. Shift Performance Report (D09)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Thống kê danh sách đơn hiện tại',
+            // 4. Logout Button
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton.icon(
+                onPressed: () => _confirmLogout(context, ref),
+                icon: const Icon(Icons.logout_rounded, color: AppColors.error),
+                label: const Text(
+                  'Đăng xuất tài khoản',
                   style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
+                    color: AppColors.error,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const Divider(height: 20, color: AppColors.divider),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Tỷ lệ giao hàng thành công',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      '$rate%',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.success,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: total > 0 ? (delivered / total) : 0.0,
-                    minHeight: 8,
-                    backgroundColor: AppColors.surfaceVariant,
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                      AppColors.success,
-                    ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.error),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    _StatBox(
-                      label: 'Tổng số điểm',
-                      value: '$total',
-                      color: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    _StatBox(
-                      label: 'Đã hoàn tất',
-                      value: '$delivered',
-                      color: AppColors.success,
-                    ),
-                    const SizedBox(width: 8),
-                    _StatBox(
-                      label: 'Thất bại',
-                      value: '$failed',
-                      color: AppColors.error,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // 4. Logout Button
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: OutlinedButton.icon(
-              onPressed: () => _confirmLogout(context, ref),
-              icon: const Icon(Icons.logout_rounded, color: AppColors.error),
-              label: const Text(
-                'Đăng xuất tài khoản',
-                style: TextStyle(
-                  color: AppColors.error,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppColors.error),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          const Center(
-            child: Text(
-              'SwiftRoute Driver',
-              style: TextStyle(fontSize: 11, color: AppColors.textHint),
+            const SizedBox(height: 16),
+            const Center(
+              child: Text(
+                'SwiftRoute Driver',
+                style: TextStyle(fontSize: 11, color: AppColors.textHint),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

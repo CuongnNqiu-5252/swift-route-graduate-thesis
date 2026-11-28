@@ -1,10 +1,13 @@
 package com.swiftroute.authservice.service;
 
+import java.util.UUID;
+
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.authservice.config.JwtConfig;
+import com.swiftroute.authservice.dto.request.GoogleAuthRequest;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
@@ -12,10 +15,12 @@ import com.swiftroute.authservice.dto.response.LoginResponseDTO;
 import com.swiftroute.authservice.dto.response.UserProfileResponseDTO;
 import com.swiftroute.authservice.entity.RefreshToken;
 import com.swiftroute.authservice.entity.User;
+import com.swiftroute.authservice.exception.AppException;
 import com.swiftroute.authservice.exception.EmailAlreadyExistsException;
 import com.swiftroute.authservice.exception.ErrorCode;
 import com.swiftroute.authservice.exception.InvalidCredentialsException;
 import com.swiftroute.authservice.repository.UserRepository;
+import com.swiftroute.authservice.service.GoogleIdentityService.GoogleIdentity;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +31,7 @@ public class AuthserviceImpl implements AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final com.swiftroute.authservice.repository.TenantMembershipRepository tenantMembershipRepository;
-
+    private final GoogleIdentityService googleIdentityService;
     // SỬA Ở ĐÂY: Dùng JwtService của bạn thay vì TokenService của Spring
     private final JwtService jwtService;
     private final JwtConfig jwtConfig;
@@ -76,7 +81,8 @@ public class AuthserviceImpl implements AuthService {
             throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
         }
 
-        // 4. Tạo token (Access Token hạn theo cấu hình, mặc định 15 phút, Refresh Token hạn 7 ngày) & user
+        // 4. Tạo token (Access Token hạn theo cấu hình, mặc định 15 phút, Refresh Token
+        // hạn 7 ngày) & user
         // profile
         long ttlMinutes = (jwtConfig != null && jwtConfig.getAccessTokenExpiryMinutes() > 0)
                 ? jwtConfig.getAccessTokenExpiryMinutes()
@@ -114,22 +120,33 @@ public class AuthserviceImpl implements AuthService {
     }
 
     private java.util.UUID extractRequestedTenantId(HttpServletRequest request) {
-        if (request == null) return null;
+        if (request == null)
+            return null;
         String header = request.getHeader("X-Tenant-Id");
         if (header != null && !header.isBlank()) {
-            try { return java.util.UUID.fromString(header.trim()); } catch (IllegalArgumentException ignored) {}
+            try {
+                return java.util.UUID.fromString(header.trim());
+            } catch (IllegalArgumentException ignored) {
+            }
         }
         String param = request.getParameter("tenantId");
-        if (param == null || param.isBlank()) param = request.getParameter("tenant_id");
+        if (param == null || param.isBlank())
+            param = request.getParameter("tenant_id");
         if (param != null && !param.isBlank()) {
-            try { return java.util.UUID.fromString(param.trim()); } catch (IllegalArgumentException ignored) {}
+            try {
+                return java.util.UUID.fromString(param.trim());
+            } catch (IllegalArgumentException ignored) {
+            }
         }
         String authHeader = request.getHeader(org.springframework.http.HttpHeaders.AUTHORIZATION);
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7).trim();
             String claim = jwtService.extractTenantId(token);
             if (claim != null && !claim.isBlank()) {
-                try { return java.util.UUID.fromString(claim.trim()); } catch (IllegalArgumentException ignored) {}
+                try {
+                    return java.util.UUID.fromString(claim.trim());
+                } catch (IllegalArgumentException ignored) {
+                }
             }
         }
         return null;
@@ -137,7 +154,8 @@ public class AuthserviceImpl implements AuthService {
 
     /**
      * Issues access/refresh tokens and populates the user profile snapshot
-     * from the user's active tenant membership (retaining requested active tenant session if matched).
+     * from the user's active tenant membership (retaining requested active tenant
+     * session if matched).
      */
     private LoginResponseDTO buildAuthResponse(User user, long ttlMinutes, HttpServletRequest httpRequest) {
         return buildAuthResponse(user, ttlMinutes, httpRequest, null);
@@ -229,10 +247,12 @@ public class AuthserviceImpl implements AuthService {
                     : jwtService.generateAndStoreRefreshToken(user, httpRequest);
         }
 
+        Long permissionsVersion = selectedMembership != null ? selectedMembership.getPermissionsVersion() : null;
+
         return LoginResponseDTO.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
-                .user(toUserProfile(user, effectiveRole, tenantId, effectivePermissions))
+                .user(toUserProfile(user, effectiveRole, tenantId, effectivePermissions, permissionsVersion))
                 .build();
     }
 
@@ -240,7 +260,8 @@ public class AuthserviceImpl implements AuthService {
             User user,
             String effectiveRole,
             java.util.UUID tenantId,
-            java.util.List<String> effectivePermissions) {
+            java.util.List<String> effectivePermissions,
+            Long permissionsVersion) {
         String resolvedRole = (effectiveRole == null || effectiveRole.isBlank())
                 ? user.getRole().name()
                 : effectiveRole;
@@ -259,7 +280,8 @@ public class AuthserviceImpl implements AuthService {
                 user.getStatus(),
                 user.getCreatedAt(),
                 user.isEmailVerified(),
-                perms);
+                perms,
+                permissionsVersion);
     }
 
     @Override
@@ -288,14 +310,16 @@ public class AuthserviceImpl implements AuthService {
             activeMembership = activeMemberships.get(0);
         }
         java.util.UUID tenantId = activeMembership != null ? activeMembership.getTenantId() : null;
-        String liveRole = (activeMembership != null && user.getRole() != com.swiftroute.authservice.entity.enums.Role.SYSTEM_ADMIN)
-                ? activeMembership.getMembershipRole().name()
-                : effectiveRole;
+        String liveRole = (activeMembership != null
+                && user.getRole() != com.swiftroute.authservice.entity.enums.Role.SYSTEM_ADMIN)
+                        ? activeMembership.getMembershipRole().name()
+                        : effectiveRole;
         java.util.List<String> effectivePermissions = (tenantPermissionService != null && activeMembership != null)
                 ? tenantPermissionService.resolveEffectivePermissions(user.getRole(), activeMembership)
                 : com.swiftroute.authservice.entity.enums.TenantPermission
                         .defaultPermissionsForRoleName(liveRole, user.getRole());
-        return toUserProfile(user, liveRole, tenantId, effectivePermissions);
+        Long permissionsVersion = activeMembership != null ? activeMembership.getPermissionsVersion() : null;
+        return toUserProfile(user, liveRole, tenantId, effectivePermissions, permissionsVersion);
     }
 
     private java.util.UUID resolveCurrentRequestTenantId() {
@@ -316,5 +340,87 @@ public class AuthserviceImpl implements AuthService {
         user.setPhone(request.phoneNumber().trim());
         userRepository.save(user);
         return getProfile(userId, effectiveRole);
+    }
+
+    @Transactional
+    public void linkGoogle(UUID userId, GoogleAuthRequest request) {
+
+        GoogleIdentity identity = googleIdentityService.verify(request.idToken());
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        if (!identity.emailVerified()) {
+            throw new AppException(ErrorCode.EMAIL_NOT_VERIFIED);
+        }
+
+        if (identity.sub().equals(user.getGoogleSub())) {
+            return;
+        }
+
+        if (user.getGoogleSub() != null) {
+            throw new AppException(
+                    ErrorCode.GOOGLE_ALREADY_LINKED);
+        }
+
+        userRepository.findByGoogleSub(identity.sub())
+                .ifPresent(existingUser -> {
+                    if (!existingUser.getId().equals(userId)) {
+                        throw new AppException(
+                                ErrorCode.GOOGLE_ACCOUNT_IN_USE);
+                    }
+                });
+
+        userRepository.findByEmailIgnoreCase(identity.email())
+                .ifPresent(existingUser -> {
+                    if (!existingUser.getId().equals(userId)) {
+                        throw new AppException(
+                                ErrorCode.GOOGLE_ACCOUNT_IN_USE);
+                    }
+                });
+
+        user.setGoogleSub(identity.sub());
+
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public LoginResponseDTO loginWithGoogle(
+            GoogleAuthRequest request,
+            HttpServletRequest httpRequest) {
+        GoogleIdentity identity = googleIdentityService.verify(request.idToken());
+
+        if (!identity.emailVerified()) {
+            throw new AppException(ErrorCode.EMAIL_NOT_VERIFIED);
+        }
+
+        User user = userRepository
+                .findByGoogleSub(identity.sub())
+                .orElseGet(() -> userRepository.findByEmailIgnoreCase(identity.email())
+                        // Conditional auto-link only when both Google and local account emails are verified
+                        // and the account is active without an existing Google link (prevents pre-hijacking).
+                        .filter(existing -> "ACTIVE".equals(existing.getStatus())
+                                && existing.isEmailVerified()
+                                && existing.getGoogleSub() == null)
+                        .map(existing -> {
+                            existing.setGoogleSub(identity.sub());
+                            return userRepository.save(existing);
+                        })
+                        .orElseThrow(() -> new AppException(ErrorCode.GOOGLE_ACCOUNT_NOT_LINKED)));
+
+        // Verify account status and email verification before issuing tokens
+        if (!"ACTIVE".equals(user.getStatus()) || !user.isEmailVerified()) {
+            throw new InvalidCredentialsException(ErrorCode.INVALID_CREDENTIALS);
+        }
+
+        long ttlMinutes = (jwtConfig != null && jwtConfig.getAccessTokenExpiryMinutes() > 0)
+                ? jwtConfig.getAccessTokenExpiryMinutes()
+                : 15;
+
+        return buildAuthResponse(
+                user,
+                ttlMinutes,
+                httpRequest);
     }
 }

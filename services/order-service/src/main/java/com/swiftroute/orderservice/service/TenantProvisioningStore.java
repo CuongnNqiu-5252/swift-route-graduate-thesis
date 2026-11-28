@@ -1,7 +1,6 @@
 package com.swiftroute.orderservice.service;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -11,12 +10,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.orderservice.entity.AuditLog;
-import com.swiftroute.orderservice.entity.OutboxEvent;
 import com.swiftroute.orderservice.entity.Tenant;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
 import com.swiftroute.orderservice.repository.AuditLogRepository;
-import com.swiftroute.orderservice.repository.OutboxEventRepository;
 import com.swiftroute.orderservice.repository.TenantRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -29,7 +26,6 @@ import lombok.RequiredArgsConstructor;
 public class TenantProvisioningStore {
     private final JdbcTemplate jdbc;
     private final TenantRepository tenants;
-    private final OutboxEventRepository events;
     private final AuditLogRepository audit;
 
     public record State(UUID tenantId, String status, int attempts, Instant updatedAt, String nextAction) {
@@ -81,20 +77,6 @@ public class TenantProvisioningStore {
                 id) != 1)
             return;
         Tenant tenant = tenants.findById(id).orElseThrow(() -> new AppException(ErrorCode.TENANT_NOT_FOUND));
-        UUID eventId = UUID.randomUUID();
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("event_id", eventId);
-        payload.put("event_type", "tenant.owner_provisioned.v1");
-        payload.put("tenant_id", id);
-        payload.put("owner_user_id", tenant.getOwnerUserId());
-        payload.put("actor_id", tenant.getOwnerUserId());
-        payload.put("occurred_at", Instant.now().toString());
-        payload.put("payload_version", 1);
-        payload.put("version", tenant.getVersion());
-        if (tenant.getContactEmail() != null)
-            payload.put("email", tenant.getContactEmail());
-        events.save(OutboxEvent.builder().eventId(eventId).aggregateId(id).aggregateType("tenant")
-                .eventType("tenant.owner_provisioned.v1").payload(payload).build());
         audit.save(AuditLog.builder().tenantId(id).aggregateType("TENANT_PROVISIONING").aggregateId(id)
                 .action("OWNER_PROVISIONED").actorId(tenant.getOwnerUserId()).details(Map.of()).build());
     }

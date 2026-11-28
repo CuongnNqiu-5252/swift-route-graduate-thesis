@@ -2,8 +2,10 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useNotifications } from '@/application/contexts/notification-context';
+import { InboxNotificationDto } from '@/infrastructure/repositories/notification.repository';
+import { formatNotification } from '@/lib/notification-formatter';
+import { cn } from '@/lib/utils';
 import {
   AlertCircle,
   AlertTriangle,
@@ -17,10 +19,8 @@ import {
   Route,
   X,
 } from 'lucide-react';
-import { useNotifications } from '@/application/contexts/notification-context';
-import { formatNotification } from '@/lib/notification-formatter';
-import { cn } from '@/lib/utils';
-import { InboxNotificationDto } from '@/infrastructure/repositories/notification.repository';
+import Link from 'next/link';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type FilterTab = 'ALL' | 'INCIDENT' | 'OPERATIONS';
 
@@ -177,7 +177,7 @@ export function NotificationBell() {
   const isConnected = notifications?.isConnected ?? false;
 
   const hasActiveIncidents = activeIncidents.length > 0;
-  const badgeCount = unreadCount > 0 ? unreadCount : activeIncidents.length;
+  const inboxLabel = t("Hòm thư thông báo");
 
   const filteredItems = useMemo(() => {
     if (activeTab === 'INCIDENT') {
@@ -216,10 +216,10 @@ export function NotificationBell() {
       <button
         type="button"
         onClick={toggleOpen}
-        aria-label={`${t("Hòm thư thông báo")} (${inbox.length})`}
+        aria-label={unreadCount > 0 ? `${inboxLabel} (${unreadCount})` : inboxLabel}
         aria-expanded={isOpen}
         className={cn(
-          'relative flex h-9 w-9 items-center justify-center rounded-lg border transition-colors',
+          'relative flex h-9 w-9 items-center justify-center rounded-sm border transition-colors',
           hasActiveIncidents
             ? 'border-amber-200 bg-amber-50/50 text-amber-800 hover:bg-amber-100'
             : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
@@ -227,14 +227,9 @@ export function NotificationBell() {
       >
         <Bell size={18} className={cn(unreadCount > 0 && 'animate-bounce text-amber-600')} />
 
-        {badgeCount > 0 && (
-          <span
-            className={cn(
-              'absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white',
-              unreadCount > 0 ? 'bg-red-600' : 'bg-amber-600',
-            )}
-          >
-            {badgeCount > 99 ? '99+' : badgeCount}
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>

@@ -42,7 +42,9 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
         if (ok) setState(() => _lastSyncTime = DateTime.now());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: ok ? AppColors.success : AppColors.error,
+            backgroundColor: ok
+                ? const Color.fromARGB(255, 79, 65, 230)
+                : AppColors.error,
             content: Text(
               ok
                   ? 'Đã đồng bộ vị trí GPS lúc ${AppFormatters.time(DateTime.now())}'
@@ -72,20 +74,21 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
     final isApproved = driver?.status == 'ACTIVE';
 
     final surfaceColor = isAvailable
-        ? AppColors.successSoft
+        ? const Color(0xFFEFF6FF)
         : (isApproved ? AppColors.card : AppColors.warningSoft);
-    final borderColor = isAvailable
-        ? AppColors.successBorder
-        : (isApproved ? AppColors.divider : AppColors.warningBorder);
-    final titleColor = isAvailable
-        ? AppColors.success
-        : (isApproved ? AppColors.textPrimary : AppColors.warning);
 
+    final borderColor = isAvailable
+        ? const Color(0xFFBFDBFE)
+        : (isApproved ? AppColors.divider : AppColors.warningBorder);
+
+    final titleColor = isAvailable
+        ? const Color(0xFF152180)
+        : (isApproved ? AppColors.textPrimary : AppColors.warning);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: surfaceColor,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(7),
         border: Border.all(color: borderColor),
       ),
       child: Column(
@@ -98,11 +101,11 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
                 height: 42,
                 decoration: BoxDecoration(
                   color: isAvailable
-                      ? AppColors.success
+                      ? const Color.fromARGB(255, 21, 33, 128)
                       : (isApproved
                             ? AppColors.surface
                             : AppColors.warning.withValues(alpha: 0.14)),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(7),
                 ),
                 child: Icon(
                   isAvailable
@@ -124,11 +127,7 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isAvailable
-                          ? 'Đang trực tuyến nhận chuyến'
-                          : (isApproved
-                                ? 'Đang nghỉ ca (Offline)'
-                                : 'Hồ sơ chờ doanh nghiệp duyệt'),
+                      isAvailable ? 'Trong ca' : 'Đang nghỉ ca',
                       style: TextStyle(
                         fontSize: 15.5,
                         fontWeight: FontWeight.w800,
@@ -168,29 +167,6 @@ class _DriverStatusCardState extends ConsumerState<DriverStatusCard> {
             const SizedBox(height: 12),
             Row(
               children: [
-                if (driver?.licensePlate != null &&
-                    driver!.licensePlate.isNotEmpty) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.card,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.successBorder),
-                    ),
-                    child: Text(
-                      driver.licensePlate,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
                 const Spacer(),
                 TextButton.icon(
                   onPressed: _isSyncingLocation ? null : _handleGpsSync,

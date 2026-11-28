@@ -9,7 +9,6 @@ import 'package:swiftroute_app/data/repositories/auth_repository_impl.dart';
 import 'package:swiftroute_app/domain/entities/user.dart';
 import 'package:swiftroute_app/domain/repositories/auth_repository.dart';
 import 'package:swiftroute_app/domain/usecases/get_current_user_usecase.dart';
-import 'package:swiftroute_app/domain/usecases/login_usecase.dart';
 import 'package:swiftroute_app/domain/usecases/logout_usecase.dart';
 
 class AuthState {
@@ -40,10 +39,6 @@ class AuthState {
   }
 }
 
-final loginUseCaseProvider = Provider<LoginUseCase>((ref) {
-  return LoginUseCase(ref.read(authRepositoryProvider));
-});
-
 final getCurrentUserUseCaseProvider = Provider<GetCurrentUserUseCase>((ref) {
   return GetCurrentUserUseCase(ref.read(authRepositoryProvider));
 });
@@ -54,7 +49,6 @@ final logoutUseCaseProvider = Provider<LogoutUseCase>((ref) {
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   final notifier = AuthNotifier(
-    loginUseCase: ref.read(loginUseCaseProvider),
     getCurrentUserUseCase: ref.read(getCurrentUserUseCaseProvider),
     logoutUseCase: ref.read(logoutUseCaseProvider),
     authRepository: ref.read(authRepositoryProvider),
@@ -70,18 +64,15 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
 });
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  final LoginUseCase _loginUseCase;
   final GetCurrentUserUseCase _getCurrentUserUseCase;
   final LogoutUseCase _logoutUseCase;
   final AuthRepository? _authRepository;
 
   AuthNotifier({
-    required LoginUseCase loginUseCase,
     required GetCurrentUserUseCase getCurrentUserUseCase,
     required LogoutUseCase logoutUseCase,
     AuthRepository? authRepository,
-  }) : _loginUseCase = loginUseCase,
-       _getCurrentUserUseCase = getCurrentUserUseCase,
+  }) : _getCurrentUserUseCase = getCurrentUserUseCase,
        _logoutUseCase = logoutUseCase,
        _authRepository = authRepository,
        super(const AuthState()) {
@@ -126,44 +117,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<bool> login(String email, String password) async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
-
-    try {
-      final user = await _loginUseCase.execute(email.trim(), password);
-      if (user.role != 'DRIVER' || !user.hasPermission('driver:self')) {
-        await _logoutUseCase.execute();
-        state = AuthState(
-          isLoading: false,
-          user: null,
-          isAuthenticated: false,
-          errorMessage: user.role != 'DRIVER'
-              ? 'Tài khoản không thuộc vai trò tài xế (DRIVER).'
-              : 'Tài khoản tài xế hiện không có quyền tác nghiệp (driver:self). Vui lòng liên hệ quản trị viên.',
-        );
-        return false;
-      }
-      state = state.copyWith(
-        isLoading: false,
-        user: user,
-        isAuthenticated: true,
-        errorMessage: null,
-      );
-      unawaited(_authRepository?.syncDeviceActivity(force: true));
-      return true;
-    } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: e.toString().replaceFirst('Exception: ', ''),
-      );
-      return false;
-    }
-  }
-
   Future<bool> activateWithCode(String activationCode) async {
     final repo = _authRepository;
     if (repo == null) return false;
-    state = state.copyWith(isLoading: true, errorMessage: null);
+    clearError();
 
     try {
       final user = await repo.activateWithCode(activationCode);
@@ -210,7 +167,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       user: null,
       isAuthenticated: false,
       errorMessage:
-          'Phiên ứng dụng đã hết hạn hoặc bị quản trị viên hủy kích hoạt. Vui lòng đăng nhập hoặc nhập mã kích hoạt mới.',
+          'Phiên ứng dụng đã hết hạn hoặc bị quản trị viên hủy kích hoạt. Hãy xin mã kích hoạt mới từ quản trị viên doanh nghiệp.',
     );
   }
 

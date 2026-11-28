@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.swiftroute.authservice.dto.request.GoogleAuthRequest;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
 import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
@@ -34,7 +35,8 @@ public class AuthController {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.swiftroute.authservice.service.DriverActivationService driverActivationService;
 
-    public AuthController(AuthService authService, com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService) {
+    public AuthController(AuthService authService,
+            com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService) {
         this.authService = authService;
         this.tenantEmployeeService = tenantEmployeeService;
     }
@@ -52,11 +54,13 @@ public class AuthController {
     @PostMapping("/invitations/accept")
     public ResponseEntity<ApiResponse<com.swiftroute.authservice.dto.response.TenantMemberResponse>> acceptInvitation(
             @Valid @RequestBody com.swiftroute.authservice.dto.request.AcceptInvitationRequest request) {
-        com.swiftroute.authservice.dto.response.TenantMemberResponse response = tenantEmployeeService.acceptInvitation(request);
+        com.swiftroute.authservice.dto.response.TenantMemberResponse response = tenantEmployeeService
+                .acceptInvitation(request);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    public record PreviewInvitationRequest(@jakarta.validation.constraints.NotBlank String token) {}
+    public record PreviewInvitationRequest(@jakarta.validation.constraints.NotBlank String token) {
+    }
 
     @PostMapping("/invitations/preview")
     public ResponseEntity<ApiResponse<com.swiftroute.authservice.service.TenantEmployeeService.InvitationPreview>> previewInvitation(
@@ -113,5 +117,24 @@ public class AuthController {
                 .map(value -> value.substring(5))
                 .findFirst()
                 .orElse(null);
+    }
+
+    @PostMapping("/google/login")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Sign in with Google ID token")
+    public ResponseEntity<ApiResponse<LoginResponseDTO>> loginWithGoogle(
+            @Valid @RequestBody GoogleAuthRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        authService.loginWithGoogle(request, httpRequest)));
+    }
+
+    @PostMapping("/google/link")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Link a verified Google account to the authenticated user")
+    public ResponseEntity<ApiResponse<Void>> linkGoogle(
+            @Valid @RequestBody GoogleAuthRequest request) {
+        UUID userId = UUID.fromString(SecurityContextHolder.getContext().getAuthentication().getName());
+        authService.linkGoogle(userId, request);
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 }

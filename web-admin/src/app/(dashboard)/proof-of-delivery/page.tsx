@@ -179,7 +179,7 @@ export default function ProofOfDeliveryPage() {
                     <button
                         onClick={handleReset}
                         disabled={!isDirty || saving}
-                        className="rounded-lg border px-4 py-2 text-sm
+                        className="rounded-sm border px-4 py-2 text-sm
                        hover:bg-slate-50 disabled:opacity-50"
                     >
                         Hủy
@@ -188,7 +188,7 @@ export default function ProofOfDeliveryPage() {
                     <button
                         onClick={handleSave}
                         disabled={!isDirty || saving}
-                        className="flex items-center gap-2 rounded-lg
+                        className="flex items-center gap-2 rounded-sm
                        bg-blue-600 px-4 py-2 text-sm
                        font-medium text-white hover:bg-blue-700
                        disabled:cursor-not-allowed
@@ -205,7 +205,7 @@ export default function ProofOfDeliveryPage() {
             </div>
 
             {/* Description */}
-            <div className="flex items-start gap-3 rounded-lg
+            <div className="flex items-start gap-3 rounded-sm
                       border border-blue-100 bg-blue-50 p-4">
 
                 <Info className="size-5 shrink-0 text-blue-600" />
@@ -220,7 +220,7 @@ export default function ProofOfDeliveryPage() {
             {/* Error */}
             {error && (
                 <div role="alert"
-                    className="rounded-lg border border-red-200
+                    className="rounded-sm border border-red-200
                         bg-red-50 p-3 text-sm text-red-600">
                     {error}
                 </div>
@@ -276,7 +276,7 @@ export default function ProofOfDeliveryPage() {
                                                     e.target.value as ProofPolicy
                                                 )
                                             }
-                                            className="w-full cursor-pointer rounded-lg
+                                            className="w-full cursor-pointer rounded-sm
                                  border border-slate-300 bg-white
                                  px-3 py-2 outline-none
                                  focus:border-blue-500

@@ -33,7 +33,7 @@ import {
   X
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 const STATUS_TABS: { label: string; value?: OrderStatus }[] = [
@@ -205,7 +205,7 @@ export function OrdersWorkspace({ embedded = false, refreshRevision = 0, selecti
               </DropdownMenu.Trigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.Content align="end" sideOffset={6}
-                  className="z-50 min-w-40 rounded-lg bg-white p-1 text-sm text-slate-800 shadow-lg ring-1 ring-slate-200">
+                  className="z-50 min-w-40 rounded-sm bg-white p-1 text-sm text-slate-800 shadow-lg ring-1 ring-slate-200">
                   <DropdownMenu.Item onSelect={() => setEntryPanel('create')}
                     className="flex min-h-11 cursor-pointer items-center gap-2 rounded px-3 outline-none data-highlighted:bg-slate-100 sm:min-h-9">
                     <Plus size={16} aria-hidden="true" />
@@ -333,7 +333,7 @@ export function OrdersWorkspace({ embedded = false, refreshRevision = 0, selecti
                   }}
                   placeholder={t("Tìm mã đơn (#611D...), tên người nhận, địa chỉ, tài xế, biển số…")}
                   aria-label={t("Tìm kiếm đơn hàng")}
-                  className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-9 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  className="h-10 w-full rounded-sm border border-slate-300 bg-white pl-9 pr-9 text-sm text-slate-950 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                 />
                 {query && (
                   <button

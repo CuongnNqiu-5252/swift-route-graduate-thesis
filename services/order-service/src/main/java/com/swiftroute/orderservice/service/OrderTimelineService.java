@@ -1,6 +1,5 @@
 package com.swiftroute.orderservice.service;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -18,7 +17,6 @@ import com.swiftroute.orderservice.entity.DeliveryAttempt;
 import com.swiftroute.orderservice.entity.DeliveryIncident;
 import com.swiftroute.orderservice.entity.Order;
 import com.swiftroute.orderservice.entity.OrderStatusHistory;
-import com.swiftroute.orderservice.entity.ReturnRequest;
 import com.swiftroute.orderservice.entity.enums.OrderStatus;
 import com.swiftroute.orderservice.exception.AppException;
 import com.swiftroute.orderservice.exception.ErrorCode;
@@ -26,14 +24,13 @@ import com.swiftroute.orderservice.repository.DeliveryAttemptRepository;
 import com.swiftroute.orderservice.repository.DeliveryIncidentRepository;
 import com.swiftroute.orderservice.repository.OrderRepository;
 import com.swiftroute.orderservice.repository.OrderStatusHistoryRepository;
-import com.swiftroute.orderservice.repository.ReturnRequestRepository;
 import com.swiftroute.orderservice.security.TenantRequestInterceptor;
 
 import lombok.RequiredArgsConstructor;
 
 /**
  * Aggregates status history, delivery attempts, incidents,
- * return requests, and COD collection milestones into a chronological order timeline.
+ * and COD collection milestones into a chronological order timeline.
  */
 @Service
 @RequiredArgsConstructor
@@ -46,11 +43,7 @@ public class OrderTimelineService {
     private final OrderStatusHistoryRepository statusHistoryRepository;
     private final DeliveryAttemptRepository deliveryAttemptRepository;
     private final DeliveryIncidentRepository deliveryIncidentRepository;
-    private final ReturnRequestRepository returnRequestRepository;
 
-    /**
-     * Loads the chronological activity timeline for an order after verifying tenant and role access.
-     */
     @Transactional(readOnly = true)
     public OrderTimelineResponse getOrderTimeline(
             UUID orderId,
@@ -66,7 +59,6 @@ public class OrderTimelineService {
         addStatusEvents(order, events);
         String latestProofUrl = addDeliveryAttemptEvents(orderId, events);
         addIncidentEvents(orderId, events);
-        addReturnEvents(orderId, events);
         addCodEvent(order, events);
 
         events.sort(Comparator
@@ -132,7 +124,6 @@ public class OrderTimelineService {
             return;
         }
 
-        // Legacy orders created before status history recording get a clean baseline milestone.
         events.add(new OrderTimelineEventResponse(
                 "status-created-" + order.getId(),
                 "ORDER_CREATED",
@@ -185,9 +176,6 @@ public class OrderTimelineService {
             if (isNonBlank(attempt.getFailureReason())) {
                 metadata.put("failure_reason", attempt.getFailureReason());
             }
-            if (attempt.getContactAttempts() != null) {
-                metadata.put("contact_attempts", attempt.getContactAttempts());
-            }
 
             events.add(new OrderTimelineEventResponse(
                     "attempt-" + attempt.getId(),
@@ -217,7 +205,6 @@ public class OrderTimelineService {
 
             Map<String, Object> reportMeta = new LinkedHashMap<>();
             reportMeta.put("incident_type", incident.getIncidentType());
-            reportMeta.put("severity", incident.getSeverity());
             reportMeta.put("incident_status", incident.getStatus());
 
             events.add(new OrderTimelineEventResponse(
@@ -257,82 +244,6 @@ public class OrderTimelineService {
                         List.of(),
                         incident.getResolvedAt(),
                         resolveMeta));
-            }
-        }
-    }
-
-    private void addReturnEvents(UUID orderId, List<OrderTimelineEventResponse> events) {
-        for (ReturnRequest ret : returnRequestRepository.findAllByOrder_IdOrderByCreatedAtDesc(orderId)) {
-            Map<String, Object> meta = new LinkedHashMap<>();
-            meta.put("return_status", ret.getStatus());
-
-            events.add(new OrderTimelineEventResponse(
-                    "return-req-" + ret.getId(),
-                    "RETURN_REQUESTED",
-                    "RETURN",
-                    "Tạo yêu cầu hoàn hàng về kho",
-                    trimToNull(ret.getReason()),
-                    ret.getStatus(),
-                    null,
-                    null,
-                    ret.getRequestedBy(),
-                    null,
-                    null,
-                    List.of(),
-                    ret.getCreatedAt(),
-                    meta));
-
-            if ("DISCREPANCY".equals(ret.getStatus()) && ret.getReceivedAt() == null) {
-                Map<String, Object> discMeta = new LinkedHashMap<>(meta);
-                if (isNonBlank(ret.getDiscrepancyType())) {
-                    discMeta.put("discrepancy_type", ret.getDiscrepancyType());
-                }
-                List<String> evidence = isNonBlank(ret.getDiscrepancyEvidenceUrl())
-                        ? List.of(ret.getDiscrepancyEvidenceUrl().trim())
-                        : List.of();
-                events.add(new OrderTimelineEventResponse(
-                        "return-discrepancy-" + ret.getId(),
-                        "RETURN_DISCREPANCY",
-                        "RETURN",
-                        "Kho ghi nhận chênh lệch / hư hỏng khi hoàn",
-                        trimToNull(ret.getDiscrepancyNotes()),
-                        ret.getStatus(),
-                        null,
-                        null,
-                        null,
-                        "OPERATOR",
-                        null,
-                        evidence,
-                        ret.getUpdatedAt() != null ? ret.getUpdatedAt() : ret.getCreatedAt(),
-                        discMeta));
-            }
-
-            if (ret.getReceivedAt() != null) {
-                Map<String, Object> receiptMeta = new LinkedHashMap<>(meta);
-                if (isNonBlank(ret.getDiscrepancyType())) {
-                    receiptMeta.put("discrepancy_type", ret.getDiscrepancyType());
-                }
-                List<String> evidence = isNonBlank(ret.getDiscrepancyEvidenceUrl())
-                        ? List.of(ret.getDiscrepancyEvidenceUrl().trim())
-                        : List.of();
-                String title = isNonBlank(ret.getDiscrepancyType())
-                        ? "Kho nhận hàng hoàn (Có chênh lệch)"
-                        : "Kho đã kiểm nhận hàng hoàn";
-                events.add(new OrderTimelineEventResponse(
-                        "return-received-" + ret.getId(),
-                        "RETURN_RECEIVED",
-                        "RETURN",
-                        title,
-                        joinParts(ret.getDiscrepancyNotes(), ret.getCompletionNotes()),
-                        ret.getStatus(),
-                        null,
-                        null,
-                        ret.getReceivedBy(),
-                        "OPERATOR",
-                        null,
-                        evidence,
-                        ret.getReceivedAt(),
-                        receiptMeta));
             }
         }
     }

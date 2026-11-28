@@ -1,12 +1,12 @@
 'use client';
 
+import { forecastAt, forecastPoints, travelSecondsToPoint } from '@/application/dispatch-weather';
+import type { LocationPoint } from '@/domain/entities/routing.entity';
+import { useLocale } from '@/i18n/provider';
+import { dispatchLayersClient, type RainForecast } from '@/infrastructure/maps/dispatch-layers.client';
 import { CloudRain, Globe, Layers, Map as MapIcon, Navigation, Satellite, Sun, TrafficCone } from 'lucide-react';
 import { Marker, Popup, type Map as MapLibreMap, type RasterTileSource } from 'maplibre-gl';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { forecastAt, forecastPoints, travelSecondsToPoint } from '@/application/dispatch-weather';
-import { useLocale } from '@/i18n/provider';
-import { dispatchLayersClient, type RainForecast } from '@/infrastructure/maps/dispatch-layers.client';
-import type { LocationPoint } from '@/domain/entities/routing.entity';
 import { BASEMAP_OPTIONS, type MapBasemapId } from './route-map-styles';
 
 export const TRAFFIC_LAYER_ID = 'dispatch-traffic';
@@ -208,9 +208,9 @@ export function RouteMapLayers({
 
   const weatherStatus = !showStopMarkers ? t('Điểm giao đang ẩn.')
     : !pointKey ? t('Chọn tuyến có điểm giao để xem dự báo.')
-    : !visibleForecast ? t('Đang tải dự báo…')
-    : !visibleForecast.data || !rain.length ? t('Chưa tải được dự báo cho tuyến này.')
-    : t('Nhãn % trên bản đồ là khả năng mưa. Màu xanh đánh dấu mức từ 40%.');
+      : !visibleForecast ? t('Đang tải dự báo…')
+        : !visibleForecast.data || !rain.length ? t('Chưa tải được dự báo cho tuyến này.')
+          : t('Nhãn % trên bản đồ là khả năng mưa. Màu xanh đánh dấu mức từ 40%.');
 
   const activeCount = Number(weather) + Number(traffic) + Number(showRouteDirection) + Number(basemap !== 'streets');
   return (
@@ -223,7 +223,7 @@ export function RouteMapLayers({
     }}>
       <button ref={trigger} type="button" aria-expanded={open} aria-controls={open ? 'dispatch-map-layers' : undefined}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-700">
+        className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-sm border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-700">
         <Layers size={16} aria-hidden="true" />
         {t('Lớp bản đồ')}{activeCount > 0 && <span className="tabular-nums text-slate-600">({activeCount})</span>}
       </button>
@@ -242,11 +242,10 @@ export function RouteMapLayers({
                 return (
                   <label
                     key={option.id}
-                    className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                      selected
+                    className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-sm border px-2.5 py-1.5 text-xs font-medium transition-colors ${selected
                         ? 'border-blue-600 bg-blue-50 text-blue-900'
                         : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
+                      }`}
                   >
                     <input
                       type="radio"
@@ -299,16 +298,16 @@ export function RouteMapLayers({
               <div role="status" className="text-xs leading-5 text-slate-600">
                 {trafficStatus === 'unconfigured' ? t('Nguồn giao thông chưa được cấu hình.')
                   : trafficStatus === 'unavailable' ? t('Chưa tải được dữ liệu giao thông.')
-                  : trafficStatus === 'ready' ? (
-                    <>
-                      <div className="flex flex-wrap gap-x-2">
-                        <span><i className="mr-1 inline-block h-0.5 w-3 bg-[#118845] align-middle" />{t('Thông thoáng')}</span>
-                        <span><i className="mr-1 inline-block h-0.5 w-3 bg-[#db9200] align-middle" />{t('Chậm')}</span>
-                        <span><i className="mr-1 inline-block h-0.5 w-3 bg-[#e22503] align-middle" />{t('Ùn tắc')}</span>
-                      </div>
-                      <p>{t('Chỉ tô màu đoạn có dữ liệu.')} · TomTom</p>
-                    </>
-                  ) : t('Đang tải giao thông…')}
+                    : trafficStatus === 'ready' ? (
+                      <>
+                        <div className="flex flex-wrap gap-x-2">
+                          <span><i className="mr-1 inline-block h-0.5 w-3 bg-[#118845] align-middle" />{t('Thông thoáng')}</span>
+                          <span><i className="mr-1 inline-block h-0.5 w-3 bg-[#db9200] align-middle" />{t('Chậm')}</span>
+                          <span><i className="mr-1 inline-block h-0.5 w-3 bg-[#e22503] align-middle" />{t('Ùn tắc')}</span>
+                        </div>
+                        <p>{t('Chỉ tô màu đoạn có dữ liệu.')} · TomTom</p>
+                      </>
+                    ) : t('Đang tải giao thông…')}
               </div>
             )}
           </div>

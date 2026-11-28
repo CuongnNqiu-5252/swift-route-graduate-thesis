@@ -33,18 +33,10 @@ public class DeliveryIncident {
     @Column(name = "incident_id")
     private UUID id;
 
-    /**
-     * Related order, if the incident is order-specific.
-     * Null for route-level incidents (e.g., vehicle breakdown, traffic delays,
-     * driver emergencies).
-     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
     private Order order;
 
-    /**
-     * Related dispatch plan / active route, when applicable.
-     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "dispatch_plan_id")
     private DispatchPlan dispatchPlan;
@@ -52,25 +44,18 @@ public class DeliveryIncident {
     @Column(name = "tenant_id", nullable = false)
     private UUID tenantId;
 
-    /** ID of the reporting user (driver or operator). */
     @Column(name = "reported_by", nullable = false)
     private UUID reportedBy;
 
-    /** Associated driver ID. */
     @Column(name = "driver_id")
     private UUID driverId;
 
     @Column(name = "incident_type", nullable = false, length = 60)
     private String incidentType;
 
-    @Column(name = "severity", nullable = false, length = 20)
-    @Builder.Default
-    private String severity = "MEDIUM";
-
     @Column(name = "notes", length = 1000)
     private String notes;
 
-    /** JSON or comma-separated URLs of evidence photos. */
     @Column(name = "evidence_urls", columnDefinition = "TEXT")
     private String evidenceUrls;
 

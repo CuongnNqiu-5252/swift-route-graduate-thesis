@@ -2,8 +2,13 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import {
+  DeliveryZoneCheckResult,
+  DeliveryZoneEnforcementMode,
+} from '@/domain/entities/delivery-zone.entity';
+import { goongMapsClient, type MapPlacePrediction } from '@/infrastructure/maps/goong-maps.client';
 import { isRequestCancelled } from '@/lib/api';
+import { Crosshair, Loader2, LocateFixed, MapPin, Maximize2, Search, Target } from 'lucide-react';
 import {
   AttributionControl,
   type GeoJSONSource,
@@ -12,13 +17,8 @@ import {
   NavigationControl,
   setWorkerUrl,
 } from 'maplibre-gl';
-import { Crosshair, Loader2, LocateFixed, MapPin, Maximize2, Search, Target } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import {
-  DeliveryZoneCheckResult,
-  DeliveryZoneEnforcementMode,
-} from '@/domain/entities/delivery-zone.entity';
-import { goongMapsClient, type MapPlacePrediction } from '@/infrastructure/maps/goong-maps.client';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   createCircleFeatureCollection,
   createRadiusLineCollection,
@@ -542,7 +542,7 @@ export default function DeliveryZoneMapEditorInner({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <div className="overflow-hidden rounded-sm border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/70 px-3 py-2.5">
         <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5">
           <button
@@ -552,11 +552,10 @@ export default function DeliveryZoneMapEditorInner({
               setSearchDraft(null);
               onInteractionModeChange('edit');
             }}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              interactionMode === 'edit'
+            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${interactionMode === 'edit'
                 ? 'bg-slate-900 text-white'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             <Target className="h-3.5 w-3.5" />
             {t("Định tâm & bán kính")}
@@ -568,11 +567,10 @@ export default function DeliveryZoneMapEditorInner({
               setSearchDraft(null);
               onInteractionModeChange('test');
             }}
-            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              interactionMode === 'test'
+            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${interactionMode === 'test'
                 ? 'bg-slate-900 text-white'
                 : 'text-slate-600 hover:text-slate-900'
-            }`}
+              }`}
           >
             <Crosshair className="h-3.5 w-3.5" />
             {t("Kiểm tra điểm giao")}
@@ -613,13 +611,13 @@ export default function DeliveryZoneMapEditorInner({
                   : t("Tìm địa chỉ làm tâm vùng giao hàng")
               }
               aria-label={t("Tìm địa chỉ trên bản đồ")}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 outline-none focus:border-slate-500"
+              className="h-10 w-full rounded-sm border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 outline-none focus:border-slate-500"
             />
             {(searching || resolvingAddress || isCheckingPoint) && (
               <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-slate-600" />
             )}
             {predictions.length > 0 && (
-              <ul className="absolute mt-1.5 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1">
+              <ul className="absolute mt-1.5 max-h-56 w-full overflow-y-auto rounded-sm border border-slate-200 bg-white py-1">
                 {predictions.map((prediction) => (
                   <li key={prediction.place_id}>
                     <button
@@ -651,7 +649,7 @@ export default function DeliveryZoneMapEditorInner({
               onClick={locateMe}
               title={t("Lấy vị trí hiện tại")}
               aria-label={t("Lấy vị trí hiện tại")}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
             >
               <LocateFixed className="h-4 w-4" />
             </button>
@@ -680,13 +678,12 @@ export default function DeliveryZoneMapEditorInner({
           </span>
           {testCoords && checkResult && interactionMode === 'test' && (
             <span
-              className={`num rounded px-2 py-0.5 font-medium ${
-                checkResult.allowed
+              className={`num rounded px-2 py-0.5 font-medium ${checkResult.allowed
                   ? checkResult.in_zone
                     ? 'bg-emerald-50 text-emerald-700'
                     : 'bg-amber-50 text-amber-800'
                   : 'bg-rose-50 text-rose-700'
-              }`}
+                }`}
             >
               {t("Cách tâm")}{" "}{checkResult.distance_km.toFixed(2)} km
             </span>

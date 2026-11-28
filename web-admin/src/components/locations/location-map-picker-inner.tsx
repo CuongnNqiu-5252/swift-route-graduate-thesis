@@ -2,8 +2,14 @@
 
 import { useLocale } from '@/i18n/provider';
 
+import {
+  createCircleFeatureCollection,
+  getCircleBounds,
+} from '@/components/settings/delivery-zone-geometry';
+import type { TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
+import { goongMapsClient, type MapPlacePrediction } from '@/infrastructure/maps/goong-maps.client';
 import { isRequestCancelled } from '@/lib/api';
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import {
   AttributionControl,
   type GeoJSONSource,
@@ -12,14 +18,8 @@ import {
   NavigationControl,
   setWorkerUrl,
 } from 'maplibre-gl';
-import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import {
-  createCircleFeatureCollection,
-  getCircleBounds,
-} from '@/components/settings/delivery-zone-geometry';
-import type { TenantDeliveryZone } from '@/domain/entities/delivery-zone.entity';
-import { goongMapsClient, type MapPlacePrediction } from '@/infrastructure/maps/goong-maps.client';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 if (typeof window !== 'undefined') {
   setWorkerUrl('/maplibre-gl-worker.mjs');
@@ -107,10 +107,10 @@ export default function LocationMapPickerInner({
 
     const hasActiveZone = Boolean(
       zone?.configured &&
-        zone.is_active &&
-        zone.center_lat !== null &&
-        zone.center_lng !== null &&
-        zone.radius_km !== null,
+      zone.is_active &&
+      zone.center_lat !== null &&
+      zone.center_lng !== null &&
+      zone.radius_km !== null,
     );
 
     if (!hasActiveZone || !zone || zone.center_lat === null || zone.center_lng === null || zone.radius_km === null) {
@@ -321,13 +321,13 @@ export default function LocationMapPickerInner({
     <div className="absolute inset-x-3 top-3 z-10 flex gap-2">
       <div className="relative min-w-0 flex-1">
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
-        <input value={query} onChange={(event) => { const value = event.target.value; setQuery(value); setPredictions([]); setSearchEnabled(value.trim().length >= 3); }} onFocus={() => { if (query.trim().length >= 3) setSearchEnabled(true); }} placeholder={t("Tìm số nhà, tên đường hoặc địa điểm")} aria-label={t("Tìm địa chỉ trên bản đồ")} className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 shadow-md outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+        <input value={query} onChange={(event) => { const value = event.target.value; setQuery(value); setPredictions([]); setSearchEnabled(value.trim().length >= 3); }} onFocus={() => { if (query.trim().length >= 3) setSearchEnabled(true); }} placeholder={t("Tìm số nhà, tên đường hoặc địa điểm")} aria-label={t("Tìm địa chỉ trên bản đồ")} className="h-10 w-full rounded-sm border border-slate-300 bg-white pl-9 pr-10 text-sm text-slate-900 shadow-md outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
         {(searching || resolving) && <Loader2 aria-label={t("Đang xác định địa chỉ")} className="absolute right-3 top-3 h-4 w-4 animate-spin text-blue-600" />}
-        {predictions.length > 0 && <ul className="absolute mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-          {predictions.map((prediction) => <li key={prediction.place_id}><button type="button" onClick={() => void choosePrediction(prediction)} className="flex w-full gap-3 px-3 py-2.5 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600"/><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-900">{prediction.structured_formatting?.main_text || prediction.description}</span>{prediction.structured_formatting?.secondary_text && <span className="block truncate text-xs text-slate-600">{prediction.structured_formatting.secondary_text}</span>}</span></button></li>)}
+        {predictions.length > 0 && <ul className="absolute mt-2 max-h-56 w-full overflow-y-auto rounded-sm border border-slate-200 bg-white py-1 shadow-lg">
+          {predictions.map((prediction) => <li key={prediction.place_id}><button type="button" onClick={() => void choosePrediction(prediction)} className="flex w-full gap-3 px-3 py-2.5 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" /><span className="min-w-0"><span className="block truncate text-sm font-medium text-slate-900">{prediction.structured_formatting?.main_text || prediction.description}</span>{prediction.structured_formatting?.secondary_text && <span className="block truncate text-xs text-slate-600">{prediction.structured_formatting.secondary_text}</span>}</span></button></li>)}
         </ul>}
       </div>
-      <button type="button" onClick={useCurrentLocation} title={t("Dùng vị trí hiện tại")} aria-label={t("Dùng vị trí hiện tại")} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><LocateFixed className="h-4 w-4"/></button>
+      <button type="button" onClick={useCurrentLocation} title={t("Dùng vị trí hiện tại")} aria-label={t("Dùng vị trí hiện tại")} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"><LocateFixed className="h-4 w-4" /></button>
     </div>
     {mapKey ? <div ref={mapContainer} className="h-80 w-full" aria-label={t("Bản đồ chọn điểm lấy hàng")} /> : <div className="flex h-80 items-center justify-center px-6 text-center text-sm text-rose-700">Chưa cấu hình NEXT_PUBLIC_GOONG_MAP_KEY cho Web Admin.</div>}
     <div className="flex min-h-10 items-center justify-between gap-3 border-t border-slate-200 bg-white px-3 py-2 text-xs">

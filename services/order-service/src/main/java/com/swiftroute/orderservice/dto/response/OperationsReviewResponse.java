@@ -18,13 +18,12 @@ public record OperationsReviewResponse(
             UUID dispatchPlanId,
             UUID driverId,
             String incidentType,
-            String severity,
             String status,
             String notes,
             Instant reportedAt) {
 
         public IncidentItem(UUID id, UUID orderId, String orderCode, String incidentType, String notes, Instant reportedAt) {
-            this(id, orderId, orderCode, null, null, incidentType, "MEDIUM", "OPEN", notes, reportedAt);
+            this(id, orderId, orderCode, null, null, incidentType, "OPEN", notes, reportedAt);
         }
     }
 

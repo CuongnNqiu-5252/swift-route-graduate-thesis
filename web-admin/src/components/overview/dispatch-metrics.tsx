@@ -1,19 +1,20 @@
-import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
 import { getAppointmentSlack, getRouteStages, getWarehouseBacklog } from '@/application/overview-metrics';
 import type { DispatchPlanRecord } from '@/domain/entities/routing.entity';
 import { useLocale } from '@/i18n/provider';
 import type { OperationsQueue } from '@/infrastructure/repositories/order.repository';
+import { ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const panel = 'min-w-0 rounded-xl border border-slate-200 p-4 sm:p-5';
 const link = 'rounded-sm text-sm font-medium text-blue-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700';
 const heading = 'text-base font-semibold text-slate-950';
 const muted = 'text-sm text-slate-600';
 const ageBins = [
-  { label: 'Dưới 15 phút', color: 'bg-blue-200' },
-  { label: '15–44 phút', color: 'bg-blue-600' },
-  { label: 'Từ 45 phút', color: 'bg-amber-700' },
-  { label: 'Thiếu giờ tạo', color: 'bg-slate-400' },
+  { label: 'Dưới 15 phút', color: '#93c5fd' },
+  { label: '15–44 phút', color: '#2563eb' },
+  { label: 'Từ 45 phút', color: '#b45309' },
+  { label: 'Thiếu giờ tạo', color: '#64748b' },
 ];
 const stageLabels = ['Chưa gán tài xế', 'Chờ giao tuyến', 'Đã điều phối cho tài xế'];
 const planHref = (planId: string) => `/dispatch?plan=${encodeURIComponent(planId)}`;
@@ -29,7 +30,9 @@ export function OverviewDispatchMetrics({ queue, queueState, plans, planState, n
   const number = new Intl.NumberFormat(intlLocale);
   const signed = new Intl.NumberFormat(intlLocale, { signDisplay: 'exceptZero' });
   const backlog = getWarehouseBacklog(queue.ready_for_dispatch, now);
-  const maxBacklog = Math.max(1, ...backlog.map((group) => group.total));
+  const chartBacklog = backlog.slice(0, 5).map((group) => ({
+    ...group, warehouse: group.name || t('Chưa xác định kho'),
+  }));
   const bins = ageBins.filter((_, index) => index < 3 || backlog.some((group) => group.counts[index] > 0));
   const slack = getAppointmentSlack([...queue.ready_for_dispatch, ...queue.active], plans, now);
   const stages = getRouteStages(plans, now);
@@ -54,9 +57,28 @@ export function OverviewDispatchMetrics({ queue, queueState, plans, planState, n
           <>
             <ul className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600">
               {bins.map(({ label, color }) => (
-                <li key={label} className="flex items-center gap-1.5"><span className={`size-2 rounded-sm ${color}`} aria-hidden="true" />{t(label)}</li>
+                <li key={label} className="flex items-center gap-1.5"><span className="size-2 rounded-sm" style={{ backgroundColor: color }} aria-hidden="true" />{t(label)}</li>
               ))}
             </ul>
+            <div className="mt-3 min-w-0 text-xs" style={{ height: 36 + chartBacklog.length * 34 }}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <BarChart data={chartBacklog} title={t('Đơn chờ theo kho')} layout="vertical"
+                  margin={{ top: 0, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid horizontal={false} stroke="#e2e8f0" />
+                  <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false}
+                    domain={[0, 'auto']} tickFormatter={(value) => number.format(value)} />
+                  <YAxis type="category" dataKey="warehouse" width={104} axisLine={false} tickLine={false}
+                    tickFormatter={(value: string) => value.length > 14 ? `${value.slice(0, 13)}…` : value} />
+                  <Tooltip formatter={(value) => number.format(Number(value))} />
+                  {bins.map(({ label, color }, index) => (
+                    <Bar key={label} dataKey={`counts[${index}]`} name={t(label)} stackId="age"
+                      fill={color} barSize={16} isAnimationActive={false} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <details>
+            <summary className="cursor-pointer text-sm font-medium text-blue-800">{t('Xem bảng số liệu')}</summary>
             <ul className="mt-2 divide-y divide-slate-100">
               {backlog.slice(0, 5).map(({ key, name, counts, oldest, total }) => (
                 <li key={key} className="py-2.5">
@@ -64,16 +86,13 @@ export function OverviewDispatchMetrics({ queue, queueState, plans, planState, n
                     <span className="min-w-0 break-words font-medium text-slate-900">{name || t('Chưa xác định kho')}</span>
                     <span className="shrink-0 tabular-nums text-slate-900">{number.format(total)} {t('đơn')}</span>
                   </div>
-                  <div className="mt-1.5 flex h-2 overflow-hidden rounded-full bg-slate-100" aria-label={bins.map(({ label }, index) => `${t(label)}: ${number.format(counts[index])}`).join(' · ')}>
-                    {counts.map((count, index) => count > 0 && (
-                      <span key={ageBins[index].label} title={`${t(ageBins[index].label)}: ${number.format(count)}`}
-                        className={ageBins[index].color} style={{ width: `${count / maxBacklog * 100}%` }} />
-                    ))}
-                  </div>
+                  <p className="mt-1 text-xs text-slate-600">{bins.map(({ label }, index) =>
+                    `${t(label)}: ${number.format(counts[index])}`).join(' · ')}</p>
                   {oldest !== undefined && <p className="mt-1 text-xs tabular-nums text-slate-600">{t('Đơn cũ nhất')} · {number.format(oldest)} {t('phút')}</p>}
                 </li>
               ))}
             </ul>
+            </details>
             {backlog.length > 5 && <p className="mt-1 text-xs text-slate-600">{t('Kho khác')} · {number.format(backlog.length - 5)}</p>}
           </>
         )}
@@ -131,7 +150,7 @@ export function OverviewDispatchMetrics({ queue, queueState, plans, planState, n
         {planState !== 'ready' ? (
           <p className={`mt-4 ${muted}`} role={planState === 'error' ? 'alert' : 'status'}>{t(planMessage)}</p>
         ) : (
-          <dl className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-3">
+          <dl className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-sm border border-slate-200 bg-slate-200 sm:grid-cols-3">
             {stages.map(({ count, oldest, planId }, index) => (
               <div key={stageLabels[index]} className="min-w-0 bg-white p-3">
                 <dt className="text-xs font-medium text-slate-600">{t(stageLabels[index])}</dt>

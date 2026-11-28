@@ -238,7 +238,6 @@ class OfflineSyncController extends StateNotifier<OfflineSyncState> {
         'order_id': action.entityId,
       'incident_type': 'OFFLINE_SYNC_CONFLICT',
       'notes': detail,
-      'contact_attempts': 1,
     };
   }
 

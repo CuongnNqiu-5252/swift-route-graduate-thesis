@@ -2,23 +2,23 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useEffect, useState } from 'react';
-import { MEMBER_ROLE_LABEL, MEMBER_STATUS_LABEL } from '@/domain/entities/member.entity';
-import type { TenantMembershipRole, TenantMembershipStatus } from '@/domain/entities/member.entity';
 import { useAuth } from '@/application/contexts/auth-context';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Modal } from '@/components/ui/modal';
+import type { TenantMembershipRole, TenantMembershipStatus } from '@/domain/entities/member.entity';
+import { MEMBER_ROLE_LABEL, MEMBER_STATUS_LABEL } from '@/domain/entities/member.entity';
+import { authRepository } from '@/infrastructure/repositories/auth.repository';
+import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
 import {
   Membership,
   ProvisioningState,
   switchTenant,
   tenantWorkflow,
 } from '@/infrastructure/repositories/tenant-workflow.repository';
-import { authRepository } from '@/infrastructure/repositories/auth.repository';
-import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Modal } from '@/components/ui/modal';
 import { Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const PENDING_TENANT_KEY = 'pending_tenant_id';
 
@@ -158,8 +158,8 @@ export default function OrganizationsPage() {
         <div className="flex flex-wrap items-end justify-between gap-6"><div><p className="text-sm text-slate-400">SwiftRoute</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">{t("Không gian vận hành của bạn")}</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">{t("Mỗi doanh nghiệp quản lý riêng đơn hàng, tài xế, điểm lấy hàng và đối soát. Chọn doanh nghiệp để làm việc hoặc tạo doanh nghiệp mới.")}</p></div><div className="rounded-xl bg-white/10 px-5 py-4"><p className="text-xs text-slate-400">{t("Doanh nghiệp đang tham gia")}</p><p className="mt-1 text-3xl font-semibold tabular-nums">{memberships.length}</p></div></div>
       </header>
 
-      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {notice && <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
+      {error && <p role="alert" className="rounded-sm bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {notice && <p role="status" className="rounded-sm bg-blue-50 p-3 text-sm text-blue-800">{notice}</p>}
 
       {!user?.emailVerified && (
         <Card>
@@ -223,16 +223,16 @@ export default function OrganizationsPage() {
           </Modal>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-        {memberships.length === 0 && <p className="p-5 text-sm text-gray-600">{t("Bạn chưa tham gia doanh nghiệp nào.")}</p>}
-        {memberships.map((membership) => (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4" key={membership.tenant_id}>
-            <div className="min-w-0">
-              <p className="truncate font-medium text-gray-950">{membership.business_name || `${t("Doanh nghiệp")} ${membership.tenant_id.slice(0, 8)}`}</p>
-              <p className="mt-1 text-xs text-gray-500">{t(MEMBER_ROLE_LABEL[membership.role as TenantMembershipRole] ?? t("Vai trò chưa xác định"))} · {t(MEMBER_STATUS_LABEL[membership.status as TenantMembershipStatus] ?? t("Trạng thái chưa xác định"))}</p>
+          {memberships.length === 0 && <p className="p-5 text-sm text-gray-600">{t("Bạn chưa tham gia doanh nghiệp nào.")}</p>}
+          {memberships.map((membership) => (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4" key={membership.tenant_id}>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-gray-950">{membership.business_name || `${t("Doanh nghiệp")} ${membership.tenant_id.slice(0, 8)}`}</p>
+                <p className="mt-1 text-xs text-gray-500">{t(MEMBER_ROLE_LABEL[membership.role as TenantMembershipRole] ?? t("Vai trò chưa xác định"))} · {t(MEMBER_STATUS_LABEL[membership.status as TenantMembershipStatus] ?? t("Trạng thái chưa xác định"))}</p>
+              </div>
+              <Button variant="outline" onClick={() => switchTenant(membership.tenant_id).catch((e) => setError(e.message))}>{t("Mở doanh nghiệp")}</Button>
             </div>
-            <Button variant="outline" onClick={() => switchTenant(membership.tenant_id).catch((e) => setError(e.message))}>{t("Mở doanh nghiệp")}</Button>
-          </div>
-        ))}
+          ))}
         </div>
       </section>
     </div>

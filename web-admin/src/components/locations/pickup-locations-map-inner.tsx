@@ -2,7 +2,7 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useEffect, useRef, useState } from 'react';
+import type { PickupLocation } from '@/domain/entities/pickup-location.entity';
 import {
   AttributionControl,
   LngLatBounds,
@@ -12,8 +12,8 @@ import {
   Popup,
   setWorkerUrl,
 } from 'maplibre-gl';
-import type { PickupLocation } from '@/domain/entities/pickup-location.entity';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { useEffect, useRef, useState } from 'react';
 
 setWorkerUrl(new URL('maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url).toString());
 
@@ -141,6 +141,6 @@ export default function PickupLocationsMapInner({ locations }: PickupLocationsMa
 
   return <div className="relative">
     <div ref={containerRef} className="h-80 w-full" aria-label={t("Bản đồ các điểm lấy hàng của doanh nghiệp")} />
-    {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 rounded-lg bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}
+    {mapError && <div role="alert" className="absolute inset-x-3 bottom-3 rounded-sm bg-white px-3 py-2 text-xs text-rose-700 shadow-lg">{mapError}</div>}
   </div>;
 }

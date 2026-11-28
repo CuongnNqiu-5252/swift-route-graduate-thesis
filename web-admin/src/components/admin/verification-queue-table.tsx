@@ -2,7 +2,12 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import {
+  formatAdminDateTime,
+  VERIFICATION_STATUS_META,
+} from '@/domain/entities/platform-verification.entity';
+import { PageResult, Verification } from '@/infrastructure/repositories/tenant-workflow.repository';
 import {
   createColumnHelper,
   flexRender,
@@ -10,12 +15,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { ChevronRight, Inbox } from 'lucide-react';
-import {
-  formatAdminDateTime,
-  VERIFICATION_STATUS_META,
-} from '@/domain/entities/platform-verification.entity';
-import { PageResult, Verification } from '@/infrastructure/repositories/tenant-workflow.repository';
-import { Button } from '@/components/ui/button';
+import { useMemo } from 'react';
 
 interface VerificationQueueTableProps {
   queue: PageResult<Verification> | null;
@@ -131,7 +131,7 @@ export function VerificationQueueTable({
 
   if (loading && items.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center rounded-lg border border-slate-200 bg-white">
+      <div className="flex h-64 items-center justify-center rounded-sm border border-slate-200 bg-white">
         <p className="text-sm text-slate-500">{t("Đang tải danh sách hồ sơ xét duyệt…")}</p>
       </div>
     );
@@ -139,7 +139,7 @@ export function VerificationQueueTable({
 
   if (!loading && items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white px-6 py-14 text-center">
+      <div className="flex flex-col items-center justify-center rounded-sm border border-slate-200 bg-white px-6 py-14 text-center">
         <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500">
           <Inbox className="h-5 w-5" aria-hidden="true" />
         </div>
@@ -160,7 +160,7 @@ export function VerificationQueueTable({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-sm border border-slate-200 bg-white">
         <table className="w-full min-w-[680px] border-collapse text-left">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (

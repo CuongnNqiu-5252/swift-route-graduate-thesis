@@ -2,44 +2,44 @@
 
 import { useLocale } from '@/i18n/provider';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
+import { MemberPermissionsModal } from '@/components/members/member-permissions-modal';
+import { extractApiErrorMessage } from '@/components/members/permission-utils';
+import { RoleTemplatesPanel } from '@/components/members/role-templates-panel';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { CustomSelect } from '@/components/ui/select';
 import {
-  TenantMember,
-  TenantInvitation,
-  TenantMembershipRole,
-  PermissionCatalog,
   MEMBER_ROLE_LABEL,
   MEMBER_STATUS_COLOR,
   MEMBER_STATUS_LABEL,
+  PermissionCatalog,
+  TenantInvitation,
+  TenantMember,
+  TenantMembershipRole,
 } from '@/domain/entities/member.entity';
 import {
-  memberRepository,
   getCurrentTenantId,
+  memberRepository,
 } from '@/infrastructure/repositories/member.repository';
-import { useAuth } from '@/application/contexts/auth-context';
-import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
-import { CustomSelect } from '@/components/ui/select';
-import { MemberPermissionsModal } from '@/components/members/member-permissions-modal';
-import { RoleTemplatesPanel } from '@/components/members/role-templates-panel';
-import { extractApiErrorMessage } from '@/components/members/permission-utils';
-import { Button } from '@/components/ui/button';
-import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { Card, CardContent } from '@/components/ui/card';
 import {
-  Users,
-  UserPlus,
-  RefreshCw,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Lock,
   Mail,
+  RefreshCw,
   Shield,
   ShieldCheck,
   SlidersHorizontal,
-  Lock,
   Unlock,
-  CheckCircle2,
-  Copy,
-  Clock,
+  UserPlus,
+  Users,
   X,
 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 export default function MembersPage() {
@@ -241,33 +241,30 @@ export default function MembersPage() {
       <div className="flex flex-wrap gap-4 border-b border-gray-200">
         <button
           onClick={() => setActiveTab('members')}
-          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${
-            activeTab === 'members'
+          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'members'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+            }`}
         >
           <Users className="h-4 w-4" />
           {t('Thành viên (')}{members.length})
         </button>
         <button
           onClick={() => setActiveTab('invitations')}
-          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${
-            activeTab === 'invitations'
+          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'invitations'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+            }`}
         >
           <Mail className="h-4 w-4" />
           {t('Lời mời đang chờ (')}{invitations.filter((i) => i.status === 'PENDING').length})
         </button>
         <button
           onClick={() => setActiveTab('role-templates')}
-          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${
-            activeTab === 'role-templates'
+          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'role-templates'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+            }`}
         >
           <ShieldCheck className="h-4 w-4" />
           {t('Mẫu quyền vai trò')}
@@ -350,9 +347,8 @@ export default function MembersPage() {
 
                           <td className="px-6 py-4">
                             <span
-                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium border ${
-                                MEMBER_STATUS_COLOR[member.status] || 'bg-gray-100 text-gray-700'
-                              }`}
+                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium border ${MEMBER_STATUS_COLOR[member.status] || 'bg-gray-100 text-gray-700'
+                                }`}
                             >
                               {t(MEMBER_STATUS_LABEL[member.status] || member.status)}
                             </span>
@@ -378,11 +374,10 @@ export default function MembersPage() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => setStatusTarget(member)}
-                                  className={`h-8 gap-1.5 text-xs ${
-                                    member.status === 'ACTIVE'
+                                  className={`h-8 gap-1.5 text-xs ${member.status === 'ACTIVE'
                                       ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50'
                                       : 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
-                                  }`}
+                                    }`}
                                 >
                                   {member.status === 'ACTIVE' ? (
                                     <>
@@ -449,21 +444,20 @@ export default function MembersPage() {
 
                         <td className="px-6 py-4">
                           <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              inv.status === 'PENDING'
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${inv.status === 'PENDING'
                                 ? 'bg-amber-100 text-amber-800'
                                 : inv.status === 'ACCEPTED'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}
                           >
                             {inv.status === 'PENDING'
                               ? t('Chờ chấp nhận')
                               : inv.status === 'ACCEPTED'
-                              ? t('Đã chấp nhận')
-                              : inv.status === 'EXPIRED'
-                              ? t('Đã hết hạn')
-                              : t('Đã thu hồi')}
+                                ? t('Đã chấp nhận')
+                                : inv.status === 'EXPIRED'
+                                  ? t('Đã hết hạn')
+                                  : t('Đã thu hồi')}
                           </span>
                         </td>
 
@@ -516,7 +510,7 @@ export default function MembersPage() {
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="nhanvien@doanhnghiep.vn"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
@@ -576,7 +570,7 @@ export default function MembersPage() {
               {t('. Bạn có thể gửi đường dẫn sau để nhân viên truy cập và tham gia doanh nghiệp:')}
             </p>
 
-            <div className="mt-4 rounded-lg bg-gray-50 p-3 border border-gray-200">
+            <div className="mt-4 rounded-sm bg-gray-50 p-3 border border-gray-200">
               <label className="block text-xs font-semibold text-gray-500 mb-1">
                 {t('Đường dẫn tham gia (gửi cho nhân viên):')}
               </label>
@@ -604,7 +598,7 @@ export default function MembersPage() {
               </div>
             </div>
 
-            <div className="mt-3 rounded-lg bg-gray-50 p-3 border border-gray-200">
+            <div className="mt-3 rounded-sm bg-gray-50 p-3 border border-gray-200">
               <label className="block text-xs font-semibold text-gray-500 mb-1">
                 {t('Mã kích hoạt (Token):')}
               </label>

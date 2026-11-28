@@ -90,7 +90,10 @@ class OrderRemoteDataSource {
   /// The gateway derives the driver's identity from the bearer token.
   Future<List<OrderModel>> getAssignedDriverOrders() async {
     try {
-      final tasksResponse = await _dio.get('/delivery-tasks/mine');
+      final tasksResponse = await _dio.get(
+        '/delivery-tasks/mine',
+        queryParameters: {'include_completed': true},
+      );
       final tasksData = tasksResponse.data;
       final taskList = tasksData is List
           ? tasksData
@@ -103,19 +106,9 @@ class OrderRemoteDataSource {
             final task = Map<String, dynamic>.from(rawTask);
             final rawOrder = task['order'];
             if (rawOrder is! Map) return null;
-            final returnDestination =
-                task['return_destination'] ?? task['returnDestination'];
-            final destination = returnDestination is Map
-                ? returnDestination
-                : null;
             return OrderModel.fromJson(
               Map<String, dynamic>.from(rawOrder),
             ).copyWith(
-              pickupLocationId: destination?['id'] as String?,
-              pickupLocationName: destination?['name'] as String?,
-              pickupAddress: destination?['address'] as String?,
-              pickupLat: (destination?['lat'] as num?)?.toDouble(),
-              pickupLng: (destination?['lng'] as num?)?.toDouble(),
               deliveryTaskId:
                   task['task_id'] as String? ?? task['taskId'] as String?,
               deliveryTaskType:
@@ -208,30 +201,6 @@ class OrderRemoteDataSource {
     }
   }
 
-  /// Creates the auditable incident record used by the operations queue.
-  Future<void> createOperationalIncident({
-    required String orderId,
-    required String incidentType,
-    String? notes,
-  }) async {
-    final body = <String, dynamic>{
-      'incident_type': incidentType,
-      if (notes != null && notes.isNotEmpty) 'notes': notes,
-    };
-    try {
-      await _dio.post('/operations/orders/$orderId/incidents', data: body);
-    } catch (error) {
-      if (!_isTransient(error)) rethrow;
-      await _queue(
-        type: OfflineActionType.incident,
-        method: 'POST',
-        path: '/operations/orders/$orderId/incidents',
-        entityId: orderId,
-        body: body,
-      );
-    }
-  }
-
   Future<DriverCodCustodyModel> getCodCustody() async {
     final response = await _dio.get('/cod/mine/custody');
     final data = response.data;
@@ -264,27 +233,6 @@ class OrderRemoteDataSource {
         body: body,
       );
     }
-  }
-
-  /// Reports a delivery incident, transitioning the order to FAILED.
-  Future<OrderModel> reportIncident({
-    required String orderId,
-    required String incidentType,
-    String? notes,
-  }) async {
-    final response = await _dio.patch(
-      '/orders/$orderId/incident',
-      data: {
-        'incident_type': incidentType,
-        if (notes != null && notes.isNotEmpty) 'notes': notes,
-      },
-    );
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Failed to report delivery incident');
-    return OrderModel.fromJson(Map<String, dynamic>.from(map));
   }
 
   /// Fetches active DISPATCHED route plans assigned to the authenticated driver.
@@ -337,20 +285,16 @@ class OrderRemoteDataSource {
     return url;
   }
 
-  /// Reports an operational incident with severity and evidence.
+  /// Reports a failed delivery stop with reason, optional note, and photo evidence.
   Future<Map<String, dynamic>> reportOperationalIncident({
     String? orderId,
     String? planId,
     required String incidentType,
-    String severity = 'MEDIUM',
     String? notes,
     List<String>? evidenceUrls,
-    int contactAttempts = 1,
   }) async {
     final payload = <String, dynamic>{
       'incident_type': incidentType,
-      'severity': severity,
-      'contact_attempts': contactAttempts,
     };
     if (orderId != null) payload['order_id'] = orderId;
     if (planId != null) payload['dispatch_plan_id'] = planId;

@@ -328,7 +328,8 @@ public class DriverActivationService {
                 user.getStatus(),
                 user.getCreatedAt(),
                 user.isEmailVerified(),
-                effectivePermissions);
+                effectivePermissions,
+                permissionsVersion);
 
         log.info("Activated mobile device sessionId={} for driverId={} userId={} in tenantId={}",
                 sessionId, driverId, user.getId(), tenantId);
