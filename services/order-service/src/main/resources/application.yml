@@ -54,7 +54,10 @@ auth-service:
 
 jwt:
   secret: ${JWT_SECRET:your_super_secret_key_change_in_production}
-
+tracking:
+  secret: ${TRACKING_SECRET}
+  base-url: ${TRACKING_BASE_URL:http://localhost:3000/track}
+  expiration-days: 7
 # Tùy chỉnh log để dễ debug
 logging:
   level:
