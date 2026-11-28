@@ -423,7 +423,6 @@ public class OperationalAlertConsumer {
         return switch (action.toUpperCase(Locale.ROOT)) {
             case "REDELIVERY" -> "Giao lại";
             case "RETURN_TO_ORIGIN" -> "Hoàn hàng về kho";
-            case "CONTINUE_DELIVERY" -> "Tiếp tục giao hàng";
             default -> "Chờ điều phối viên xử lý";
         };
     }
@@ -431,7 +430,6 @@ public class OperationalAlertConsumer {
     private static String translateResolutionType(String resType) {
         if (resType == null) return "Đã giải quyết theo quy trình";
         return switch (resType.toUpperCase(Locale.ROOT)) {
-            case "CONTINUE_DELIVERY" -> "Tiếp tục giao đơn hàng";
             case "RETRY_DELIVERY" -> "Lên lịch giao lại";
             case "REASSIGN_DRIVER" -> "Điều chuyển tài xế khác";
             case "REQUEST_RETURN" -> "Tạo yêu cầu hoàn hàng về kho";

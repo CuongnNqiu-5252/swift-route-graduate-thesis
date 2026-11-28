@@ -47,7 +47,6 @@ const TECHNICAL_INCIDENT_MAP: Record<string, string> = {
   MANUAL_REVIEW: 'Chờ điều phối viên xử lý',
   REDELIVERY: 'Lên lịch giao lại',
   RETURN_TO_ORIGIN: 'Hoàn hàng về kho',
-  CONTINUE_DELIVERY: 'Tiếp tục giao hàng',
   SAI_LECH: 'sai lệch hàng hóa',
   MISSING_PACKAGE: 'thiếu kiện hàng',
   DAMAGED_PACKAGE: 'hàng bị hư hại',

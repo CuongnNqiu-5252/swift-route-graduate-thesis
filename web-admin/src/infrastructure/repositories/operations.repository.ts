@@ -35,7 +35,7 @@ export interface ReturningOrderDto {
 }
 
 export interface ResolveIncidentParams {
-  resolution_type: 'CONTINUE_DELIVERY' | 'RETRY_DELIVERY' | 'REASSIGN_DRIVER' | 'REQUEST_RETURN' | 'RESOLVED_NO_ACTION';
+  resolution_type: 'RETRY_DELIVERY' | 'REASSIGN_DRIVER' | 'REQUEST_RETURN' | 'RESOLVED_NO_ACTION';
   notes?: string;
   assigned_operator_id?: string;
   reschedule_time?: string;

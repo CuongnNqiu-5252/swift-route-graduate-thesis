@@ -248,24 +248,10 @@ public class ExceptionOperationsService {
         String resType = request.resolutionType().toUpperCase(Locale.ROOT);
         incident.setResolutionType(resType);
         incident.setResolutionNotes(request.notes());
-
+        // DispatchPlan plan = DispatchPlanRepository
         Order order = incident.getOrder();
 
         switch (resType) {
-            case "CONTINUE_DELIVERY" -> {
-                if (order != null) {
-                    OrderStatus previous = order.getStatus();
-                    execution.resumeDeliveryAfterIncident(order, order.getAssignedDriverId());
-                    order.setStatus(OrderStatus.IN_TRANSIT);
-                    order.setUpdatedAt(Instant.now());
-                    recordStatusChange(order, previous, OrderStatus.IN_TRANSIT, actorId, role,
-                            nonBlankOrDefault(request.notes(), "Tiếp tục giao hàng sau sự cố"));
-                    orders.save(order);
-                }
-                incident.setStatus("RESOLVED");
-                incident.setResolvedBy(actorId);
-                incident.setResolvedAt(Instant.now());
-            }
             case "RETRY_DELIVERY" -> {
                 if (order != null) {
                     requeueOrderToDispatchQueue(
@@ -595,7 +581,7 @@ public class ExceptionOperationsService {
                 .toList();
 
         var retList = orders.findAllByTenantIdAndStatusInOrderByUpdatedAtDesc(
-                        tenantId, List.of(OrderStatus.RETURNING, OrderStatus.FAILED))
+                tenantId, List.of(OrderStatus.RETURNING, OrderStatus.FAILED))
                 .stream()
                 .map(o -> new OperationsReviewResponse.ReturnItem(
                         o.getId(),

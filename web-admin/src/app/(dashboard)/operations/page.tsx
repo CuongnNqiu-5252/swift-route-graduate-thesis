@@ -1005,20 +1005,7 @@ export default function OperationsPage() {
               <div className="space-y-3 border-t border-slate-200 pt-4">
                 <h3 className="text-sm font-semibold text-slate-900">{t('Chọn hướng xử lý cho đơn hàng:')}</h3>
 
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <Button
-                    size="sm"
-                    variant={resolvingAction === 'CONTINUE_DELIVERY' ? 'default' : 'outline'}
-                    onClick={() => setResolvingAction('CONTINUE_DELIVERY')}
-                    className="cursor-pointer h-auto justify-start py-2.5 text-xs"
-                  >
-                    <CheckCircle2 size={14} className="mr-1.5 shrink-0 text-emerald-600" />
-                    <div>
-                      <div className="text-left font-semibold">{t('Tiếp tục giao ngay')}</div>
-                      <div className="text-[10px] font-normal text-slate-500">{t('Khách đã nghe máy / mở cửa')}</div>
-                    </div>
-                  </Button>
-
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Button
                     size="sm"
                     variant={resolvingAction === 'RETRY_DELIVERY' ? 'default' : 'outline'}
