@@ -1,0 +1,631 @@
+'use client';
+
+import { useLocale } from '@/i18n/provider';
+
+import { useAuth } from '@/application/contexts/auth-context';
+import { AccessDeniedNotice, PermissionGuard } from '@/components/auth/permission-guard';
+import { MemberPermissionsModal } from '@/components/members/member-permissions-modal';
+import { extractApiErrorMessage } from '@/components/members/permission-utils';
+import { RoleTemplatesPanel } from '@/components/members/role-templates-panel';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { CustomSelect } from '@/components/ui/select';
+import {
+  MEMBER_ROLE_LABEL,
+  MEMBER_STATUS_COLOR,
+  MEMBER_STATUS_LABEL,
+  PermissionCatalog,
+  TenantInvitation,
+  TenantMember,
+  TenantMembershipRole,
+} from '@/domain/entities/member.entity';
+import {
+  getCurrentTenantId,
+  memberRepository,
+} from '@/infrastructure/repositories/member.repository';
+import {
+  CheckCircle2,
+  Clock,
+  Copy,
+  Lock,
+  Mail,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+  SlidersHorizontal,
+  Unlock,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+
+export default function MembersPage() {
+  const { t, intlLocale } = useLocale();
+  const { user, hasPermission } = useAuth();
+  const [activeTab, setActiveTab] = useState<'members' | 'invitations' | 'role-templates'>('members');
+  const [members, setMembers] = useState<TenantMember[]>([]);
+  const [invitations, setInvitations] = useState<TenantInvitation[]>([]);
+  const [catalog, setCatalog] = useState<PermissionCatalog | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusTarget, setStatusTarget] = useState<TenantMember | null>(null);
+
+  // Invite modal state
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<TenantMembershipRole>('OPERATOR');
+
+  // Granular permissions modal state
+  const [editingMember, setEditingMember] = useState<TenantMember | null>(null);
+
+  // Success invite link modal
+  const [createdInviteLink, setCreatedInviteLink] = useState<{ email: string; token: string } | null>(null);
+
+  const tenantId = user?.tenantId || getCurrentTenantId();
+  const canReadMembers = hasPermission('member:read');
+  const canInviteMembers = hasPermission('member:invite');
+  const canManageMembers = hasPermission('member:manage');
+  const actorIsOwner = (user?.tenantRole ?? user?.role ?? '').toUpperCase() === 'OWNER';
+
+  const fetchData = useCallback(async () => {
+    if (!canReadMembers || !tenantId) {
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const [membersData, invitationsData, catalogData] = await Promise.all([
+        memberRepository.getMembers(tenantId),
+        memberRepository.getInvitations(tenantId),
+        memberRepository.getPermissionsCatalog(tenantId).catch(() => null),
+      ]);
+      setMembers(membersData);
+      setInvitations(invitationsData);
+      if (catalogData) {
+        setCatalog(catalogData);
+      }
+    } catch (err: unknown) {
+      toast.error(extractApiErrorMessage(err, t('Không thể tải dữ liệu nhân sự.')));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [canReadMembers, tenantId, t]);
+
+  useEffect(() => {
+    if (!canReadMembers || !tenantId) {
+      return;
+    }
+    let active = true;
+    Promise.all([
+      memberRepository.getMembers(tenantId),
+      memberRepository.getInvitations(tenantId),
+      memberRepository.getPermissionsCatalog(tenantId).catch(() => null),
+    ])
+      .then(([membersData, invitationsData, catalogData]) => {
+        if (!active) return;
+        setMembers(membersData);
+        setInvitations(invitationsData);
+        if (catalogData) {
+          setCatalog(catalogData);
+        }
+      })
+      .catch((err: unknown) => {
+        if (active) {
+          toast.error(extractApiErrorMessage(err, t('Không thể tải dữ liệu nhân sự.')));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [canReadMembers, tenantId, t]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleLivePermissionsUpdate = () => {
+      void fetchData();
+    };
+    window.addEventListener('swiftroute:permissions-updated', handleLivePermissionsUpdate);
+    return () => {
+      window.removeEventListener('swiftroute:permissions-updated', handleLivePermissionsUpdate);
+    };
+  }, [fetchData]);
+
+  if (!canReadMembers) {
+    return <AccessDeniedNotice requiredPermission="member:read" />;
+  }
+
+  const handleInviteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) {
+      toast.error(t('Vui lòng nhập email'));
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await memberRepository.inviteMember(
+        { email: inviteEmail.trim(), role: inviteRole },
+        tenantId
+      );
+      toast.success(t('Đã gửi lời mời thành công!'));
+      setIsInviteModalOpen(false);
+      setInviteEmail('');
+      setCreatedInviteLink({
+        email: res.email,
+        token: res.invite_token,
+      });
+      void fetchData();
+    } catch (err: unknown) {
+      toast.error(extractApiErrorMessage(err, t('Không thể tạo lời mời.')));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleStatus = async (member: TenantMember) => {
+    const isSuspending = member.status === 'ACTIVE';
+    const actionText = isSuspending ? t('khóa') : t('mở khóa');
+
+    try {
+      const targetStatus = isSuspending ? 'SUSPENDED' : 'ACTIVE';
+      await memberRepository.updateMemberStatus(member.membership_id, targetStatus, tenantId);
+      toast.success(`Đã ${actionText} tài khoản thành công!`);
+      void fetchData();
+      return true;
+    } catch (err: unknown) {
+      toast.error(extractApiErrorMessage(err, `Không thể ${actionText} tài khoản.`));
+      return false;
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(t('Đã sao chép vào bộ nhớ tạm!'));
+  };
+
+  const canModifyTargetMember = (member: TenantMember) => {
+    if (!canManageMembers) return false;
+    if (member.role === 'OWNER') return false;
+    if (member.user_id === user?.id) return false;
+    if (!actorIsOwner && member.role === 'TENANT_ADMIN') return false;
+    return true;
+  };
+
+  const totalCatalogCount = catalog?.permissions.length ?? 29;
+
+  return (
+    <div className="space-y-6 p-6">
+      {statusTarget && (
+        <ConfirmationDialog
+          title={statusTarget.status === 'ACTIVE' ? t('Khoá tài khoản') : t('Mở khoá tài khoản')}
+          description={`${statusTarget.status === 'ACTIVE' ? t('Xác nhận khoá tài khoản:') : t('Xác nhận mở khoá tài khoản:')} ${statusTarget.full_name || statusTarget.email}`}
+          confirmLabel={statusTarget.status === 'ACTIVE' ? t('Khoá tài khoản') : t('Mở khoá tài khoản')}
+          destructive={statusTarget.status === 'ACTIVE'}
+          onCancel={() => setStatusTarget(null)}
+          onConfirm={() => handleToggleStatus(statusTarget)}
+        />
+      )}
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Users className="h-7 w-7 text-blue-600" />
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">{t('Quản lý Nhân sự')}</h1>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            {t('Xem danh sách nhân viên, tùy chỉnh vai trò, phân quyền từng thành viên và quản trị trạng thái tài khoản.')}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => void fetchData()} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            {t('Làm mới')}
+          </Button>
+          <PermissionGuard permission="member:invite">
+            <Button onClick={() => setIsInviteModalOpen(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
+              <UserPlus className="h-4 w-4" />
+              {t('Mời nhân viên')}
+            </Button>
+          </PermissionGuard>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-4 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('members')}
+          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'members'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+        >
+          <Users className="h-4 w-4" />
+          {t('Thành viên (')}{members.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('invitations')}
+          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'invitations'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+        >
+          <Mail className="h-4 w-4" />
+          {t('Lời mời đang chờ (')}{invitations.filter((i) => i.status === 'PENDING').length})
+        </button>
+        <button
+          onClick={() => setActiveTab('role-templates')}
+          className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'role-templates'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+        >
+          <ShieldCheck className="h-4 w-4" />
+          {t('Mẫu quyền vai trò')}
+        </button>
+      </div>
+
+      {/* Tab Content: Members */}
+      {activeTab === 'members' && (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-gray-600">
+                <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase text-gray-700">
+                  <tr>
+                    <th className="px-6 py-4">{t('Nhân sự')}</th>
+                    <th className="px-6 py-4">{t('Vai trò')}</th>
+                    <th className="px-6 py-4">{t('Quyền hiệu lực')}</th>
+                    <th className="px-6 py-4">{t('Trạng thái')}</th>
+                    <th className="px-6 py-4">{t('Ngày gia nhập')}</th>
+                    <th className="px-6 py-4 text-right">{t('Thao tác')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-gray-400">
+                        {t('Đang tải danh sách nhân sự...')}
+                      </td>
+                    </tr>
+                  ) : members.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-gray-400">
+                        {t('Chưa có nhân viên nào trong doanh nghiệp.')}
+                      </td>
+                    </tr>
+                  ) : (
+                    members.map((member) => {
+                      const canManageThis = canModifyTargetMember(member);
+                      return (
+                        <tr key={member.membership_id} className="hover:bg-gray-50/70 transition-colors">
+                          <td className="px-6 py-4">
+                            <div>
+                              <div className="font-semibold text-gray-900">
+                                {member.full_name || t('Chưa đặt tên')}
+                              </div>
+                              <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                                <Mail className="h-3 w-3 text-gray-400" />
+                                {member.email}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-800">
+                              <Shield className="h-3 w-3 text-slate-500" />
+                              {t(MEMBER_ROLE_LABEL[member.role] || member.role)}
+                            </span>
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                {member.effective_permissions.length}/{totalCatalogCount} {t('quyền')}
+                              </span>
+                              {member.granted_permissions.length > 0 && (
+                                <span className="inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                                  +{member.granted_permissions.length}
+                                </span>
+                              )}
+                              {member.revoked_permissions.length > 0 && (
+                                <span className="inline-flex items-center rounded-md bg-rose-50 px-1.5 py-0.5 text-[11px] font-medium text-rose-700">
+                                  -{member.revoked_permissions.length}
+                                </span>
+                              )}
+                              <span className="font-mono text-[11px] text-gray-400">
+                                v{member.permissions_version}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-4">
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium border ${MEMBER_STATUS_COLOR[member.status] || 'bg-gray-100 text-gray-700'
+                                }`}
+                            >
+                              {t(MEMBER_STATUS_LABEL[member.status] || member.status)}
+                            </span>
+                          </td>
+
+                          <td className="px-6 py-4 text-xs text-gray-500">
+                            {member.created_at ? new Date(member.created_at).toLocaleDateString(intlLocale) : '—'}
+                          </td>
+
+                          <td className="px-6 py-4 text-right">
+                            {canManageThis && (
+                              <div className="inline-flex items-center justify-end gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setEditingMember(member)}
+                                  className="h-8 gap-1.5 text-xs text-slate-700 hover:text-blue-700"
+                                >
+                                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                                  {t('Phân quyền')}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setStatusTarget(member)}
+                                  className={`h-8 gap-1.5 text-xs ${member.status === 'ACTIVE'
+                                      ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50'
+                                      : 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50'
+                                    }`}
+                                >
+                                  {member.status === 'ACTIVE' ? (
+                                    <>
+                                      <Lock className="h-3.5 w-3.5" /> {t('Khóa tài khoản')}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Unlock className="h-3.5 w-3.5" /> {t('Mở khóa')}
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tab Content: Invitations */}
+      {activeTab === 'invitations' && (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-gray-600">
+                <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase text-gray-700">
+                  <tr>
+                    <th className="px-6 py-4">{t('Email được mời')}</th>
+                    <th className="px-6 py-4">{t('Vai trò dự kiến')}</th>
+                    <th className="px-6 py-4">{t('Trạng thái')}</th>
+                    <th className="px-6 py-4">{t('Hạn lời mời')}</th>
+                    <th className="px-6 py-4">{t('Thời gian tạo')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-gray-400">
+                        {t('Đang tải danh sách lời mời...')}
+                      </td>
+                    </tr>
+                  ) : invitations.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-gray-400">
+                        {t('Không có lời mời nào.')}
+                      </td>
+                    </tr>
+                  ) : (
+                    invitations.map((inv) => (
+                      <tr key={inv.id} className="hover:bg-gray-50/70 transition-colors">
+                        <td className="px-6 py-4 font-medium text-gray-900">{inv.email}</td>
+
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                            {t(MEMBER_ROLE_LABEL[inv.role] || inv.role)}
+                          </span>
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${inv.status === 'PENDING'
+                                ? 'bg-amber-100 text-amber-800'
+                                : inv.status === 'ACCEPTED'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}
+                          >
+                            {inv.status === 'PENDING'
+                              ? t('Chờ chấp nhận')
+                              : inv.status === 'ACCEPTED'
+                                ? t('Đã chấp nhận')
+                                : inv.status === 'EXPIRED'
+                                  ? t('Đã hết hạn')
+                                  : t('Đã thu hồi')}
+                          </span>
+                        </td>
+
+                        <td className="px-6 py-4 text-xs text-gray-500">
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-gray-400" />
+                            {new Date(inv.expires_at).toLocaleString(intlLocale)}
+                          </div>
+                        </td>
+
+                        <td className="px-6 py-4 text-xs text-gray-400">
+                          {new Date(inv.created_at).toLocaleString(intlLocale)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tab Content: Role Templates */}
+      {activeTab === 'role-templates' && (
+        <RoleTemplatesPanel
+          catalog={catalog}
+          tenantId={tenantId}
+          onUpdated={fetchData}
+        />
+      )}
+
+      {/* Invite Modal */}
+      {isInviteModalOpen && canInviteMembers && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h2 className="text-lg font-bold text-gray-900">{t('Mời nhân viên vào doanh nghiệp')}</h2>
+              <button onClick={() => setIsInviteModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleInviteSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700">{t('Email nhân viên *')}</label>
+                <input
+                  type="email"
+                  required
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="nhanvien@doanhnghiep.vn"
+                  className="mt-1 w-full rounded-sm border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700">{t('Vai trò trong doanh nghiệp *')}</label>
+                <CustomSelect
+                  aria-label={t('Vai trò trong doanh nghiệp *')}
+                  value={inviteRole}
+                  onValueChange={(next) => setInviteRole(next as TenantMembershipRole)}
+                  className="mt-1"
+                  options={[
+                    { value: 'OPERATOR', label: t('Nhân viên vận hành (OPERATOR)') },
+                    ...(actorIsOwner
+                      ? [{ value: 'TENANT_ADMIN', label: t('Quản trị viên chi nhánh (TENANT_ADMIN)') }]
+                      : []),
+                    { value: 'VIEWER', label: t('Người xem báo cáo (VIEWER)') },
+                  ]}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  {t('Nhân viên vận hành có quyền tạo đơn, quản lý điểm lấy hàng và theo dõi điều phối.')}
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsInviteModalOpen(false)}>
+                  {t('Hủy')}
+                </Button>
+                <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
+                  {isSubmitting ? t('Đang tạo...') : t('Tạo lời mời')}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Member Permissions Modal */}
+      <MemberPermissionsModal
+        key={editingMember ? `${editingMember.membership_id}-${editingMember.permissions_version}` : 'closed'}
+        member={editingMember}
+        catalog={catalog}
+        tenantId={tenantId}
+        onClose={() => setEditingMember(null)}
+        onSaved={fetchData}
+      />
+
+      {/* Success Invite Token Display Modal */}
+      {createdInviteLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 text-emerald-600">
+              <CheckCircle2 className="h-6 w-6" />
+              <h2 className="text-lg font-bold text-gray-900">{t('Tạo lời mời thành công!')}</h2>
+            </div>
+            <p className="mt-2 text-sm text-gray-600">
+              {t('Đã tạo mã kích hoạt cho nhân viên')} <strong>{createdInviteLink.email}</strong>
+              {t('. Bạn có thể gửi đường dẫn sau để nhân viên truy cập và tham gia doanh nghiệp:')}
+            </p>
+
+            <div className="mt-4 rounded-sm bg-gray-50 p-3 border border-gray-200">
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                {t('Đường dẫn tham gia (gửi cho nhân viên):')}
+              </label>
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-xs font-mono text-blue-700 break-all select-all">
+                  {typeof window !== 'undefined'
+                    ? `${window.location.origin}/invitations?token=${createdInviteLink.token}`
+                    : `/invitations?token=${createdInviteLink.token}`}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    copyToClipboard(
+                      typeof window !== 'undefined'
+                        ? `${window.location.origin}/invitations?token=${createdInviteLink.token}`
+                        : `/invitations?token=${createdInviteLink.token}`
+                    )
+                  }
+                  className="flex-shrink-0 gap-1"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {t('Sao chép liên kết')}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-sm bg-gray-50 p-3 border border-gray-200">
+              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                {t('Mã kích hoạt (Token):')}
+              </label>
+              <div className="flex items-center justify-between gap-2">
+                <code className="text-xs font-mono text-slate-700 break-all select-all">
+                  {createdInviteLink.token}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => copyToClipboard(createdInviteLink.token)}
+                  className="flex-shrink-0 gap-1"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {t('Sao chép mã')}
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <Button onClick={() => setCreatedInviteLink(null)} className="bg-blue-600 hover:bg-blue-700">
+                {t('Đã hoàn tất')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

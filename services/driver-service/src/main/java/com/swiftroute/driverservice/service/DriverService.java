@@ -1,7 +1,12 @@
 package com.swiftroute.driverservice.service;
 
+import com.swiftroute.driverservice.dto.response.PageRequests;
+import com.swiftroute.driverservice.dto.response.PageResponse;
+import java.text.Normalizer;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -9,13 +14,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.swiftroute.driverservice.dto.event.DriverAvailabilityEventPayload;
-import com.swiftroute.driverservice.dto.event.DriverDeliveryReportEventPayload;
+import com.swiftroute.driverservice.dto.event.DriverLocationUpdatedEvent;
 import com.swiftroute.driverservice.dto.request.RegisterDriverRequest;
-import com.swiftroute.driverservice.dto.request.ReportDeliveryEventRequest;
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
+import com.swiftroute.driverservice.dto.request.UpdateDriverBankAccountRequest;
 import com.swiftroute.driverservice.dto.request.UpdateDriverRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
-import com.swiftroute.driverservice.dto.response.DriverPublicResponse;
 import com.swiftroute.driverservice.dto.response.DriverResponse;
 import com.swiftroute.driverservice.entity.Driver;
 import com.swiftroute.driverservice.entity.OutboxEvent;
@@ -33,36 +37,47 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class DriverService {
 
+    private static final Set<String> TENANT_MANAGEMENT_ROLES = Set.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN");
+    private static final Set<String> OPERATOR_ROLES = Set.of("SYSTEM_ADMIN", "OWNER", "TENANT_ADMIN", "OPERATOR");
+
     private final DriverRepository driverRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final DriverLocationCache locationCache;
 
     @Transactional
     public DriverResponse registerDriver(RegisterDriverRequest request, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
+        if (!OPERATOR_ROLES.contains(requesterRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(request.tenantId());
         if (driverRepository.existsByPhone(request.phone())) {
             throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
         }
 
-        if (driverRepository.existsByLicensePlate(request.licensePlate())) {
+        String plate = request.licensePlate() == null || request.licensePlate().isBlank()
+                ? null : request.licensePlate().trim().toUpperCase(java.util.Locale.ROOT);
+        if (plate != null && driverRepository.existsByLicensePlate(plate)) {
             throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
         }
 
         Driver driver = Driver.builder()
                 .tenantId(request.tenantId())
                 .userId(request.userId())
-                .fullName(request.fullName())
-                .phone(request.phone())
-                .licensePlate(request.licensePlate())
+                .fullName(request.fullName().trim())
+                .phone(request.phone().trim())
+                .email(normalizeOptionalEmail(request.email()))
+                .licensePlate(plate)
                 .vehicleType(request.vehicleType())
                 .capacity(request.capacity())
                 .driverType(request.driverType())
                 .shiftStart(request.shiftStart())
                 .shiftEnd(request.shiftEnd())
-                .status(DriverStatus.ACTIVE)
-                .isAvailable(true)
+                .bankCode(normalizeOptionalBankCode(request.bankCode()))
+                .bankAccountNumber(normalizeOptionalText(request.bankAccountNumber()))
+                .bankAccountName(normalizeAccountName(request.bankAccountName()))
+                .status(DriverStatus.INACTIVE)
+                .isAvailable(false)
                 .build();
 
         driver = driverRepository.save(driver);
@@ -87,59 +102,27 @@ public class DriverService {
     public DriverResponse getMyProfile(UUID userId) {
         Driver driver = driverRepository.findByUserId(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
     }
 
     @Transactional(readOnly = true)
-    public DriverResponse getDriverById(UUID driverId, UUID requesterId, String requesterRole) {
-        return getDriverById(driverId, requesterId, requesterRole, null);
-    }
-
-    @Transactional(readOnly = true)
-    public DriverResponse getDriverById(UUID driverId, UUID requesterId, String requesterRole, UUID requesterTenantId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-
-        if ("ADMIN".equals(requesterRole)) {
-            return DriverResponse.fromEntity(driver);
-        }
-
-        if (List.of("OPS_STAFF", "OWNER").contains(requesterRole)) {
-            if (requesterTenantId != null && !driver.getTenantId().equals(requesterTenantId)) {
-                throw new AppException(ErrorCode.ACCESS_DENIED);
-            }
-            return DriverResponse.fromEntity(driver);
-        }
-
-        boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
-                || (driver.getId() != null && driver.getId().equals(requesterId));
-        if (!isSelf) {
+    public PageResponse<DriverResponse> getDriverPage(UUID tenantId, String role, int page, int size) {
+        if (tenantId == null && !"SYSTEM_ADMIN".equals(role)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
-
-        return DriverResponse.fromEntity(driver);
-    }
-
-    @Transactional(readOnly = true)
-    public DriverPublicResponse getDriverPublicInfo(UUID driverId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-        return DriverPublicResponse.fromEntity(driver);
-    }
-
-    @Transactional(readOnly = true)
-    public List<DriverResponse> getDriversByTenant(UUID tenantId, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        return driverRepository.findAllByTenantId(tenantId).stream()
-                .map(DriverResponse::fromEntity)
-                .collect(Collectors.toList());
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(tenantId);
+        var pageable = PageRequests.newestFirst(page, size, "createdAt");
+        var rows = tenantId == null ? driverRepository.findAll(pageable)
+                : driverRepository.findByTenantId(tenantId, pageable);
+        return PageResponse.fromPage(rows.map(this::toResponse));
     }
 
     @Transactional(readOnly = true)
     public List<DriverResponse> getAllDrivers(UUID tenantId, String requesterRole) {
+        if (tenantId == null && !"SYSTEM_ADMIN".equals(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(tenantId);
         List<Driver> drivers;
         if (tenantId != null) {
             drivers = driverRepository.findAllByTenantId(tenantId);
@@ -147,40 +130,46 @@ public class DriverService {
             drivers = driverRepository.findAll();
         }
         return drivers.stream()
-                .map(DriverResponse::fromEntity)
-                .collect(Collectors.toList());
-    }
-
-    @Transactional(readOnly = true)
-    public List<DriverResponse> getAvailableDriversByTenant(UUID tenantId) {
-        return driverRepository.findAllByTenantIdAndIsAvailableTrue(tenantId).stream()
-                .map(DriverResponse::fromEntity)
+                .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
     @Transactional
     public DriverResponse updateDriver(UUID driverId, UpdateDriverRequest request, UUID requesterId,
             String requesterRole) {
-        if (!List.of("ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
+        if (!OPERATOR_ROLES.contains(requesterRole)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
 
         Driver driver = driverRepository.findById(driverId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(driver.getTenantId());
 
+        if (request.fullName() != null && request.fullName().isBlank()) throw new AppException(ErrorCode.VALIDATION_ERROR);
         if (request.fullName() != null)
-            driver.setFullName(request.fullName());
-        if (request.phone() != null && !request.phone().equals(driver.getPhone())) {
-            if (driverRepository.existsByPhone(request.phone())) {
-                throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+            driver.setFullName(request.fullName().trim());
+        if (request.phone() != null) {
+            String normalizedPhone = request.phone().trim();
+            if (!normalizedPhone.equals(driver.getPhone())) {
+                if (driverRepository.existsByPhone(normalizedPhone)) {
+                    throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+                }
+                driver.setPhone(normalizedPhone);
             }
-            driver.setPhone(request.phone());
         }
-        if (request.licensePlate() != null && !request.licensePlate().equals(driver.getLicensePlate())) {
-            if (driverRepository.existsByLicensePlate(request.licensePlate())) {
-                throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+        if (request.email() != null) {
+            driver.setEmail(normalizeOptionalEmail(request.email()));
+        }
+        if (request.licensePlate() != null) {
+            String normalizedPlate = request.licensePlate().isBlank()
+                    ? null
+                    : request.licensePlate().trim().toUpperCase(Locale.ROOT);
+            if (normalizedPlate != null && !normalizedPlate.equalsIgnoreCase(driver.getLicensePlate())) {
+                if (driverRepository.existsByLicensePlate(normalizedPlate)) {
+                    throw new AppException(ErrorCode.DRIVER_ALREADY_EXISTS);
+                }
             }
-            driver.setLicensePlate(request.licensePlate());
+            driver.setLicensePlate(normalizedPlate);
         }
         if (request.vehicleType() != null)
             driver.setVehicleType(request.vehicleType());
@@ -192,8 +181,27 @@ public class DriverService {
             driver.setShiftStart(request.shiftStart());
         if (request.shiftEnd() != null)
             driver.setShiftEnd(request.shiftEnd());
+        if (request.bankCode() != null)
+            driver.setBankCode(normalizeOptionalBankCode(request.bankCode()));
+        if (request.bankAccountNumber() != null)
+            driver.setBankAccountNumber(normalizeOptionalText(request.bankAccountNumber()));
+        if (request.bankAccountName() != null)
+            driver.setBankAccountName(normalizeAccountName(request.bankAccountName()));
 
-        return DriverResponse.fromEntity(driverRepository.save(driver));
+        boolean completeLinked = hasCompleteLinkedProfile(driver);
+        boolean keepActive = driver.getStatus() == DriverStatus.ACTIVE && completeLinked;
+        if (!keepActive && driver.getStatus() != DriverStatus.SUSPENDED) {
+            if (completeLinked && !"DRIVER".equalsIgnoreCase(requesterRole)) {
+                driver.setStatus(DriverStatus.ACTIVE);
+            } else if (driver.getStatus() != DriverStatus.PENDING_APPROVAL || !completeLinked) {
+                driver.setStatus(DriverStatus.INACTIVE);
+            }
+            driver.setIsAvailable(false);
+        }
+        driver.setUpdatedAt(Instant.now());
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
     }
 
     @Transactional
@@ -205,31 +213,7 @@ public class DriverService {
             throw new AppException(ErrorCode.DRIVER_SUSPENDED);
         }
 
-        driver.setCurrentLat(request.lat());
-        driver.setCurrentLng(request.lng());
-
-        return DriverResponse.fromEntity(driverRepository.save(driver));
-    }
-
-    @Transactional
-    public DriverResponse updateLocation(UUID driverId, UpdateLocationRequest request, UUID requesterId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-
-        if (driver.getStatus() == DriverStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.DRIVER_SUSPENDED);
-        }
-
-        boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
-                || (driver.getId() != null && driver.getId().equals(requesterId));
-        if (!isSelf) {
-            throw new AppException(ErrorCode.ACCESS_DENIED);
-        }
-
-        driver.setCurrentLat(request.lat());
-        driver.setCurrentLng(request.lng());
-
-        return DriverResponse.fromEntity(driverRepository.save(driver));
+        return updateLocationState(driver, request);
     }
 
     @Transactional
@@ -241,40 +225,9 @@ public class DriverService {
             throw new AppException(ErrorCode.DRIVER_SUSPENDED);
         }
 
-        driver.setIsAvailable(request.isAvailable());
-        driver = driverRepository.save(driver);
-
-        saveOutboxEvent(
-                "DRIVER",
-                driver.getId(),
-                "driver.availability_changed.v1",
-                new DriverAvailabilityEventPayload(
-                        driver.getId(),
-                        driver.getTenantId(),
-                        driver.getUserId(),
-                        driver.getIsAvailable(),
-                        Instant.now()
-                )
-        );
-
-        return DriverResponse.fromEntity(driver);
-    }
-
-    @Transactional
-    public DriverResponse updateAvailability(UUID driverId, UpdateAvailabilityRequest request, UUID requesterId) {
-        Driver driver = driverRepository.findById(driverId)
-                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-
-        if (driver.getStatus() == DriverStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.DRIVER_SUSPENDED);
-        }
-
-        boolean isSelf = (driver.getUserId() != null && driver.getUserId().equals(requesterId))
-                || (driver.getId() != null && driver.getId().equals(requesterId));
-        if (!isSelf) {
+        if (Boolean.TRUE.equals(request.isAvailable()) && !isOperationallyReady(driver)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
-
         driver.setIsAvailable(request.isAvailable());
         driver = driverRepository.save(driver);
 
@@ -291,69 +244,221 @@ public class DriverService {
                 )
         );
 
-        return DriverResponse.fromEntity(driver);
+        return toResponse(driver);
     }
 
     @Transactional
-    public void reportDeliveryEvent(UUID userId, ReportDeliveryEventRequest request) {
+    public DriverResponse completeMyProfile(UUID userId, UpdateDriverRequest request) {
         Driver driver = driverRepository.findByUserId(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-
-        if (driver.getStatus() == DriverStatus.SUSPENDED) {
-            throw new AppException(ErrorCode.DRIVER_SUSPENDED);
-        }
-
-        saveOutboxEvent(
-                "DRIVER",
-                driver.getId(),
-                "driver.delivery_reported.v1",
-                new DriverDeliveryReportEventPayload(
-                        driver.getId(),
-                        driver.getTenantId(),
-                        request.orderId(),
-                        request.eventType(),
-                        request.reason(),
-                        request.notes(),
-                        Instant.now()
-                )
-        );
+        if (driver.getStatus() == DriverStatus.SUSPENDED) throw new AppException(ErrorCode.ACCESS_DENIED);
+        // Reuse duplicate validation; self identity is resolved from the authenticated principal.
+        updateDriver(driver.getId(), request, userId, "OWNER");
+        driver.setStatus(DriverStatus.INACTIVE);
+        driver.setIsAvailable(false);
+        driver.setReviewNote(null);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
     }
 
     @Transactional
-    public DriverResponse changeStatus(UUID driverId, DriverStatus newStatus, UUID requesterId, String requesterRole) {
-        if (!List.of("ADMIN", "OPS_STAFF", "OWNER").contains(requesterRole)) {
+    public DriverResponse submitMyProfile(UUID userId) {
+        Driver driver = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        if (driver.getStatus() == DriverStatus.SUSPENDED || !hasCompleteLinkedProfile(driver)) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
+        }
+        if (driver.getStatus() == DriverStatus.ACTIVE || driver.getStatus() == DriverStatus.PENDING_APPROVAL) {
+            return toResponse(driver);
+        }
+        driver.setStatus(DriverStatus.PENDING_APPROVAL);
+        driver.setIsAvailable(false);
+        driver.setReviewNote(null);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        return toResponse(driver);
+    }
+
+    @Transactional
+    public DriverResponse reviewProfile(UUID driverId, boolean approved, String note, UUID requesterId, String role) {
+        if (!TENANT_MANAGEMENT_ROLES.contains(role)) {
             throw new AppException(ErrorCode.ACCESS_DENIED);
         }
-
         Driver driver = driverRepository.findById(driverId)
                 .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
-
-        driver.setStatus(newStatus);
-        if (newStatus == DriverStatus.SUSPENDED || newStatus == DriverStatus.INACTIVE) {
-            driver.setIsAvailable(false);
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(driver.getTenantId());
+        if (driver.getStatus() != DriverStatus.PENDING_APPROVAL || (approved && !hasCompleteLinkedProfile(driver))) {
+            throw new AppException(ErrorCode.VALIDATION_ERROR);
         }
+        if (!approved && (note == null || note.isBlank())) throw new AppException(ErrorCode.VALIDATION_ERROR);
+        driver.setStatus(approved ? DriverStatus.ACTIVE : DriverStatus.INACTIVE);
+        driver.setReviewNote(note == null ? null : note.trim());
+        driver.setIsAvailable(false);
+        driverRepository.save(driver);
+        publishAvailability(driver);
+        if (driver.getUserId() != null) {
+            saveOutboxEvent("DRIVER", driver.getId(), "driver.profile_reviewed", java.util.Map.of(
+                    "tenant_id", driver.getTenantId().toString(),
+                    "driver_id", driver.getUserId().toString(),
+                    "driver_entity_id", driver.getId().toString(),
+                    "approved", approved,
+                    "note", driver.getReviewNote() != null ? driver.getReviewNote() : ""
+            ));
+        }
+        return toResponse(driver);
+    }
 
-        driver = driverRepository.save(driver);
+    private void publishAvailability(Driver driver) {
+        saveOutboxEvent("DRIVER", driver.getId(), "driver.availability_changed.v1",
+                new DriverAvailabilityEventPayload(driver.getId(), driver.getTenantId(), driver.getUserId(),
+                        driver.getIsAvailable(), Instant.now()));
+    }
 
-        saveOutboxEvent(
-                "DRIVER",
-                driver.getId(),
-                "driver.availability_changed.v1",
-                new DriverAvailabilityEventPayload(
-                        driver.getId(),
-                        driver.getTenantId(),
-                        driver.getUserId(),
-                        driver.getIsAvailable(),
-                        Instant.now()
-                )
-        );
+    private boolean hasCompleteLinkedProfile(Driver driver) {
+        return driver.getUserId() != null
+                && driver.getFullName() != null && !driver.getFullName().isBlank()
+                && driver.getPhone() != null && driver.getPhone().matches("^\\+?[0-9]{9,15}$")
+                && driver.getLicensePlate() != null && !driver.getLicensePlate().isBlank()
+                && driver.getVehicleType() != null
+                && driver.getCapacity() != null && driver.getCapacity() > 0;
+    }
 
-        return DriverResponse.fromEntity(driver);
+    private boolean isOperationallyReady(Driver driver) {
+        return driver.getStatus() == DriverStatus.ACTIVE && hasCompleteLinkedProfile(driver);
     }
 
     private void saveOutboxEvent(String aggregateType, UUID aggregateId, String eventType, Object payload) {
+        saveOutboxEvent(UUID.randomUUID(), aggregateType, aggregateId, eventType, payload);
+    }
+
+    private DriverResponse updateLocationState(Driver driver, UpdateLocationRequest request) {
+        if (!locationCache.accept(driver, request)) {
+            log.debug("Ignored stale location update for driver {} at sequence {}", driver.getUserId(), request.effectiveSequence());
+            return toResponse(driver);
+        }
+
+        Instant recordedAt = request.effectiveRecordedAt();
+        long sequence = request.effectiveSequence();
+
+        UUID eventId = UUID.randomUUID();
+        saveOutboxEvent(
+                eventId,
+                "DRIVER",
+                driver.getId(),
+                "driver.location.updated.v1",
+                new DriverLocationUpdatedEvent(
+                        eventId,
+                        driver.getId(),
+                        driver.getUserId(),
+                        driver.getTenantId(),
+                        request.lat(),
+                        request.lng(),
+                        request.accuracyM(),
+                        request.speedMps(),
+                        request.bearing(),
+                        recordedAt,
+                        sequence));
+        return DriverResponse.builder()
+                .id(driver.getId())
+                .tenantId(driver.getTenantId())
+                .userId(driver.getUserId())
+                .fullName(driver.getFullName())
+                .phone(driver.getPhone())
+                .email(driver.getEmail())
+                .licensePlate(driver.getLicensePlate())
+                .vehicleType(driver.getVehicleType())
+                .capacity(driver.getCapacity())
+                .driverType(driver.getDriverType())
+                .shiftStart(driver.getShiftStart())
+                .shiftEnd(driver.getShiftEnd())
+                .currentLat(request.lat())
+                .currentLng(request.lng())
+                .isAvailable(driver.getIsAvailable())
+                .status(driver.getStatus())
+                .reviewNote(driver.getReviewNote())
+                .bankCode(driver.getBankCode())
+                .bankAccountNumber(driver.getBankAccountNumber())
+                .bankAccountName(driver.getBankAccountName())
+                .build();
+    }
+
+    private DriverResponse toResponse(Driver driver) {
+        locationCache.enrichWithCachedLocation(driver);
+        return DriverResponse.fromEntity(driver);
+    }
+
+    /**
+     * Tenant managers/operators record the bank account used for VietQR payroll payouts.
+     * Only payout metadata changes, so the driver's review status and availability are untouched.
+     */
+    @Transactional
+    public DriverResponse updateBankAccount(UUID driverId, UpdateDriverBankAccountRequest request, String requesterRole) {
+        if (!OPERATOR_ROLES.contains(requesterRole)) {
+            throw new AppException(ErrorCode.ACCESS_DENIED);
+        }
+        Driver driver = driverRepository.findById(driverId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        com.swiftroute.driverservice.security.JwtAuthenticationFilter.assertTenant(driver.getTenantId());
+        applyBankAccount(driver, request);
+        return toResponse(driverRepository.save(driver));
+    }
+
+    /** The authenticated driver records their own payout bank account. */
+    @Transactional
+    public DriverResponse updateMyBankAccount(UUID userId, UpdateDriverBankAccountRequest request) {
+        Driver driver = driverRepository.findByUserId(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.DRIVER_NOT_FOUND));
+        applyBankAccount(driver, request);
+        return toResponse(driverRepository.save(driver));
+    }
+
+    private void applyBankAccount(Driver driver, UpdateDriverBankAccountRequest request) {
+        driver.setBankCode(normalizeOptionalBankCode(request.bankCode()));
+        driver.setBankAccountNumber(normalizeOptionalText(request.bankAccountNumber()));
+        driver.setBankAccountName(normalizeAccountName(request.bankAccountName()));
+        driver.setUpdatedAt(Instant.now());
+    }
+
+    private static String normalizeOptionalBankCode(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        return code.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeOptionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private static String normalizeOptionalEmail(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** Bank apps expect the holder name as uppercase ASCII without Vietnamese diacritics. */
+    static String normalizeAccountName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String ascii = Normalizer.normalize(name.trim(), Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replace('đ', 'd')
+                .replace('Đ', 'D');
+        return ascii.replaceAll("[^A-Za-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toUpperCase(Locale.ROOT);
+    }
+
+    private void saveOutboxEvent(UUID eventId, String aggregateType, UUID aggregateId, String eventType, Object payload) {
         OutboxEvent outboxEvent = OutboxEvent.builder()
-                .eventId(UUID.randomUUID())
+                .eventId(eventId)
                 .aggregateType(aggregateType)
                 .aggregateId(aggregateId)
                 .eventType(eventType)

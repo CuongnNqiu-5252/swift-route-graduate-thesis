@@ -1,0 +1,100 @@
+'use client';
+
+import { LanguageSelect } from '@/components/layout/language-select';
+import { useLocale } from '@/i18n/provider';
+
+import { useAuth } from '@/application/contexts/auth-context';
+import { NotificationBell } from '@/components/layout/notification-bell';
+import { WorkspaceAssistant } from '@/components/layout/workspace-assistant';
+import { CustomSelect } from '@/components/ui/select';
+import { accountRoleLabel } from '@/domain/entities/member.entity';
+import { tenantSettingsRepository } from '@/infrastructure/repositories/tenant-settings.repository';
+import { Membership, switchTenant, tenantWorkflow } from '@/infrastructure/repositories/tenant-workflow.repository';
+import { LogOut, User } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+
+export function Navbar() {
+  const { t } = useLocale();
+  const { user, logout, hasPermission } = useAuth();
+  const canUseAssistant = ['OWNER', 'TENANT_ADMIN', 'OPERATOR'].includes(user?.tenantRole ?? user?.role ?? '')
+    && hasPermission(['order:read', 'dispatch:read', 'dispatch:execute']);
+  const router = useRouter();
+  const [workspaces, setWorkspaces] = useState<Array<Membership & { businessName?: string }>>([]);
+
+  useEffect(() => {
+    tenantWorkflow
+      .memberships()
+      .then((items) =>
+        Promise.all(
+          items.map(async (item) => {
+            try {
+              const businessName = await tenantSettingsRepository.getBusinessName(item.tenant_id);
+              return { ...item, businessName };
+            } catch {
+              return item;
+            }
+          })
+        )
+      )
+      .then(setWorkspaces)
+      .catch(() => setWorkspaces([]));
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  return (
+    <header className="flex h-16 shrink-0 items-center justify-between gap-2 bg-[#eef1f4] px-3 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="hidden text-xs font-medium text-slate-500 sm:inline">{t("Doanh nghiệp")}</span>
+        {workspaces.length > 0 ? (
+          <CustomSelect
+            aria-label={t("Đổi doanh nghiệp")}
+            value={user?.tenantId || ''}
+            placeholder={t("Chọn doanh nghiệp")}
+            onValueChange={(nextTenantId) => void switchTenant(nextTenantId)}
+            className="min-w-0 max-w-56"
+            options={workspaces.map((item) => ({
+              value: item.tenant_id,
+              label: item.businessName || `${t("Doanh nghiệp")} ${item.tenant_id.slice(0, 8)}`,
+            }))}
+          />
+        ) : (
+          <Link href="/organizations" className="text-sm font-medium text-blue-700 underline underline-offset-4">
+            {t("Tạo doanh nghiệp")}
+          </Link>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+        <LanguageSelect />
+        <NotificationBell />
+        {user?.tenantId && canUseAssistant && <WorkspaceAssistant key={user.tenantId} tenantId={user.tenantId} />}
+
+        <div className="flex items-center rounded-sm border border-gray-200 bg-white px-2 py-1.5">
+          <Link href="/profile" className="flex items-center gap-2.5 px-1" aria-label={t("Mở hồ sơ cá nhân")}>
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100">
+              <User size={14} className="text-blue-600" />
+            </div>
+            <div className="hidden max-w-48 truncate sm:block">
+              <p className="text-xs font-medium text-gray-900">{user?.name || user?.email || t('Quản trị viên')}</p>
+              <p className="text-xs text-gray-500">{t(accountRoleLabel(user?.role))}</p>
+            </div>
+          </Link>
+          <button
+            onClick={handleLogout}
+            className="ml-2 rounded p-1 text-gray-400 hover:text-red-500"
+            title={t("Đăng xuất")}
+            aria-label={t("Đăng xuất")}
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}

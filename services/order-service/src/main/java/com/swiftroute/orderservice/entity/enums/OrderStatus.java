@@ -1,12 +1,12 @@
 package com.swiftroute.orderservice.entity.enums;
 
 public enum OrderStatus {
-    PENDING_PAYMENT,
-    PAYMENT_FAILED,
-    PAID,
+    READY_FOR_DISPATCH,
     PLANNED,
     IN_TRANSIT,
     DELIVERED,
     FAILED,
-    CANCELLED
+    RETURNING,
+    CANCELLED,
+    RETURNED
 }

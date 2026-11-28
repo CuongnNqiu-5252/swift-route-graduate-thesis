@@ -30,3 +30,32 @@
 # Tooling
 .taste-skill/
 skills-lock.json
+
+
+# Local agent skills & tooling
+.agents/
+tasks/
+data/
+# Flutter source packages legitimately use a `data` layer. Keep the COD model
+# visible to Git while continuing to ignore root/runtime data directories.
+!mobile-app/lib/features/driver/data/
+!mobile-app/lib/features/driver/data/models/
+!mobile-app/lib/features/driver/data/models/driver_cod_collection_model.dart
+*.db
+
+# Logs
+*.log
+**/*.log
+.impeccable/
+.codex/
+.agent/
+.archify/
+.pytest_cache/
+**/.pytest_cache/
+dbml/
+docs/diagrams/
+order_db_schema.sql
+*.drawio
+*.mdj
+*.puml
+*.md

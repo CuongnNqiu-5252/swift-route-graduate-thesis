@@ -11,7 +11,7 @@ INSERT INTO orders (
     order_id, tenant_id, customer_id, pickup_lat, pickup_lng, pickup_address,
     delivery_lat, delivery_lng, delivery_address,
     time_window_start, time_window_end, weight_kg, priority, status,
-    package_category, item_description, notes, assigned_driver_id, created_at, updated_at
+    package_category, package_description, notes, assigned_driver_id, created_at, updated_at
 ) VALUES
 -- 4 Đơn đã hoàn tất trong ca (DELIVERED)
 (

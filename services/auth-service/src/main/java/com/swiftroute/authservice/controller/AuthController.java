@@ -7,14 +7,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.swiftroute.authservice.dto.request.GoogleAuthRequest;
 import com.swiftroute.authservice.dto.request.LoginRequestDTO;
 import com.swiftroute.authservice.dto.request.RegisterRequestDTO;
+import com.swiftroute.authservice.dto.request.UpdateProfileRequestDTO;
 import com.swiftroute.authservice.dto.response.ApiResponse;
 import com.swiftroute.authservice.dto.response.LoginResponseDTO;
 import com.swiftroute.authservice.dto.response.UserProfileResponseDTO;
@@ -28,9 +30,42 @@ import jakarta.validation.Valid;
 public class AuthController {
 
     private final AuthService authService;
+    private final com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService;
 
-    public AuthController(AuthService authService) {
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.swiftroute.authservice.service.DriverActivationService driverActivationService;
+
+    public AuthController(AuthService authService,
+            com.swiftroute.authservice.service.TenantEmployeeService tenantEmployeeService) {
         this.authService = authService;
+        this.tenantEmployeeService = tenantEmployeeService;
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "Activate Flutter Driver App using a 12-digit activation code")
+    @PostMapping("/driver/activate")
+    public ResponseEntity<ApiResponse<com.swiftroute.authservice.dto.response.DriverActivationAuthResponseDTO>> activateDriverApp(
+            @Valid @RequestBody com.swiftroute.authservice.dto.request.DriverActivateRequestDTO request,
+            HttpServletRequest httpRequest) {
+        com.swiftroute.authservice.dto.response.DriverActivationAuthResponseDTO response = driverActivationService
+                .activateDriverApp(request, httpRequest);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/invitations/accept")
+    public ResponseEntity<ApiResponse<com.swiftroute.authservice.dto.response.TenantMemberResponse>> acceptInvitation(
+            @Valid @RequestBody com.swiftroute.authservice.dto.request.AcceptInvitationRequest request) {
+        com.swiftroute.authservice.dto.response.TenantMemberResponse response = tenantEmployeeService
+                .acceptInvitation(request);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    public record PreviewInvitationRequest(@jakarta.validation.constraints.NotBlank String token) {
+    }
+
+    @PostMapping("/invitations/preview")
+    public ResponseEntity<ApiResponse<com.swiftroute.authservice.service.TenantEmployeeService.InvitationPreview>> previewInvitation(
+            @Valid @RequestBody PreviewInvitationRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(tenantEmployeeService.previewInvitation(request.token())));
     }
 
     @PostMapping("/register")
@@ -62,16 +97,44 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<ApiResponse<UserProfileResponseDTO>> getProfile(
-            @RequestHeader(value = "X-User-Id", required = false) String headerUserId) {
-        UUID userId;
-        if (headerUserId != null && !headerUserId.isBlank()) {
-            userId = UUID.fromString(headerUserId);
-        } else {
-            String principal = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-            userId = UUID.fromString(principal);
-        }
-        UserProfileResponseDTO profile = authService.getProfile(userId);
+    public ResponseEntity<ApiResponse<UserProfileResponseDTO>> getProfile() {
+        UUID userId = UUID.fromString(SecurityContextHolder.getContext().getAuthentication().getName());
+        UserProfileResponseDTO profile = authService.getProfile(userId, effectiveRole());
         return ResponseEntity.ok(ApiResponse.success(profile));
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<ApiResponse<UserProfileResponseDTO>> updateProfile(
+            @Valid @RequestBody UpdateProfileRequestDTO request) {
+        UUID userId = UUID.fromString(SecurityContextHolder.getContext().getAuthentication().getName());
+        return ResponseEntity.ok(ApiResponse.success(authService.updateProfile(userId, request, effectiveRole())));
+    }
+
+    private String effectiveRole() {
+        return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                .filter(value -> value.startsWith("ROLE_"))
+                .map(value -> value.substring(5))
+                .findFirst()
+                .orElse(null);
+    }
+
+    @PostMapping("/google/login")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Sign in with Google ID token")
+    public ResponseEntity<ApiResponse<LoginResponseDTO>> loginWithGoogle(
+            @Valid @RequestBody GoogleAuthRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        authService.loginWithGoogle(request, httpRequest)));
+    }
+
+    @PostMapping("/google/link")
+    @io.swagger.v3.oas.annotations.Operation(summary = "Link a verified Google account to the authenticated user")
+    public ResponseEntity<ApiResponse<Void>> linkGoogle(
+            @Valid @RequestBody GoogleAuthRequest request) {
+        UUID userId = UUID.fromString(SecurityContextHolder.getContext().getAuthentication().getName());
+        authService.linkGoogle(userId, request);
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 }

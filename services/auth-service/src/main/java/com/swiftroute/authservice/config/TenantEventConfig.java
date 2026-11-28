@@ -27,7 +27,7 @@ public class TenantEventConfig {
 
     @Bean
     public Binding tenantEventBinding(Queue tenantEventQueue, TopicExchange swiftrouteEventsExchange) {
-        return BindingBuilder.bind(tenantEventQueue).to(swiftrouteEventsExchange).with("tenant.*");
+        return BindingBuilder.bind(tenantEventQueue).to(swiftrouteEventsExchange).with("tenant.#");
     }
 
     @Bean

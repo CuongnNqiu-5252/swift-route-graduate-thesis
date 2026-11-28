@@ -9,5 +9,10 @@ public record TenantEventPayload(
         String eventType,
         UUID tenantId,
         UUID ownerUserId,
-        Instant occurredAt) {
+        Instant occurredAt,
+        Long version) {
+
+    public TenantEventPayload(UUID eventId, String eventType, UUID tenantId, UUID ownerUserId, Instant occurredAt) {
+        this(eventId, eventType, tenantId, ownerUserId, occurredAt, 1L);
+    }
 }

@@ -1,0 +1,2 @@
+externalOrderCode,recipientName,recipientPhone,deliveryAddress,deliveryLat,deliveryLng,timeWindowStart,timeWindowEnd,weightKg,codAmount,notes
+DEMO-001,Nguyee a,900000000,225 ???ng 3/2,,,2026-11-16T08:00:00+07:00,2026-11-16T12:00:00+07:00,1.5,125000,

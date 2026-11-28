@@ -42,7 +42,8 @@ class GoongDirection {
 
     final distanceObj = firstLeg?['distance'] as Map<String, dynamic>?;
     final durationObj = firstLeg?['duration'] as Map<String, dynamic>?;
-    final polylineObj = firstRoute['overview_polyline'] as Map<String, dynamic>?;
+    final polylineObj =
+        firstRoute['overview_polyline'] as Map<String, dynamic>?;
 
     final polylineStr = polylineObj?['points'] as String? ?? '';
     final decodedPoints = polylineStr.isNotEmpty

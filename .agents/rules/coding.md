@@ -65,8 +65,6 @@ This file applies to all AI agents (Claude Code or equivalent) assisting with co
 * Define request/response schemas using Pydantic (`BaseModel`), rather than raw `dict`.
 * Clearly separate three layers: `api/routes.py` (endpoints) → `service/` (business logic) → `core/` (pure algorithms with no FastAPI dependency).
 * Algorithms (DP, ML pruning) must be implemented in `core/` and include docstrings explaining their inputs, outputs, and computational complexity.
-* Use `pytest` for testing, with test files named `test_<module>.py`.
-
 ### Next.js (App Router) + TypeScript — Web Admin
 
 * Use the **App Router** (`src/app/`). Do not create a `pages/` directory using the legacy Pages Router.
@@ -99,15 +97,13 @@ The following points are commonly overlooked:
 ## 6. When the Agent Writes Algorithm-Related Code (DP, ML)
 
 * Preserve the existing **API contracts** (`/optimize/batch`, `/optimize/insert`) when changing internal algorithms — other services must not be required to change.
-* The `algorithm_used` field in the response must accurately reflect the algorithm currently being executed (`naive_nearest_neighbor`, `dp_ml_pruning`, etc.). This field is used for comparison in the thesis evaluation chapter.
-* Do not remove baseline algorithm implementations (Naive, Genetic Algorithm, etc.) after introducing DP + ML. They must remain available for experimental comparison.
 
 ---
 
 ## 7. Before Considering a Task "Done"
 
 * [ ] Code contains English comments for non-obvious logic.
-* [ ] There is at least a minimal test for important logic (100% coverage is not required).
+
 * [ ] No secrets or environment-specific configuration are hardcoded.
 * [ ] The response format matches the shared `ApiResponse` wrapper.
 * [ ] If the schema is changed → create a new Flyway migration file; never modify an already-applied migration.

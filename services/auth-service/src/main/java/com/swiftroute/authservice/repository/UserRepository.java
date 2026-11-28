@@ -11,6 +11,10 @@ import com.swiftroute.authservice.entity.User;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificationExecutor<User> {
-    Optional<User> findByEmail(String email);
+    @org.springframework.data.jpa.repository.Query("select u from User u where lower(u.email)=lower(:email)")
+    Optional<User> findByEmail(@org.springframework.data.repository.query.Param("email") String email);
 
+    Optional<User> findByGoogleSub(String googleSub);
+
+    Optional<User> findByEmailIgnoreCase(String email);
 }

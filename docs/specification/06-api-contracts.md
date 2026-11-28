@@ -19,7 +19,8 @@ All public APIs are gateway paths and JSON. Existing services use `ApiResponse<T
 | `GET /api/orders/me` | customer | none | `200 order[]`; add pagination. |
 | `GET /api/orders/{order_id}` | owner or tenant/platform authority | UUID | `200 order`; current membership check needs correction. |
 | `GET /api/orders/tenant/{tenant_id}` | authorised tenant/platform | UUID | `200 order[]`; add pagination. |
-| `PATCH /api/orders/{order_id}/status` | authorised actor | target `OrderStatus` currently raw body | `200`; replace with `{status,reason,version}`. |
+| `PATCH /api/orders/{order_id}/cancel` | authorised actor | `{reason?}` | `200 order` (`CANCELLED`). |
+| `PATCH /api/orders/{order_id}/incident` | authorised actor | `{incidentType, notes}` | `200 order` (`FAILED`). |
 
 ## Proposed API contracts
 

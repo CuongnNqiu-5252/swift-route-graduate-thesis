@@ -1,7 +1,10 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
+import 'package:swiftroute_app/features/order/data/datasources/order_remote_data_source.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
 class DriverIncidentSheet extends ConsumerStatefulWidget {
@@ -13,51 +16,76 @@ class DriverIncidentSheet extends ConsumerStatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DriverIncidentSheet(order: order),
     );
   }
 
   @override
-  ConsumerState<DriverIncidentSheet> createState() => _DriverIncidentSheetState();
+  ConsumerState<DriverIncidentSheet> createState() =>
+      _DriverIncidentSheetState();
+}
+
+class _FailureReasonOption {
+  const _FailureReasonOption({
+    required this.code,
+    required this.label,
+    required this.icon,
+    required this.color,
+    this.subtitle,
+  });
+
+  final String code;
+  final String label;
+  final String? subtitle;
+  final IconData icon;
+  final Color color;
 }
 
 class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
   String _selectedType = 'CUSTOMER_UNREACHABLE';
   final _notesController = TextEditingController();
-  var _isSubmitting = false;
+  bool _isSubmitting = false;
 
-  final _incidentOptions = const [
-    {
-      'code': 'CUSTOMER_UNREACHABLE',
-      'label': 'Khách không nghe máy / Vắng mặt',
-      'icon': Icons.phone_missed_rounded,
-      'color': Colors.orange,
-    },
-    {
-      'code': 'TRAFFIC_CONGESTION',
-      'label': 'Kẹt xe nghiêm trọng / Ngập nước',
-      'icon': Icons.traffic_rounded,
-      'color': Colors.amber,
-    },
-    {
-      'code': 'VEHICLE_BREAKDOWN',
-      'label': 'Hỏng xe / Sự cố phương tiện',
-      'icon': Icons.car_crash_rounded,
-      'color': Colors.redAccent,
-    },
-    {
-      'code': 'WRONG_ADDRESS',
-      'label': 'Sai địa chỉ / Điểm giao đóng cửa',
-      'icon': Icons.wrong_location_rounded,
-      'color': Colors.purple,
-    },
-    {
-      'code': 'OTHER',
-      'label': 'Lý do sự cố khác',
-      'icon': Icons.warning_amber_rounded,
-      'color': Colors.blueGrey,
-    },
+  Uint8List? _evidenceImageBytes;
+  String? _uploadedEvidenceUrl;
+  bool _isUploadingImage = false;
+
+  static const _failureOptions = [
+    _FailureReasonOption(
+      code: 'CUSTOMER_UNREACHABLE',
+      label: 'Khách không nghe máy / Vắng mặt',
+      icon: Icons.phone_missed_rounded,
+      color: AppColors.warning,
+    ),
+    _FailureReasonOption(
+      code: 'WRONG_ADDRESS',
+      label: 'Sai địa chỉ / Điểm giao đóng cửa',
+      icon: Icons.wrong_location_rounded,
+      color: AppColors.textSecondary,
+    ),
+    _FailureReasonOption(
+      code: 'REFUSED_BY_RECIPIENT',
+      label: 'Khách từ chối nhận hàng',
+      subtitle: 'Đơn tự động chuyển sang hoàn về kho',
+      icon: Icons.cancel_outlined,
+      color: AppColors.error,
+    ),
+    _FailureReasonOption(
+      code: 'PACKAGE_DAMAGED',
+      label: 'Hàng hóa bị hư hỏng',
+      subtitle: 'Đơn tự động chuyển sang hoàn về kho',
+      icon: Icons.broken_image_rounded,
+      color: AppColors.error,
+    ),
+    _FailureReasonOption(
+      code: 'OTHER',
+      label: 'Lý do khác',
+      subtitle: 'Bắt buộc nhập ghi chú chi tiết',
+      icon: Icons.warning_amber_rounded,
+      color: AppColors.textSecondary,
+    ),
   ];
 
   @override
@@ -66,12 +94,55 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
     super.dispose();
   }
 
+  bool get _isImmediateReturn =>
+      _selectedType == 'REFUSED_BY_RECIPIENT' ||
+      _selectedType == 'PACKAGE_DAMAGED';
+
+  Future<void> _pickAndUploadImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: source, imageQuality: 80);
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+      setState(() {
+        _evidenceImageBytes = bytes;
+        _isUploadingImage = true;
+      });
+
+      final url = await ref
+          .read(orderRemoteDataSourceProvider)
+          .uploadEvidenceImage(
+            bytes: bytes,
+            fileName: picked.name,
+            folder: 'incidents',
+          );
+
+      if (mounted) {
+        setState(() {
+          _uploadedEvidenceUrl = url;
+          _isUploadingImage = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Tải ảnh thất bại: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _submitIncident() async {
     final notes = _notesController.text.trim();
     if (_selectedType == 'OTHER' && notes.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Vui lòng nhập chi tiết sự cố khi chọn "Lý do khác".'),
+          content: Text('Vui lòng nhập chi tiết khi chọn "Lý do khác".'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -80,16 +151,30 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
 
     setState(() => _isSubmitting = true);
     try {
-      await ref.read(driverOrdersProvider.notifier).reportIncident(
+      final evidenceUrls = _uploadedEvidenceUrl != null
+          ? [_uploadedEvidenceUrl!]
+          : <String>[];
+
+      await ref
+          .read(orderRemoteDataSourceProvider)
+          .reportOperationalIncident(
             orderId: widget.order.id,
             incidentType: _selectedType,
             notes: notes.isNotEmpty ? notes : null,
+            evidenceUrls: evidenceUrls,
           );
+
+      await ref.read(driverOrdersProvider.notifier).refreshOrders();
+
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Đã báo sự cố đơn #${widget.order.id.substring(0, 8)}. Hệ thống đã ghi nhận!'),
+            content: Text(
+              _isImmediateReturn
+                  ? 'Đơn ${widget.order.displayCode} đã chuyển sang chờ hoàn về kho.'
+                  : 'Đã ghi nhận giao chưa thành công đơn ${widget.order.displayCode}.',
+            ),
             backgroundColor: AppColors.accent,
           ),
         );
@@ -98,7 +183,7 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Báo sự cố thất bại: $e'),
+            content: Text('Gửi báo cáo thất bại: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -110,18 +195,23 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        top: 20,
+        bottom: bottomInset > 0 ? bottomInset + 12 : 16,
+        top: 14,
         left: 20,
         right: 20,
       ),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        color: AppColors.card,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: SingleChildScrollView(
+      child: SafeArea(
+        top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -131,12 +221,12 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: AppColors.surfaceVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Container(
@@ -145,7 +235,11 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                     color: AppColors.error.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.report_problem_rounded, color: AppColors.error, size: 24),
+                  child: const Icon(
+                    Icons.report_problem_rounded,
+                    color: AppColors.error,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -153,12 +247,19 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Báo cáo sự cố khi giao',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        'Giao không thành công',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                       Text(
-                        'Đơn #${widget.order.id.substring(0, 8)} · ${widget.order.deliveryAddress}',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        '${widget.order.displayCode} · ${widget.order.deliveryAddress}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -167,132 +268,278 @@ class _DriverIncidentSheetState extends ConsumerState<DriverIncidentSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'Chọn nguyên nhân sự cố:',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 10),
-            ..._incidentOptions.map((opt) {
-              final isSelected = _selectedType == opt['code'];
-              return InkWell(
-                onTap: () => setState(() => _selectedType = opt['code'] as String),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.error.withValues(alpha: 0.06) : Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isSelected ? AppColors.error : AppColors.divider,
-                      width: isSelected ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        opt['icon'] as IconData,
-                        color: opt['color'] as Color,
-                        size: 20,
+            const SizedBox(height: 14),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Chọn lý do không giao được:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          opt['label'] as String,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
+                    ),
+                    const SizedBox(height: 8),
+                    for (final opt in _failureOptions)
+                      _buildReasonTile(opt),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isUploadingImage
+                                ? null
+                                : () => _pickAndUploadImage(ImageSource.camera),
+                            icon: const Icon(
+                              Icons.camera_alt_outlined,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Chụp ảnh bằng chứng',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 8,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isUploadingImage
+                                ? null
+                                : () =>
+                                      _pickAndUploadImage(ImageSource.gallery),
+                            icon: const Icon(
+                              Icons.photo_library_outlined,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Chọn từ thư viện',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 8,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_isUploadingImage) ...[
+                      const SizedBox(height: 8),
+                      const Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Đang tải ảnh lên...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      Radio<String>(
-                        value: opt['code'] as String,
-                        groupValue: _selectedType,
-                        activeColor: AppColors.error,
-                        onChanged: (val) {
-                          if (val != null) setState(() => _selectedType = val);
-                        },
+                    ] else if (_evidenceImageBytes != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              _evidenceImageBytes!,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            size: 16,
+                            color: AppColors.success,
+                          ),
+                          const SizedBox(width: 6),
+                          const Expanded(
+                            child: Text(
+                              'Đã đính kèm ảnh bằng chứng',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.success,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                ),
-              );
-            }),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              maxLines: 2,
-              decoration: InputDecoration(
-                labelText: 'Ghi chú thêm cho điều phối viên (tuỳ chọn)',
-                hintText: 'VD: Đã gọi khách 3 cuộc nhưng thuê bao...',
-                hintStyle: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                filled: true,
-                fillColor: Colors.grey.shade50,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.divider),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.amber.shade200),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline_rounded, color: Colors.amber, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Đơn hàng sẽ chuyển sang trạng thái Thất bại. Nhân viên vận hành sẽ hỗ trợ tái điều phối.',
-                      style: TextStyle(fontSize: 12, color: Colors.black87),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _notesController,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: _selectedType == 'OTHER'
+                            ? 'Ghi chú chi tiết (bắt buộc)'
+                            : 'Ghi chú cho điều phối (tuỳ chọn)',
+                        hintText: 'VD: Khách hẹn giao lại sau 18h...',
+                        hintStyle: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                        filled: true,
+                        fillColor: AppColors.card,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppColors.divider,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: const Text('Huỷ bỏ'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ElevatedButton(
+                  child: FilledButton(
                     onPressed: _isSubmitting ? null : _submitIncident,
-                    style: ElevatedButton.styleFrom(
+                    style: FilledButton.styleFrom(
                       backgroundColor: AppColors.error,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: _isSubmitting
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
                         : const Text(
-                            'Gửi báo sự cố',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            'Xác nhận',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReasonTile(_FailureReasonOption opt) {
+    final isSelected = _selectedType == opt.code;
+    return InkWell(
+      onTap: () => setState(() => _selectedType = opt.code),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.error.withValues(alpha: 0.06)
+              : AppColors.card,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? AppColors.error : AppColors.divider,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(opt.icon, color: opt.color, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    opt.label,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      color: isSelected
+                          ? AppColors.textPrimary
+                          : AppColors.textSecondary,
+                    ),
+                  ),
+                  if (opt.subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      opt.subtitle!,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              isSelected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              color: isSelected ? AppColors.error : AppColors.textHint,
+              size: 20,
             ),
           ],
         ),

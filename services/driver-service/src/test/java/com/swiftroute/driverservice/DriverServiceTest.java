@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,8 +20,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.swiftroute.driverservice.dto.request.ReportDeliveryEventRequest;
 import com.swiftroute.driverservice.dto.request.UpdateAvailabilityRequest;
+import com.swiftroute.driverservice.dto.request.UpdateDriverBankAccountRequest;
 import com.swiftroute.driverservice.dto.request.UpdateLocationRequest;
 import com.swiftroute.driverservice.dto.response.DriverResponse;
 import com.swiftroute.driverservice.entity.Driver;
@@ -29,8 +30,10 @@ import com.swiftroute.driverservice.entity.enums.DriverStatus;
 import com.swiftroute.driverservice.entity.enums.DriverType;
 import com.swiftroute.driverservice.entity.enums.VehicleType;
 import com.swiftroute.driverservice.exception.AppException;
+import com.swiftroute.driverservice.exception.ErrorCode;
 import com.swiftroute.driverservice.repository.DriverRepository;
 import com.swiftroute.driverservice.repository.OutboxEventRepository;
+import com.swiftroute.driverservice.service.DriverLocationCache;
 import com.swiftroute.driverservice.service.DriverService;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +45,9 @@ class DriverServiceTest {
     @Mock
     private OutboxEventRepository outboxEventRepository;
 
+    @Mock
+    private DriverLocationCache locationCache;
+
     private DriverService driverService;
 
     private Driver sampleDriver;
@@ -51,7 +57,7 @@ class DriverServiceTest {
 
     @BeforeEach
     void setUp() {
-        driverService = new DriverService(driverRepository, outboxEventRepository);
+        driverService = new DriverService(driverRepository, outboxEventRepository, locationCache);
 
         sampleDriverId = UUID.randomUUID();
         sampleUserId = UUID.randomUUID();
@@ -120,32 +126,13 @@ class DriverServiceTest {
     @DisplayName("updateMyLocation - updates latitude and longitude")
     void updateMyLocation_Success() {
         when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
-        when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(locationCache.accept(any(Driver.class), any(UpdateLocationRequest.class))).thenReturn(true);
 
         UpdateLocationRequest request = new UpdateLocationRequest(10.8231, 106.6297);
         DriverResponse response = driverService.updateMyLocation(sampleUserId, request);
 
         assertEquals(10.8231, response.currentLat());
         assertEquals(106.6297, response.currentLng());
-    }
-
-    @Test
-    @DisplayName("reportDeliveryEvent - creates driver.delivery_reported.v1 outbox event")
-    void reportDeliveryEvent_Success() {
-        when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
-
-        UUID orderId = UUID.randomUUID();
-        ReportDeliveryEventRequest request = new ReportDeliveryEventRequest(orderId, "DELIVERED", null,
-                "Delivered to customer");
-
-        driverService.reportDeliveryEvent(sampleUserId, request);
-
-        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outboxEventRepository).save(outboxCaptor.capture());
-
-        OutboxEvent event = outboxCaptor.getValue();
-        assertEquals("driver.delivery_reported.v1", event.getEventType());
-        assertEquals(sampleDriverId, event.getAggregateId());
     }
 
     @Test
@@ -156,5 +143,86 @@ class DriverServiceTest {
 
         UpdateAvailabilityRequest request = new UpdateAvailabilityRequest(true);
         assertThrows(AppException.class, () -> driverService.updateMyAvailability(sampleUserId, request));
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - throws ACCESS_DENIED when tenantId is null and role is null (internal service bypass prevention)")
+    void getAllDrivers_NullTenantNullRole_ThrowsAccessDenied() {
+        AppException ex = assertThrows(AppException.class, () -> driverService.getAllDrivers(null, null));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - throws ACCESS_DENIED when tenantId is null and role is not SYSTEM_ADMIN")
+    void getAllDrivers_NullTenantOperatorRole_ThrowsAccessDenied() {
+        AppException ex = assertThrows(AppException.class, () -> driverService.getAllDrivers(null, "OPERATOR"));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - succeeds when tenantId is specified")
+    void getAllDrivers_WithTenantId_Success() {
+        when(driverRepository.findAllByTenantId(sampleTenantId)).thenReturn(List.of(sampleDriver));
+
+        List<DriverResponse> responses = driverService.getAllDrivers(sampleTenantId, "OPERATOR");
+
+        assertNotNull(responses);
+        assertEquals(1, responses.size());
+        assertEquals(sampleDriverId, responses.get(0).id());
+    }
+
+    @Test
+    @DisplayName("getAllDrivers - succeeds when tenantId is null and role is SYSTEM_ADMIN")
+    void getAllDrivers_NullTenantSystemAdmin_Success() {
+        when(driverRepository.findAll()).thenReturn(List.of(sampleDriver));
+
+        List<DriverResponse> responses = driverService.getAllDrivers(null, "SYSTEM_ADMIN");
+
+        assertNotNull(responses);
+        assertEquals(1, responses.size());
+        assertEquals(sampleDriverId, responses.get(0).id());
+    }
+
+    @Test
+    @DisplayName("updateBankAccount - normalizes bank code & Vietnamese holder name without disrupting availability")
+    void updateBankAccount_Success() {
+        when(driverRepository.findById(sampleDriverId)).thenReturn(Optional.of(sampleDriver));
+        when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DriverResponse response = driverService.updateBankAccount(
+                sampleDriverId,
+                new UpdateDriverBankAccountRequest(" vcb ", " 0123456789 ", "Đỗ Nguyễn Văn Tài"),
+                "OWNER");
+
+        assertEquals("VCB", response.bankCode());
+        assertEquals("0123456789", response.bankAccountNumber());
+        assertEquals("DO NGUYEN VAN TAI", response.bankAccountName());
+        assertEquals(DriverStatus.ACTIVE, response.status());
+        assertEquals(true, response.isAvailable());
+    }
+
+    @Test
+    @DisplayName("updateBankAccount - rejects viewer/driver roles")
+    void updateBankAccount_ForbiddenRole() {
+        AppException ex = assertThrows(AppException.class, () -> driverService.updateBankAccount(
+                sampleDriverId,
+                new UpdateDriverBankAccountRequest("MB", "99998888", "Test"),
+                "VIEWER"));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("updateMyBankAccount - updates bank info for authenticated driver")
+    void updateMyBankAccount_Success() {
+        when(driverRepository.findByUserId(sampleUserId)).thenReturn(Optional.of(sampleDriver));
+        when(driverRepository.save(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DriverResponse response = driverService.updateMyBankAccount(
+                sampleUserId,
+                new UpdateDriverBankAccountRequest("tcb", "19034567890", "Trần Thị Bích"));
+
+        assertEquals("TCB", response.bankCode());
+        assertEquals("19034567890", response.bankAccountNumber());
+        assertEquals("TRAN THI BICH", response.bankAccountName());
     }
 }

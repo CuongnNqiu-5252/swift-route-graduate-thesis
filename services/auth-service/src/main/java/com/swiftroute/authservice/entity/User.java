@@ -47,16 +47,21 @@ public class User {
     @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private Role role = Role.CUSTOMER;
-
-    @Column(name = "tenant_id")
-    private UUID tenantId;
-
+    private Role role = Role.USER;
+    @Column(name = "google_sub", unique = true)
+    private String googleSub;
     @Column(nullable = false, length = 20)
     @Builder.Default
-    private String status = "ACTIVE"; // Trạng thái mặc định
+    private String status = "PENDING_VERIFICATION";
 
-    @CreationTimestamp // Tự động lấy giờ hệ thống lúc Insert
+    @Column(name = "is_email_verified", nullable = false)
+    @Builder.Default
+    private boolean emailVerified = false;
+
+    @Column(name = "email_verified_at")
+    private LocalDateTime emailVerifiedAt;
+
+    @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 }

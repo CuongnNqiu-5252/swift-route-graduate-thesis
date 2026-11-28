@@ -13,7 +13,7 @@
 | FR-07 | Urgent insertion/exception handling | Planned (phase 4) | Urgent order re-plans an affected route or returns an explicit rejection/fallback; no silently lost order. |
 | FR-08 | Driver execution | Planned | Driver sees only assigned route, reports start/delivered/failed and optionally location; invalid status changes are rejected. |
 | FR-09 | Notifications | Planned | A business event creates at-most-one delivery attempt per recipient/channel/event; retryable failure does not block source transaction. |
-| FR-10 | Reporting/dashboard | Planned | Tenant dashboard shows tenant-scoped orders, route outcomes and basic on-time/cost metrics from a read model; it must not query other service databases. |
+| FR-10 | Reporting/dashboard | Planned — pending by scope decision (2026-11-13) | Tenant dashboard shows tenant-scoped orders, route outcomes and basic on-time/cost metrics from a read model; it must not query other service databases. |
 
 ## Business rules
 

@@ -16,9 +16,6 @@ public record TenantResponse(
         UUID ownerUserId,
         String businessName,
         BusinessType businessType,
-        String address,
-        Double pickupLat,
-        Double pickupLng,
         TenantStatus status,
         SubscriptionPlan subscriptionPlan,
         String approvalReason,
@@ -28,7 +25,7 @@ public record TenantResponse(
     public static TenantResponse fromEntity(Tenant tenant) {
         return new TenantResponse(
                 tenant.getId(), tenant.getOwnerUserId(), tenant.getBusinessName(), tenant.getBusinessType(),
-                tenant.getAddress(), tenant.getPickupLat(), tenant.getPickupLng(), tenant.getStatus(),
+                tenant.getStatus(),
                 tenant.getSubscriptionPlan(), tenant.getApprovalReason(), tenant.getCreatedAt(),
                 tenant.getStatusUpdatedAt());
     }

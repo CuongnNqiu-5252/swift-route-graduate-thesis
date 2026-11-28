@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package com.swiftroute.routing.v1;
+
+option java_multiple_files = true;
+option java_package = "com.swiftroute.orderservice.grpc.routing";
+option java_outer_classname = "RoutingProto";
+
+service RoutingEngineGrpcService {
+  // Batch route optimization (depot + N delivery stops)
+  rpc OptimizeBatch (BatchOptimizationGrpcRequest) returns (BatchOptimizationGrpcResponse);
+
+  // Dynamic insertion of a new order stop into an active route
+  rpc OptimizeInsert (RouteInsertGrpcRequest) returns (RouteInsertGrpcResponse);
+
+  // Safe re-optimization of remaining uncompleted stops from driver's current GPS position
+  rpc OptimizeReoptimize (RouteReoptimizeGrpcRequest) returns (RouteReoptimizeGrpcResponse);
+
+  // Stateless What-If staffing comparison
+  rpc SimulateWhatIf (WhatIfGrpcRequest) returns (WhatIfGrpcResponse);
+}
+
+message LocationPointProto {
+  double lat = 1;
+  double lng = 2;
+  string address = 3;
+}
+
+message StopItemProto {
+  string id = 1;
+  string name = 2;
+  LocationPointProto location = 3;
+  double demand_kg = 4;
+  string time_window_start = 5;
+  string time_window_end = 6;
+  optional double service_time = 7; // Minutes; absent defaults to 5 in Routing Engine.
+  string priority = 8; // NORMAL | HIGH | URGENT; empty defaults to NORMAL.
+}
+
+message RouteStopStateProto {
+  string id = 1;
+  string name = 2;
+  LocationPointProto location = 3;
+  double demand_kg = 4;
+  string time_window_start = 5;
+  string time_window_end = 6;
+  bool is_completed = 7;
+  optional double service_time = 8;
+  string priority = 9; // NORMAL | HIGH | URGENT; empty defaults to NORMAL.
+}
+
+message OrderedStopProto {
+  int32 stop_index = 1;
+  string stop_id = 2;
+  LocationPointProto location = 3;
+  double cumulative_distance_km = 4;
+  double estimated_arrival_minutes = 5;
+  int32 late_by_minutes = 6;
+}
+
+message BatchOptimizationGrpcRequest {
+  LocationPointProto depot = 1;
+  repeated StopItemProto stops = 2;
+  string algorithm = 3;
+  optional double time_weight = 4;
+  optional double cost_weight = 5;
+  string tenant_id = 6;
+  int32 vehicle_count = 7;
+  int32 max_stops_per_vehicle = 8;
+  string planned_departure_at = 9;
+}
+
+message BatchOptimizationGrpcResponse {
+  string job_id = 1;
+  double total_distance_km = 3;
+  double total_duration_minutes = 4;
+  repeated OrderedStopProto ordered_stops = 5;
+  double execution_time_ms = 6;
+  string timestamp = 7;
+  repeated VehicleRouteProto vehicle_routes = 8;
+}
+
+message VehicleRouteProto {
+  int32 vehicle_index = 1;
+  double total_distance_km = 2;
+  double total_duration_minutes = 3;
+  double total_load_kg = 4;
+  repeated OrderedStopProto ordered_stops = 5;
+}
+
+message RouteInsertGrpcRequest {
+  LocationPointProto driver_location = 1;
+  repeated RouteStopStateProto current_stops = 2;
+  StopItemProto new_stop = 3;
+  double max_added_duration_minutes = 4;
+  double time_weight = 5;
+  double cost_weight = 6;
+  string tenant_id = 7;
+}
+
+message RouteInsertGrpcResponse {
+  string job_id = 1;
+  bool feasible = 3;
+  int32 inserted_stop_index = 4;
+  double added_distance_km = 5;
+  double added_duration_minutes = 6;
+  double total_distance_km = 7;
+  double total_duration_minutes = 8;
+  repeated OrderedStopProto ordered_stops = 9;
+  double execution_time_ms = 10;
+  string timestamp = 11;
+}
+
+message RouteReoptimizeGrpcRequest {
+  LocationPointProto driver_location = 1;
+  repeated RouteStopStateProto current_stops = 2;
+  string reason = 3;
+  double min_improvement_km = 4;
+  double time_weight = 5;
+  double cost_weight = 6;
+  string tenant_id = 7;
+}
+
+message RouteReoptimizeGrpcResponse {
+  string job_id = 1;
+  double distance_saved_km = 4;
+  double total_distance_km = 5;
+  double total_duration_minutes = 6;
+  repeated OrderedStopProto ordered_stops = 7;
+  double execution_time_ms = 8;
+  string timestamp = 9;
+}
+
+message WhatIfGrpcRequest {
+  LocationPointProto depot = 1;
+  repeated StopItemProto stops = 2;
+  string algorithm = 3;
+  double time_weight = 4;
+  double cost_weight = 5;
+  int32 baseline_driver_count = 6;
+  int32 scenario_driver_count = 7;
+  double max_shift_minutes = 8;
+  string tenant_id = 9;
+}
+
+message WhatIfScenarioProto {
+  int32 driver_count = 1;
+  double total_distance_km = 2;
+  double completion_minutes = 3;
+  int32 late_risk_orders = 4;
+}
+
+message WhatIfGrpcResponse {
+  WhatIfScenarioProto baseline = 1;
+  WhatIfScenarioProto scenario = 2;
+  double distance_delta_percent = 3;
+  double completion_delta_percent = 4;
+  int32 late_risk_delta = 5;
+}
+

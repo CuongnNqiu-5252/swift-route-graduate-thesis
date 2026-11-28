@@ -1,66 +1,88 @@
 // main.dart
 
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/theme/app_theme.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_main_screen.dart';
 import 'package:swiftroute_app/firebase_options.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
-import 'package:swiftroute_app/presentation/screens/home_screen.dart';
-import 'package:swiftroute_app/presentation/screens/login_screen.dart';
-import 'package:swiftroute_app/presentation/screens/register_screen.dart';
+import 'package:swiftroute_app/presentation/screens/driver_activation_screen.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  } catch (e) {
-    debugPrint('Firebase initialization ignored/failed: $e');
-  }
-  // Enable runtime fetching so GoogleFonts can safely retrieve full Vietnamese glyph sets
   GoogleFonts.config.allowRuntimeFetching = true;
   runApp(const ProviderScope(child: SwiftRouteApp()));
+
+  unawaited(_initializeFirebase());
 }
 
-class SwiftRouteApp extends ConsumerWidget {
+Future<void> _initializeFirebase() async {
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(const Duration(seconds: 10));
+  } catch (e, stackTrace) {
+    debugPrint('Firebase initialization ignored/failed: $e');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+}
+
+class SwiftRouteApp extends ConsumerStatefulWidget {
   const SwiftRouteApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SwiftRouteApp> createState() => _SwiftRouteAppState();
+}
+
+class _SwiftRouteAppState extends ConsumerState<SwiftRouteApp>
+    with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(authProvider.notifier).onAppResumed();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
 
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      if (previous?.isAuthenticated == true && !next.isAuthenticated) {
+        _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      }
+    });
+
     return MaterialApp(
-      title: 'SwiftRoute',
+      navigatorKey: _navigatorKey,
+      title: 'SwiftRoute Driver',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        textTheme: GoogleFonts.robotoTextTheme(ThemeData.light().textTheme),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.primary,
-          brightness: Brightness.light,
-          primary: AppColors.primary,
-          secondary: AppColors.accent,
-          surface: AppColors.surface,
-          error: AppColors.error,
-        ),
-        scaffoldBackgroundColor: AppColors.background,
-      ),
-      // ── Route table ─────────────────────────────────────────────────────────
-      routes: {
-        '/login': (_) => const LoginScreen(),
-        '/register': (_) => RegisterScreen(),
-        '/driver/home': (_) => const DriverMainScreen(),
-        '/customer/home': (_) => const HomeScreen(),
-      },
-      // ── Auth gate: decide which screen to show on startup ────────────────────
+      theme: AppTheme.light(),
       home: _AuthGate(authState: authState),
     );
   }
 }
 
-/// Watches AuthState and redirects to the correct home screen based on role.
+/// Watches AuthState and routes drivers directly to the operational shell.
 class _AuthGate extends StatelessWidget {
   const _AuthGate({required this.authState});
 
@@ -68,33 +90,140 @@ class _AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Show splash while checking stored token
     if (authState.isLoading) {
       return const _SplashScreen();
     }
 
     if (!authState.isAuthenticated || authState.user == null) {
-      return const LoginScreen();
+      return const DriverActivationScreen();
     }
 
-    // Role-based routing
     return switch (authState.user!.role) {
       'DRIVER' => const DriverMainScreen(),
-      _ => const HomeScreen(), // CUSTOMER, OPS_STAFF, SYSTEM_ADMIN
+      _ => const _UnsupportedRoleScreen(),
     };
   }
 }
 
-// ── Splash ───────────────────────────────────────────────────────────────────
+class _UnsupportedRoleScreen extends ConsumerWidget {
+  const _UnsupportedRoleScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.divider),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.two_wheeler_rounded,
+                      size: 30,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Ứng dụng dành riêng cho Tài xế',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Tài khoản hiện tại chưa có quyền tài xế. Hãy đăng xuất và nhập mã kích hoạt do quản trị viên doanh nghiệp cấp.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => ref.read(authProvider.notifier).logout(),
+                      icon: const Icon(Icons.logout_rounded, size: 18),
+                      label: const Text('Đăng xuất'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: AppColors.primary,
-      body: Center(child: CircularProgressIndicator(color: Colors.white)),
+    return Scaffold(
+      backgroundColor: AppColors.primaryDark,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(
+                Icons.route_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'SwiftRoute Driver',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2.5,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

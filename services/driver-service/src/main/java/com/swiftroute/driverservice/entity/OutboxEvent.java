@@ -53,6 +53,18 @@ public class OutboxEvent {
     @Column(name = "published_at")
     private LocalDateTime publishedAt;
 
+    @Column(name = "failed_at")
+    private LocalDateTime failedAt;
+
+    @Column(name = "dlq_published_at")
+    private LocalDateTime dlqPublishedAt;
+
+    @Column(name = "next_attempt_at")
+    private LocalDateTime nextAttemptAt;
+
+    @Column(name = "last_error")
+    private String lastError;
+
     @Column(name = "retry_count", nullable = false)
     @Builder.Default
     private Integer retryCount = 0;

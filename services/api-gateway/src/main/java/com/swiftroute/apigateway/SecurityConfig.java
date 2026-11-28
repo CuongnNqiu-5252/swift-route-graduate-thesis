@@ -57,10 +57,17 @@ public class SecurityConfig {
                                                 // Public endpoints — phải đồng bộ với JwtAuthFilter.PUBLIC_PATHS
                                                 .pathMatchers(
                                                                 "/api/auth/login",
+                                                                "/api/auth/google/login",
+                                                                "/api/auth/driver/activate",
                                                                 "/api/auth/register",
+                                                                "/api/auth/email/verify",
+                                                                "/api/auth/email/resend-public",
+                                                                "/api/auth/password/forgot",
+                                                                "/api/auth/password/reset",
                                                                 "/api/auth/refresh",
-                                                                "/api/drivers/*/public",
-                                                                "/api/orders/*/tracking/stream")
+                                                                "/api/auth/invitations/accept",
+                                                                "/api/auth/invitations/preview",
+                                                                "/api/public/tracking/**")
                                                 .permitAll()
                                                 .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll() // CORS preflight
                                                 .pathMatchers("/actuator/health").permitAll()

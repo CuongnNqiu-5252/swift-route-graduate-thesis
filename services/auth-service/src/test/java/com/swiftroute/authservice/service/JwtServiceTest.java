@@ -63,7 +63,7 @@ public class JwtServiceTest {
                 .id(userId) // Cần set ID vì extractSubject sẽ lấy ID
                 .email("test@example.com")
                 .passwordHash("password")
-                .role(Role.CUSTOMER)
+                .role(Role.USER)
                 .build();
 
         String token = jwtService.generateAccessToken(user, 15);
@@ -71,14 +71,31 @@ public class JwtServiceTest {
         // extractSubject trả về String, nên cần gọi toString() trên UUID
         assertEquals(userId.toString(), jwtService.extractSubject(token));
 
-        // extractRole trả về String, nên cần so sánh với chuỗi
-        assertEquals(Role.CUSTOMER.name(), jwtService.extractRole(token));
+        // extractRole trả về system_role, tenant_role phải là null khi chưa chọn tenant
+        assertEquals(Role.USER.name(), jwtService.extractRole(token));
+        assertEquals(null, jwtService.extractTenantRole(token));
+    }
+
+    @Test
+    void generateTenantAccessToken_setsSystemAndTenantRoleClaimsSeparately() {
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        User user = User.builder()
+                .id(userId)
+                .role(Role.USER)
+                .build();
+
+        String token = jwtService.generateTenantAccessToken(user, tenantId, "TENANT_ADMIN", 15);
+
+        assertEquals(userId.toString(), jwtService.extractSubject(token));
+        assertEquals(Role.USER.name(), jwtService.extractRole(token));
+        assertEquals("TENANT_ADMIN", jwtService.extractTenantRole(token));
     }
 
     @Test
     void validateToken_withValidToken_returnsTrue() {
         java.util.UUID userId = java.util.UUID.randomUUID();
-        User user = User.builder().id(userId).role(Role.CUSTOMER).build();
+        User user = User.builder().id(userId).role(Role.USER).build();
 
         String validToken = jwtService.generateAccessToken(user, 15);
 
@@ -104,7 +121,7 @@ public class JwtServiceTest {
     @Test
     void extractSubject_withValidToken_returnsCorrectSubject() {
         java.util.UUID userId = java.util.UUID.randomUUID();
-        User user = User.builder().id(userId).role(Role.CUSTOMER).build();
+        User user = User.builder().id(userId).role(Role.USER).build();
 
         String token = jwtService.generateAccessToken(user, 15);
 
@@ -114,18 +131,18 @@ public class JwtServiceTest {
     @Test
     void extractRole_withValidToken_returnsCorrectRole() {
         java.util.UUID userId = java.util.UUID.randomUUID();
-        User user = User.builder().id(userId).role(Role.CUSTOMER).build();
+        User user = User.builder().id(userId).role(Role.SYSTEM_ADMIN).build();
 
         String token = jwtService.generateAccessToken(user, 15);
 
-        assertEquals(Role.CUSTOMER.name(), jwtService.extractRole(token));
+        assertEquals(Role.SYSTEM_ADMIN.name(), jwtService.extractRole(token));
     }
 
     @Test
     void validateToken_withExpiredToken_returnsFalse() {
         User user = User.builder()
                 .id(UUID.randomUUID())
-                .role(Role.CUSTOMER)
+                .role(Role.USER)
                 .build();
         String expiredToken = jwtService.generateAccessToken(user, -1);
         boolean isValid = jwtService.validateToken(expiredToken);
@@ -136,7 +153,7 @@ public class JwtServiceTest {
     void validateToken_withInvalidToken_returnsFalse() {
         User user = User.builder()
                 .id(UUID.randomUUID())
-                .role(Role.CUSTOMER)
+                .role(Role.USER)
                 .build();
         String invalidToken = "super-secret-junk";
         boolean isValid = jwtService.validateToken(invalidToken);

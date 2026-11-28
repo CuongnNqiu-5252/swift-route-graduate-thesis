@@ -15,14 +15,8 @@ import com.swiftroute.authservice.security.JwtAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity // bật @PreAuthorize("hasRole('...')")
+@EnableMethodSecurity
 public class SecurityConfig {
-
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
-
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
-        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -30,25 +24,31 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
         http
-                .csrf(csrf -> csrf.disable()) // API thuần REST, không dùng cookie/session -> tắt CSRF
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // không
-                                                                                                              // tạo
-                                                                                                              // HttpSession
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Endpoint public - không cần token
                         .requestMatchers(
                                 "/api/auth/register",
+                                "/api/auth/email/verify",
+                                "/api/auth/email/resend-public",
+                                "/api/auth/password/forgot",
+                                "/api/auth/password/reset",
+                                "/internal/tenant-memberships/provision",
+                                "/internal/tenant-memberships/*/chat-members",
+                                "/internal/driver-activations/**",
                                 "/api/auth/login",
+                                "/api/auth/google/login",
+                                "/api/auth/driver/activate",
                                 "/api/auth/refresh",
+                                "/api/auth/invitations/accept",
+                                "/api/auth/invitations/preview",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
                                 "/actuator/health")
                         .permitAll()
-                        // Còn lại đều cần xác thực
                         .anyRequest().authenticated())
-                // Chèn filter JWT trước filter xử lý username/password mặc định của Spring
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

@@ -1,0 +1,76 @@
+'use client';
+
+import { useLocale } from '@/i18n/provider';
+
+import { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/application/contexts/auth-context';
+import { NotificationProvider } from '@/application/contexts/notification-context';
+import { Sidebar } from '@/components/layout/sidebar';
+import { Navbar } from '@/components/layout/navbar';
+import { isSystemAdmin, portalHome } from '@/lib/portal-access';
+import { SetupProgress } from '@/components/layout/setup-progress';
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { t } = useLocale();
+  const { user, token, isLoading, refreshProfile, logout } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const isDispatch = pathname === '/dispatch';
+
+  useEffect(() => {
+    if (!isLoading && !token) {
+      router.replace('/login');
+    } else if (!isLoading && user && isSystemAdmin(user)) {
+      router.replace(portalHome(user));
+    } else if (!isLoading && user && !user.tenantId && pathname !== '/organizations' && pathname !== '/profile') {
+      router.replace('/organizations');
+    }
+  }, [isLoading, token, user, router, pathname]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <p className="text-sm font-medium text-gray-500">{t("Đang khởi tạo phiên làm việc...")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (token && !user && !isLoading) {
+    return (
+      <div className="mx-auto mt-20 max-w-lg space-y-4 p-8">
+        <p role="alert">{t("Chưa thể xác minh tài khoản. Vui lòng thử lại.")}</p>
+        <button onClick={() => refreshProfile()} className="rounded border px-4 py-2">{t("Tải lại thông tin")}</button>
+        <button onClick={logout} className="ml-3 rounded border px-4 py-2">{t("Đăng nhập lại")}</button>
+      </div>
+    );
+  }
+
+  if (!token || !user || isSystemAdmin(user) || (!user.tenantId && pathname !== '/organizations' && pathname !== '/profile')) {
+    return null;
+  }
+
+  return (
+    <NotificationProvider>
+      <div className="workspace-shell flex h-dvh overflow-hidden bg-[#eef1f4]">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <Navbar />
+          <main id="workspace-content" className={isDispatch
+            ? 'workspace-sheet mb-18 flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-white [scrollbar-gutter:auto] lg:mb-2'
+            : 'workspace-sheet mx-2 mb-18 min-w-0 flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:mb-2 lg:p-8'}>
+            {isDispatch ? <div className="shrink-0 px-3 [&>section]:mb-2 [&>section]:mt-2"><SetupProgress /></div> : <SetupProgress />}
+            {children}
+          </main>
+        </div>
+      </div>
+    </NotificationProvider>
+  );
+}

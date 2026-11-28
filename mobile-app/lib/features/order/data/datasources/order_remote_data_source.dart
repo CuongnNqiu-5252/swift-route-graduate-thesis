@@ -2,238 +2,364 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/network/dio.dart';
+import 'package:swiftroute_app/core/offline/offline_action.dart';
+import 'package:swiftroute_app/core/offline/offline_sync_controller.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/delivery_proof_config_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/dispatch_plan_model.dart';
+import 'package:swiftroute_app/features/driver/data/models/driver_cod_collection_model.dart';
 
 class OrderRemoteDataSource {
   final Dio _dio;
+  final OfflineSyncController _offline;
 
-  OrderRemoteDataSource(this._dio);
+  OrderRemoteDataSource(this._dio, this._offline);
 
-  /// Subscribes to the live Server-Sent Events (SSE) tracking stream for [orderId].
-  /// Yields decoded events: location_update, connected, status_update, etc.
-  Stream<Map<String, dynamic>> streamOrderTracking(String orderId) async* {
-    try {
-      final response = await _dio.get<ResponseBody>(
-        '/orders/$orderId/tracking/stream',
-        options: Options(
-          responseType: ResponseType.stream,
-          receiveTimeout: const Duration(hours: 1),
-          headers: {
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-          },
-        ),
-      );
+  static const _ordersCacheKey = 'driver.assigned_orders.v1';
+  static const _plansCacheKey = 'driver.dispatch_plans.v1';
+  static const _proofConfigCacheKey = 'driver.delivery_proof_config.v1';
 
-      final stream = response.data?.stream;
-      if (stream == null) return;
+  bool _isTransient(Object error) =>
+      error is DioException &&
+      (error.response == null ||
+          (error.response?.statusCode ?? 0) >= 500 ||
+          error.response?.statusCode == 408 ||
+          error.response?.statusCode == 429);
 
-      String? currentEventName;
+  Future<void> _queue({
+    required OfflineActionType type,
+    required String method,
+    required String path,
+    required Map<String, dynamic> body,
+    String? entityId,
+  }) => _offline.queue(
+    OfflineAction.create(
+      type: type,
+      method: method,
+      path: path,
+      entityId: entityId,
+      body: body,
+    ),
+  );
 
-      await for (final line in stream
-          .cast<List<int>>()
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty) continue;
+  Future<void> _cacheOrders(List<OrderModel> orders) => _offline.putCache(
+    _ordersCacheKey,
+    jsonEncode(orders.map((order) => order.toJson()).toList()),
+  );
 
-        if (trimmed.startsWith('event:')) {
-          currentEventName = trimmed.substring(6).trim();
-        } else if (trimmed.startsWith('data:')) {
-          final dataString = trimmed.substring(5).trim();
-          try {
-            final decoded = jsonDecode(dataString);
-            if (decoded is Map<String, dynamic>) {
-              decoded['sse_event'] = currentEventName ?? 'message';
-              yield decoded;
-            }
-          } catch (e) {
-            debugPrint('[OrderRemoteDataSource] SSE JSON parse error: $e');
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[OrderRemoteDataSource] streamOrderTracking error: $e');
-      rethrow;
-    }
+  Future<List<OrderModel>> _cachedOrders() async {
+    final raw = await _offline.getCache(_ordersCacheKey);
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw);
+    return decoded is List
+        ? decoded
+              .whereType<Map>()
+              .map(
+                (item) => OrderModel.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .toList()
+        : [];
   }
 
-  /// Creates a new delivery order.
-  Future<OrderModel> createOrder({
-    required double pickupLat,
-    required double pickupLng,
-    required String pickupAddress,
-    required double deliveryLat,
-    required double deliveryLng,
-    required String deliveryAddress,
-    required double weightKg,
-    String priority = 'NORMAL',
-    String? tenantId,
-  }) async {
-    final now = DateTime.now().toUtc();
-    final body = {
-      'pickup_lat': pickupLat,
-      'pickup_lng': pickupLng,
-      'pickup_address': pickupAddress,
-      'delivery_lat': deliveryLat,
-      'delivery_lng': deliveryLng,
-      'delivery_address': deliveryAddress,
-      'time_window_start': now.toIso8601String(),
-      'time_window_end': now.add(const Duration(hours: 4)).toIso8601String(),
-      'weight_kg': weightKg,
-      'priority': priority,
-    };
+  Future<void> _cachePlans(List<DispatchPlanModel> plans) => _offline.putCache(
+    _plansCacheKey,
+    jsonEncode(plans.map((plan) => plan.toJson()).toList()),
+  );
 
-    final headers = <String, dynamic>{};
-    final effectiveTenant = (tenantId != null && tenantId.isNotEmpty)
-        ? tenantId
-        : 'a1111111-1111-1111-1111-111111111111';
-    headers['X-Tenant-Id'] = effectiveTenant;
-
-    final response = await _dio.post(
-      '/orders',
-      data: body,
-      options: Options(headers: headers),
-    );
-
-    final data = response.data['data'] as Map<String, dynamic>;
-    return OrderModel.fromJson(data);
-  }
-
-  /// Retrieves order details by [orderId].
-  Future<OrderModel> getOrderById(String orderId) async {
-    try {
-      final response = await _dio.get('/orders/$orderId');
-      final data = response.data['data'] as Map<String, dynamic>;
-      return OrderModel.fromJson(data);
-    } catch (e) {
-      debugPrint('[OrderRemoteDataSource] getOrderById error: $e');
-      rethrow;
-    }
-  }
-
-  /// Lists all orders belonging to the authenticated customer.
-  Future<List<OrderModel>> getMyOrders() async {
-    try {
-      final response = await _dio.get('/orders/me');
-      final resData = response.data;
-      final rawList = (resData is Map && resData['data'] is List)
-          ? resData['data'] as List
-          : (resData is List ? resData : null);
-      if (rawList == null) return [];
-      return rawList
-          .whereType<Map>()
-          .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
-          .toList();
-    } catch (e) {
-      debugPrint('[OrderRemoteDataSource] getMyOrders error: $e');
-      return [];
-    }
+  Future<List<DispatchPlanModel>> _cachedPlans() async {
+    final raw = await _offline.getCache(_plansCacheKey);
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw);
+    return decoded is List
+        ? decoded
+              .whereType<Map>()
+              .map(
+                (item) =>
+                    DispatchPlanModel.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .toList()
+        : [];
   }
 
   /// Returns the active route stops assigned to the authenticated driver.
   /// The gateway derives the driver's identity from the bearer token.
   Future<List<OrderModel>> getAssignedDriverOrders() async {
     try {
-      final response = await _dio.get('/orders/driver/assigned');
+      final tasksResponse = await _dio.get(
+        '/delivery-tasks/mine',
+        queryParameters: {'include_completed': true},
+      );
+      final tasksData = tasksResponse.data;
+      final taskList = tasksData is List
+          ? tasksData
+          : (tasksData is Map && tasksData['data'] is List
+                ? tasksData['data'] as List
+                : <dynamic>[]);
+      final orders = taskList
+          .whereType<Map>()
+          .map((rawTask) {
+            final task = Map<String, dynamic>.from(rawTask);
+            final rawOrder = task['order'];
+            if (rawOrder is! Map) return null;
+            return OrderModel.fromJson(
+              Map<String, dynamic>.from(rawOrder),
+            ).copyWith(
+              deliveryTaskId:
+                  task['task_id'] as String? ?? task['taskId'] as String?,
+              deliveryTaskType:
+                  task['task_type'] as String? ??
+                  task['taskType'] as String? ??
+                  'DELIVERY',
+              deliveryTaskStatus: DeliveryTaskStatus.fromString(
+                task['status'] as String?,
+              ),
+            );
+          })
+          .whereType<OrderModel>()
+          .toList();
+      await _cacheOrders(orders);
+      unawaited(_offline.synchronize());
+      return orders;
+    } catch (e, stack) {
+      debugPrint(
+        '[OrderRemoteDataSource] getAssignedDriverOrders error: $e\n$stack',
+      );
+      return _cachedOrders();
+    }
+  }
+
+  Future<void> updateDeliveryTaskStatus({
+    required String taskId,
+    required DeliveryTaskStatus status,
+    String? failureReason,
+    String? notes,
+    String? proofUrl,
+  }) async {
+    final body = <String, dynamic>{
+      'status': status.serverValue,
+      if (failureReason != null && failureReason.isNotEmpty)
+        'failure_reason': failureReason,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
+      if (proofUrl != null && proofUrl.isNotEmpty) 'proof_url': proofUrl,
+    };
+    try {
+      await _dio.patch('/delivery-tasks/$taskId', data: body);
+    } catch (error) {
+      if (!_isTransient(error)) rethrow;
+      await _queue(
+        type: OfflineActionType.deliveryTaskUpdate,
+        method: 'PATCH',
+        path: '/delivery-tasks/$taskId',
+        body: body,
+      );
+    }
+  }
+
+  String _operationId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  /// Records the exact COD outcome separately from delivery completion.
+  Future<void> collectCod({
+    required String orderId,
+    required double amount,
+    required String outcome,
+    String? reason,
+    String? evidenceUrl,
+  }) async {
+    final body = <String, dynamic>{
+      'operation_id': _operationId(),
+      'amount': amount,
+      'outcome': outcome,
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
+      if (evidenceUrl != null && evidenceUrl.isNotEmpty)
+        'evidence_url': evidenceUrl,
+    };
+    try {
+      await _dio.post('/cod/orders/$orderId/collections', data: body);
+    } catch (error) {
+      if (!_isTransient(error)) rethrow;
+      await _queue(
+        type: OfflineActionType.codCollection,
+        method: 'POST',
+        path: '/cod/orders/$orderId/collections',
+        entityId: orderId,
+        body: body,
+      );
+    }
+  }
+
+  Future<DriverCodCustodyModel> getCodCustody() async {
+    final response = await _dio.get('/cod/mine/custody');
+    final data = response.data;
+    final raw = data is Map && data['data'] is Map
+        ? data['data'] as Map
+        : (data is Map ? data : <dynamic, dynamic>{});
+    return DriverCodCustodyModel.fromJson(Map<String, dynamic>.from(raw));
+  }
+
+  Future<void> submitCodHandover({
+    required List<String> collectionIds,
+    required double declaredTotal,
+    String? notes,
+  }) async {
+    final body = <String, dynamic>{
+      'operation_id': _operationId(),
+      'collection_ids': collectionIds,
+      'order_ids': collectionIds,
+      'declared_total': declaredTotal,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
+    };
+    try {
+      await _dio.post('/cod/handovers', data: body);
+    } catch (error) {
+      if (!_isTransient(error)) rethrow;
+      await _queue(
+        type: OfflineActionType.codHandover,
+        method: 'POST',
+        path: '/cod/handovers',
+        body: body,
+      );
+    }
+  }
+
+  /// Fetches active DISPATCHED route plans assigned to the authenticated driver.
+  Future<List<DispatchPlanModel>> getDriverDispatchPlans() async {
+    try {
+      final response = await _dio.get('/orders/dispatch/driver-plans');
       final resData = response.data;
       final rawList = (resData is Map && resData['data'] is List)
           ? resData['data'] as List
-          : (resData is List ? resData : null);
-      if (rawList == null || rawList.isEmpty) {
-        return [];
-      }
-      return rawList
+          : (resData is List ? resData : <dynamic>[]);
+      final plans = rawList
           .whereType<Map>()
-          .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
+          .map(
+            (item) =>
+                DispatchPlanModel.fromJson(Map<String, dynamic>.from(item)),
+          )
           .toList();
-    } catch (e, stack) {
-      debugPrint('[OrderRemoteDataSource] getAssignedDriverOrders error: $e\n$stack');
-      return [];
+      await _cachePlans(plans);
+      unawaited(_offline.synchronize());
+      return plans;
+    } catch (e) {
+      debugPrint('[OrderRemoteDataSource] getDriverDispatchPlans error: $e');
+      return _cachedPlans();
     }
   }
 
-  /// Advances a driver's assigned order through the delivery state machine.
-  Future<OrderModel> updateOrderStatus({
-    required String orderId,
-    required OrderStatus status,
+  /// Uploads an evidence or POD photo to Cloudinary via the backend.
+  Future<String> uploadEvidenceImage({
+    required List<int> bytes,
+    required String fileName,
+    String folder = 'evidence',
   }) async {
-    final response = await _dio.patch(
-      '/orders/$orderId/status',
-      data: '"${status.toServerString()}"',
-      options: Options(contentType: Headers.jsonContentType),
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: fileName),
+      'folder': folder,
+    });
+    final response = await _dio.post(
+      '/uploads/image',
+      data: formData,
+      options: Options(contentType: 'multipart/form-data'),
     );
     final resData = response.data;
     final map = (resData is Map && resData['data'] is Map)
         ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Failed to update order status');
-    return OrderModel.fromJson(Map<String, dynamic>.from(map));
-  }
-
-  /// Confirms the payment and moves an owned order to PAID.
-  Future<OrderModel> confirmPayment(OrderModel order) async {
-    try {
-      final response = await _dio.patch('/orders/${order.id}/pay');
-      final resData = response.data;
-      final map = (resData is Map && resData['data'] is Map)
-          ? resData['data'] as Map
-          : (resData is Map ? resData : null);
-      if (map == null) return order;
-      return OrderModel.fromJson(Map<String, dynamic>.from(map));
-    } catch (error) {
-      debugPrint('[OrderRemoteDataSource] confirmPayment warning: $error');
-      // If payment auto-confirmation fails, still return order with current status
-      return order;
+        : (resData is Map ? resData : <String, dynamic>{});
+    final url = map['url']?.toString();
+    if (url == null || url.isEmpty) {
+      throw StateError('Máy chủ không trả về URL bằng chứng hợp lệ');
     }
+    return url;
   }
 
-  /// Reports a delivery incident, transitioning the order to FAILED.
-  Future<OrderModel> reportIncident({
-    required String orderId,
+  /// Reports a failed delivery stop with reason, optional note, and photo evidence.
+  Future<Map<String, dynamic>> reportOperationalIncident({
+    String? orderId,
+    String? planId,
     required String incidentType,
     String? notes,
+    List<String>? evidenceUrls,
   }) async {
-    final response = await _dio.patch(
-      '/orders/$orderId/incident',
-      data: {
-        'incident_type': incidentType,
-        if (notes != null && notes.isNotEmpty) 'notes': notes,
-      },
-    );
+    final payload = <String, dynamic>{
+      'incident_type': incidentType,
+    };
+    if (orderId != null) payload['order_id'] = orderId;
+    if (planId != null) payload['dispatch_plan_id'] = planId;
+    if (notes != null && notes.isNotEmpty) payload['notes'] = notes;
+    if (evidenceUrls != null && evidenceUrls.isNotEmpty) {
+      payload['evidence_urls'] = evidenceUrls;
+    }
+
+    Response<dynamic> response;
+    try {
+      response = await _dio.post('/operations/incidents', data: payload);
+    } catch (error) {
+      if (!_isTransient(error)) rethrow;
+      await _queue(
+        type: OfflineActionType.incident,
+        method: 'POST',
+        path: '/operations/incidents',
+        entityId: orderId ?? planId,
+        body: payload,
+      );
+      return {'offline_queued': true};
+    }
     final resData = response.data;
     final map = (resData is Map && resData['data'] is Map)
         ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Failed to report delivery incident');
-    return OrderModel.fromJson(Map<String, dynamic>.from(map));
+        : (resData is Map ? resData : <String, dynamic>{});
+    return Map<String, dynamic>.from(map);
   }
 
-  /// Cancels an active order before delivery.
-  Future<OrderModel> cancelOrder({
-    required String orderId,
-    String? reason,
-  }) async {
-    final response = await _dio.patch(
-      '/orders/$orderId/cancel',
-      data: {
-        if (reason != null && reason.isNotEmpty) 'reason': reason,
-      },
-    );
-    final resData = response.data;
-    final map = (resData is Map && resData['data'] is Map)
-        ? resData['data'] as Map
-        : (resData is Map ? resData : null);
-    if (map == null) throw Exception('Failed to cancel order');
-    return OrderModel.fromJson(Map<String, dynamic>.from(map));
+  /// Fetches the tenant's Proof of Delivery (POD) configuration for notes and photos.
+  /// Caches the last known policy locally so offline/poor-network stops still enforce it.
+  Future<DeliveryProofConfigModel> getDeliveryProofConfig() async {
+    try {
+      final response = await _dio.get('/tenants/me/delivery-proof-config');
+      final resData = response.data;
+      final rawMap = resData is Map && resData['data'] is Map
+          ? Map<String, dynamic>.from(resData['data'] as Map)
+          : (resData is Map
+                ? Map<String, dynamic>.from(resData)
+                : <String, dynamic>{});
+      final config = DeliveryProofConfigModel.fromJson(rawMap);
+      await _offline.putCache(_proofConfigCacheKey, jsonEncode(config.toJson()));
+      return config;
+    } catch (e) {
+      debugPrint('[OrderRemoteDataSource] getDeliveryProofConfig fallback: $e');
+      final cached = await _offline.getCache(_proofConfigCacheKey);
+      if (cached != null) {
+        try {
+          final decoded = jsonDecode(cached);
+          if (decoded is Map) {
+            return DeliveryProofConfigModel.fromJson(
+              Map<String, dynamic>.from(decoded),
+            );
+          }
+        } catch (_) {}
+      }
+      return const DeliveryProofConfigModel();
+    }
   }
 }
 
 /// Riverpod provider for OrderRemoteDataSource
 final orderRemoteDataSourceProvider = Provider<OrderRemoteDataSource>((ref) {
-  return OrderRemoteDataSource(ref.read(dioProvider));
+  return OrderRemoteDataSource(
+    ref.read(dioProvider),
+    ref.read(offlineSyncProvider.notifier),
+  );
 });

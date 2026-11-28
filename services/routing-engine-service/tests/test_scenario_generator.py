@@ -22,9 +22,9 @@ def test_generate_scenario_structure():
     assert locations[0] == (scenario.depot_lat, scenario.depot_lon)
 
 
-def test_build_matrices_from_scenario():
+def test_build_matrices_from_scenario(goong_stub):
     scenario = generate_scenario(num_orders=5, seed=123)
-    dist_mat, time_mat = scenario.build_matrices(avg_speed_kmh=30.0)
+    dist_mat, time_mat = scenario.build_matrices()
 
     # 5 orders + 1 depot = 6x6 matrix
     assert len(dist_mat) == 6

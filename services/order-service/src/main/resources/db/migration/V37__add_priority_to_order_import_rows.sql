@@ -1,0 +1,1 @@
+ALTER TABLE order_import_rows ADD COLUMN IF NOT EXISTS priority VARCHAR(20);

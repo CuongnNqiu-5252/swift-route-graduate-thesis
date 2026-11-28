@@ -1,15 +1,24 @@
+// features/driver/presentation/screens/driver_main_screen.dart
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:swiftroute_app/core/offline/offline_conflict_sheet.dart';
+import 'package:swiftroute_app/core/offline/offline_sync_controller.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
+import 'package:swiftroute_app/core/utils/location_helper.dart';
+import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_earnings_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_home_tab.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_profile_tab.dart';
-import 'package:swiftroute_app/features/driver/presentation/screens/driver_route_tab.dart';
+import 'package:swiftroute_app/features/driver/presentation/screens/driver_cod_screen.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 import 'package:swiftroute_app/presentation/providers/auth_provider.dart';
 
-/// The master shell screen for drivers after logging in.
-/// Hosts Tab 0 (Trang chủ / D02), Tab 1 (Lộ trình / D05), and Tab 2 (Hồ sơ & Ca / D09).
+/// Operational shell for SwiftRoute Driver:
+/// Đơn hàng · COD · Thu nhập · Tài khoản
 class DriverMainScreen extends ConsumerStatefulWidget {
   const DriverMainScreen({super.key});
 
@@ -17,41 +26,180 @@ class DriverMainScreen extends ConsumerStatefulWidget {
   ConsumerState<DriverMainScreen> createState() => _DriverMainScreenState();
 }
 
-class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
+class _DriverMainScreenState extends ConsumerState<DriverMainScreen>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
+  Timer? _locationTimer;
+  bool _locationRequestInFlight = false;
+  int _locationFailures = 0;
+  int _locationSequence = DateTime.now().millisecondsSinceEpoch;
 
   @override
   void initState() {
     super.initState();
-    // Auto-fetch profile and assigned orders when the driver shell opens
-    Future.microtask(() {
-      ref.read(driverProvider.notifier).refreshProfile();
-      ref.read(driverOrdersProvider.notifier).refreshOrders();
+    WidgetsBinding.instance.addObserver(this);
+    Future.microtask(() async {
+      await ref.read(authProvider.notifier).getCurrentUser();
+      await ref.read(driverProvider.notifier).refreshProfile();
+      await ref.read(driverOrdersProvider.notifier).refreshOrders();
+      await ref.read(offlineSyncProvider.notifier).synchronize();
+      await _syncLocation();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      unawaited(ref.read(authProvider.notifier).getCurrentUser());
+      unawaited(ref.read(driverOrdersProvider.notifier).refreshOrders());
+      unawaited(ref.read(driverDispatchPlansProvider.notifier).refresh());
+      unawaited(ref.read(driverCodHandoverProvider.notifier).refresh());
+    }
+  }
+
+  void _selectTab(int index) {
+    if (index == _currentIndex) return;
+    setState(() => _currentIndex = index);
+    if (index == 0) {
+      unawaited(ref.read(driverOrdersProvider.notifier).refreshOrders());
+    }
+  }
+
+  Future<void> _syncLocation() async {
+    final driver = ref.read(driverProvider).valueOrNull;
+    if (!mounted || _locationRequestInFlight) return;
+    if (driver == null || !driver.isAvailable) {
+      _scheduleNextLocationSync();
+      return;
+    }
+    _locationRequestInFlight = true;
+    try {
+      final position = await LocationHelper.getCurrentPosition();
+      if (position == null) throw StateError('Không lấy được vị trí');
+      final nowSequence = DateTime.now().millisecondsSinceEpoch;
+      _locationSequence = nowSequence > _locationSequence
+          ? nowSequence
+          : _locationSequence + 1;
+      final ok = await ref
+          .read(driverProvider.notifier)
+          .reportLocation(
+            lat: position.latitude,
+            lng: position.longitude,
+            accuracyM: position.accuracy < 0 ? 0 : position.accuracy,
+            speedMps: position.speed < 0 ? 0 : position.speed,
+            bearing: position.heading < 0 ? 0 : position.heading,
+            recordedAt: position.timestamp,
+            sequence: _locationSequence,
+          );
+      if (!ok) throw StateError('Không đồng bộ được vị trí');
+      if (mounted && _locationFailures > 0) {
+        setState(() => _locationFailures = 0);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _locationFailures++);
+      }
+    } finally {
+      _locationRequestInFlight = false;
+      _scheduleNextLocationSync();
+    }
+  }
+
+  void _scheduleNextLocationSync() {
+    _locationTimer?.cancel();
+    if (!mounted) return;
+    final tasks =
+        ref.read(driverOrdersProvider).valueOrNull ?? const <OrderModel>[];
+    final hasActiveTask = tasks.any(
+      (order) => order.deliveryTaskStatus == DeliveryTaskStatus.outForDelivery,
+    );
+    _locationTimer = Timer(
+      hasActiveTask ? const Duration(seconds: 5) : const Duration(seconds: 30),
+      _syncLocation,
+    );
+  }
+
+  Future<void> _resolveSyncConflicts() async {
+    final controller = ref.read(offlineSyncProvider.notifier);
+    final conflicts = await controller.conflictedActions();
+    if (!mounted || conflicts.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.86,
+        child: OfflineConflictSheet(
+          conflicts: conflicts,
+          onAcceptServerState: controller.acceptServerState,
+          onEscalate: (actionId, note) =>
+              controller.escalateConflict(actionId, driverNote: note),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _locationTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Automatically redirect back to login if user becomes unauthenticated
     ref.listen(authProvider, (previous, next) {
-      if (!next.isAuthenticated) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+      if (!next.isAuthenticated && Navigator.of(context).canPop()) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     });
 
     final ordersState = ref.watch(driverOrdersProvider);
-    final activeOrdersCount = ordersState.valueOrNull
-            ?.where((o) => o.status == OrderStatus.planned || o.status == OrderStatus.inTransit)
+    final syncState = ref.watch(offlineSyncProvider);
+
+    final activeOrdersCount =
+        ordersState.valueOrNull
+            ?.where(
+              (o) =>
+                  o.deliveryTaskStatus != DeliveryTaskStatus.completed &&
+                  o.deliveryTaskStatus != DeliveryTaskStatus.cancelled &&
+                  o.deliveryTaskStatus != DeliveryTaskStatus.failed,
+            )
             .length ??
         0;
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Column(
         children: [
-          DriverHomeTab(onNavigateToRoute: () => setState(() => _currentIndex = 1)),
-          const DriverRouteTab(),
-          const DriverProfileTab(),
+          SafeArea(
+            bottom: false,
+            top: _locationFailures >= 3,
+            child: GpsSyncBanner(
+              hasLocationIssue: _locationFailures >= 3,
+              pendingActions: syncState.pending,
+              conflicts: syncState.conflicts,
+              isSyncing: syncState.isSyncing,
+              onResolveConflicts: _resolveSyncConflicts,
+              onRetry: () {
+                unawaited(ref.read(offlineSyncProvider.notifier).synchronize());
+                unawaited(_syncLocation());
+              },
+            ),
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                DriverHomeTab(
+                  onNavigateToEarnings: () => _selectTab(2),
+                  onNavigateToProfile: () => _selectTab(3),
+                ),
+                const DriverCodScreen(),
+                const DriverEarningsTab(),
+                const DriverProfileTab(),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: Container(
@@ -60,34 +208,35 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
         ),
         child: NavigationBar(
           selectedIndex: _currentIndex,
-          backgroundColor: Colors.white,
-          indicatorColor: AppColors.primary.withValues(alpha: 0.12),
-          onDestinationSelected: (idx) => setState(() => _currentIndex = idx),
+          onDestinationSelected: _selectTab,
           destinations: [
-            const NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard_rounded, color: AppColors.primary),
-              label: 'Trang chủ',
-            ),
             NavigationDestination(
               icon: Badge(
                 isLabelVisible: activeOrdersCount > 0,
                 label: Text('$activeOrdersCount'),
-                backgroundColor: AppColors.accent,
-                child: const Icon(Icons.alt_route_rounded),
+                child: const Icon(Icons.local_shipping_outlined),
               ),
               selectedIcon: Badge(
                 isLabelVisible: activeOrdersCount > 0,
                 label: Text('$activeOrdersCount'),
-                backgroundColor: AppColors.accent,
-                child: const Icon(Icons.alt_route_rounded, color: AppColors.primary),
+                child: const Icon(Icons.local_shipping_rounded),
               ),
-              label: 'Lộ trình',
+              label: 'Đơn hàng',
             ),
             const NavigationDestination(
-              icon: Icon(Icons.badge_outlined),
-              selectedIcon: Icon(Icons.badge_rounded, color: AppColors.primary),
-              label: 'Hồ sơ & Ca',
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              selectedIcon: Icon(Icons.account_balance_wallet_rounded),
+              label: 'COD',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.receipt_long_outlined),
+              selectedIcon: Icon(Icons.receipt_long_rounded),
+              label: 'Thu nhập',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: 'Tài khoản',
             ),
           ],
         ),
@@ -95,4 +244,3 @@ class _DriverMainScreenState extends ConsumerState<DriverMainScreen> {
     );
   }
 }
-

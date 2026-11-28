@@ -45,10 +45,13 @@ public class Driver {
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
-    @Column(name = "phone", nullable = false, unique = true, length = 20)
+    @Column(name = "phone", unique = true, length = 20)
     private String phone;
 
-    @Column(name = "license_plate", nullable = false, unique = true, length = 20)
+    @Column(name = "email", length = 255)
+    private String email;
+
+    @Column(name = "license_plate", unique = true, length = 20)
     private String licensePlate;
 
     /** Driver's current GPS latitude — updated via Location events */
@@ -59,7 +62,7 @@ public class Driver {
     @Column(name = "current_lng")
     private Double currentLng;
 
-    @Column(name = "vehicle_type", nullable = false, length = 30)
+    @Column(name = "vehicle_type", length = 30)
     @Enumerated(EnumType.STRING)
     private VehicleType vehicleType;
 
@@ -82,6 +85,20 @@ public class Driver {
     @Builder.Default
     private DriverStatus status = DriverStatus.ACTIVE;
 
+    @Column(name = "review_note", length = 1000)
+    private String reviewNote;
+
+    /** VietQR/NAPAS bank code (e.g. VCB, MB) used for payroll payouts. */
+    @Column(name = "bank_code", length = 20)
+    private String bankCode;
+
+    @Column(name = "bank_account_number", length = 40)
+    private String bankAccountNumber;
+
+    /** Account holder name, normalized to uppercase ASCII for bank apps. */
+    @Column(name = "bank_account_name", length = 120)
+    private String bankAccountName;
+
     @Column(name = "is_available", nullable = false)
     @Builder.Default
     private Boolean isAvailable = false;
@@ -93,4 +110,5 @@ public class Driver {
     @Column(name = "updated_at", nullable = false)
     @Builder.Default
     private Instant updatedAt = Instant.now();
+
 }

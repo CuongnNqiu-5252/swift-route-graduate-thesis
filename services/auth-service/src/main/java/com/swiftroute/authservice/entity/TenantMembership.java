@@ -55,6 +55,24 @@ public class TenantMembership {
     @Builder.Default
     private TenantMembershipStatus status = TenantMembershipStatus.PENDING;
 
+    @Column(name = "granted_permissions", nullable = false, columnDefinition = "TEXT")
+    @Builder.Default
+    private String grantedPermissions = "[]";
+
+    @Column(name = "revoked_permissions", nullable = false, columnDefinition = "TEXT")
+    @Builder.Default
+    private String revokedPermissions = "[]";
+
+    @Column(name = "permissions_version", nullable = false)
+    @Builder.Default
+    private Long permissionsVersion = 1L;
+
+    @Column(name = "last_event_version")
+    private Long lastEventVersion;
+
+    @Column(name = "last_event_occurred_at")
+    private java.time.Instant lastEventOccurredAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

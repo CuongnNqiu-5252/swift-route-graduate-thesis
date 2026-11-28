@@ -7,6 +7,8 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:swiftroute_app/config/goong_config.dart';
 import 'package:swiftroute_app/core/utils/polyline_decoder.dart';
 
+enum MapFocusMode { route, driver }
+
 /// Reusable MapLibre widget configured with Goong vector tiles and fallback support.
 /// Dynamically updates the driver marker as a modern glowing GPS puck, and consumes
 /// (erases) the passed segments of the blue route line behind the driver in real-time.
@@ -15,8 +17,12 @@ class GoongMapWidget extends StatefulWidget {
   final LatLngPoint? deliveryLocation;
   final LatLngPoint? driverLocation;
   final List<LatLngPoint> routePoints;
+  final bool isDelivered;
   final bool interactive;
   final void Function(LatLngPoint point)? onMapClick;
+  final MapFocusMode focusMode;
+  final int focusRevision;
+  final VoidCallback? onMapReady;
 
   const GoongMapWidget({
     super.key,
@@ -24,8 +30,12 @@ class GoongMapWidget extends StatefulWidget {
     this.deliveryLocation,
     this.driverLocation,
     this.routePoints = const [],
+    this.isDelivered = false,
     this.interactive = true,
     this.onMapClick,
+    this.focusMode = MapFocusMode.route,
+    this.focusRevision = 0,
+    this.onMapReady,
   });
 
   @override
@@ -37,7 +47,7 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
   Circle? _pickupCircle;
   Circle? _deliveryCircle;
   Circle? _driverHaloCircle; // Glowing radar pulse halo
-  Circle? _driverCircle;     // Vibrant primary driver puck
+  Circle? _driverCircle; // Vibrant primary driver puck
   Circle? _driverCoreCircle; // Crisp white inner core dot
   Line? _routeLine;
   bool _isStyleLoaded = false;
@@ -67,10 +77,12 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
   void didUpdateWidget(covariant GoongMapWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // If route changed or was replaced, reset progress tracker
+    // If route changed or was replaced, reset progress tracker (only if order is still active)
     if (oldWidget.routePoints != widget.routePoints) {
-      _maxPassedIndex = 0;
-      _hasInitialFitted = false;
+      if (!widget.isDelivered) {
+        _maxPassedIndex = 0;
+        _hasInitialFitted = false;
+      }
     }
 
     // Detect if simulation was reset back to pickup origin
@@ -88,6 +100,10 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
 
     if (_isStyleLoaded) {
       _updateMapOverlays();
+      if (oldWidget.focusRevision != widget.focusRevision ||
+          oldWidget.focusMode != widget.focusMode) {
+        _applyFocus();
+      }
     }
   }
 
@@ -113,6 +129,28 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
     if (!mounted) return;
     _isStyleLoaded = true;
     _updateMapOverlays();
+    widget.onMapReady?.call();
+  }
+
+  void _applyFocus() {
+    final controller = _mapController;
+    if (controller == null || !_isStyleLoaded) return;
+    if (widget.focusMode == MapFocusMode.driver &&
+        widget.driverLocation != null) {
+      final driver = widget.driverLocation!;
+      controller.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(driver.latitude, driver.longitude),
+          16.2,
+        ),
+        duration: const Duration(milliseconds: 450),
+      );
+      return;
+    }
+    final points = widget.routePoints
+        .map((point) => LatLng(point.latitude, point.longitude))
+        .toList();
+    if (points.isNotEmpty) _fitRouteBounds(controller, points);
   }
 
   /// Finds the index in [points] that is closest to [target], searching forward
@@ -142,7 +180,12 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
 
     // ── 1. Update Route Polyline (Consumes / disappears behind driver) ──────
     try {
-      if (widget.routePoints.length >= 2) {
+      if (widget.isDelivered || widget.routePoints.isEmpty) {
+        // If order has been delivered or no route points, remove any line completely
+        _routeLine = null;
+        _maxPassedIndex = 0;
+        await controller.clearLines();
+      } else if (widget.routePoints.length >= 2) {
         List<LatLng> lineGeometry;
 
         if (widget.driverLocation != null) {
@@ -410,10 +453,7 @@ class _GoongMapWidgetState extends State<GoongMapWidget> {
       onStyleLoadedCallback: _onStyleLoaded,
       myLocationEnabled: false,
       compassEnabled: false,
-      attributionButtonMargins: const Point(
-        -100,
-        -100,
-      ), // Hide attribution off-screen
+      attributionButtonMargins: const Point(8, 8),
       onMapClick: (point, latLng) {
         if (widget.onMapClick != null) {
           widget.onMapClick!(LatLngPoint(latLng.latitude, latLng.longitude));

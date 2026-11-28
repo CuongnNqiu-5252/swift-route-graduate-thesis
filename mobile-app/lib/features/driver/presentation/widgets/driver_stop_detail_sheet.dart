@@ -1,12 +1,17 @@
+// features/driver/presentation/widgets/driver_stop_detail_sheet.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftroute_app/core/theme/app_colors.dart';
-import 'package:swiftroute_app/features/driver/application/driver_provider.dart';
+import 'package:swiftroute_app/core/theme/app_theme.dart';
+import 'package:swiftroute_app/core/utils/formatters.dart';
+import 'package:swiftroute_app/core/widgets/field_ops_widgets.dart';
 import 'package:swiftroute_app/features/driver/presentation/screens/driver_navigation_screen.dart';
-import 'package:swiftroute_app/features/driver/presentation/widgets/incident_report_dialog.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_delivery_pod_sheet.dart';
+import 'package:swiftroute_app/features/driver/presentation/widgets/driver_incident_sheet.dart';
 import 'package:swiftroute_app/features/order/data/models/order_model.dart';
 
-/// Modal bottom sheet displaying complete details and actions for a stop (D06)
+/// Waybill detail sheet for a customer delivery stop (D06).
 class DriverStopDetailSheet extends ConsumerStatefulWidget {
   const DriverStopDetailSheet({
     super.key,
@@ -15,337 +20,284 @@ class DriverStopDetailSheet extends ConsumerStatefulWidget {
   });
 
   final OrderModel order;
-  final int sequenceNumber;
+  final int? sequenceNumber;
 
   static Future<void> show(
     BuildContext context, {
     required OrderModel order,
-    required int sequenceNumber,
+    required int? sequenceNumber,
   }) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => DriverStopDetailSheet(
-        order: order,
-        sequenceNumber: sequenceNumber,
-      ),
+      builder: (_) =>
+          DriverStopDetailSheet(order: order, sequenceNumber: sequenceNumber),
     );
   }
 
   @override
-  ConsumerState<DriverStopDetailSheet> createState() => _DriverStopDetailSheetState();
+  ConsumerState<DriverStopDetailSheet> createState() =>
+      _DriverStopDetailSheetState();
 }
 
 class _DriverStopDetailSheetState extends ConsumerState<DriverStopDetailSheet> {
-  var _isUpdating = false;
+  OrderModel get _order => widget.order;
 
-  Future<void> _updateStatus(OrderStatus nextStatus) async {
-    setState(() => _isUpdating = true);
-    try {
-      await ref.read(driverOrdersProvider.notifier).updateOrderStatus(
-            orderId: widget.order.id,
-            nextStatus: nextStatus,
-          );
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Đơn #${widget.order.id.substring(0, 8)} đã chuyển thành: ${nextStatus.displayName}'),
-            backgroundColor: nextStatus == OrderStatus.failed ? AppColors.error : AppColors.success,
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không thể cập nhật đơn. Hãy thử lại.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
-    }
+  void _showSnack(String message, {Color? color}) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
-  Future<void> _handleIncident() async {
-    final result = await IncidentReportDialog.show(
-      context,
-      orderId: widget.order.id,
-      deliveryAddress: widget.order.deliveryAddress,
-    );
+  Future<void> _completeDelivery() async {
+    final done = await DriverDeliveryPodSheet.show(context, _order);
+    if (!done || !mounted) return;
+    Navigator.of(context).pop();
+    _showSnack('Đã giao xong ${_order.displayCode}.', color: AppColors.success);
+  }
 
-    if (result != null && mounted) {
-      await _updateStatus(OrderStatus.failed);
-    }
+  Future<void> _reportIncident() async {
+    await DriverIncidentSheet.show(context, _order);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _openMap() {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => DriverNavigationScreen(order: _order)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final order = widget.order;
-    final statusColor = switch (order.status) {
-      OrderStatus.planned => Colors.blue.shade700,
-      OrderStatus.inTransit => AppColors.accent,
-      OrderStatus.delivered => AppColors.success,
-      OrderStatus.failed => AppColors.error,
-      _ => AppColors.textSecondary,
-    };
+    final order = _order;
+    final status =
+        order.deliveryTaskStatus ?? DeliveryTaskStatus.outForDelivery;
+    final isClosed =
+        status == DeliveryTaskStatus.completed ||
+        status == DeliveryTaskStatus.failed ||
+        status == DeliveryTaskStatus.cancelled;
+    final bottom = MediaQuery.paddingOf(context).bottom;
 
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    final placeTitle = order.recipientName?.trim().isNotEmpty == true
+        ? order.recipientName!.trim()
+        : 'Khách nhận hàng';
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.9,
       ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Drag handle
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Header: Sequence, ID, Status
-          Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  '${widget.sequenceNumber}',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Đơn hàng #${order.id.length > 8 ? order.id.substring(0, 8) : order.id}',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      order.tenantName ?? 'Kho vận SwiftRoute Hub',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  order.status.displayName,
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: statusColor),
+                  color: AppColors.surfaceVariant,
+                  borderRadius: BorderRadius.circular(99),
                 ),
               ),
-            ],
-          ),
-          const Divider(height: 24, color: AppColors.divider),
-          // Delivery details
-          const Text('ĐIỂM GIAO HÀNG', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
-          const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  order.deliveryAddress,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Time window and weight
-          Row(
-            children: [
-              Expanded(
-                child: _InfoTile(
-                  title: 'Khung giờ giao',
-                  value: '${_formatTime(order.timeWindowStart)} - ${_formatTime(order.timeWindowEnd)}',
-                  icon: Icons.access_time_rounded,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _InfoTile(
-                  title: 'Trọng lượng gói',
-                  value: '${order.weightKg.toStringAsFixed(1)} kg',
-                  icon: Icons.scale_rounded,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Customer contact simulation
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(10),
             ),
-            child: Row(
+            const SizedBox(height: 16),
+            Row(
               children: [
-                const CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppColors.surfaceVariant,
-                  child: Icon(Icons.person, color: AppColors.textPrimary, size: 20),
+                Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: switch (widget.sequenceNumber) {
+                    final number? => Text(
+                      '$number',
+                      style: AppTheme.numStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                    null => const Icon(
+                      Icons.local_shipping_outlined,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                  },
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Khách nhận hàng', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      Text('0909 ••• ••• (Được bảo mật)', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                    ],
+                Expanded(
+                  child: Text(
+                    order.displayCode,
+                    style: AppTheme.numStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-                IconButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Đang kết nối cuộc gọi che số với khách hàng...')),
-                    );
-                  },
-                  icon: const Icon(Icons.phone_rounded, color: AppColors.primary),
-                  tooltip: 'Gọi cho khách',
+                StatusPill(
+                  label: status.displayName,
+                  foreground: AppColors.primaryDark,
+                  background: AppColors.primarySoft,
+                  borderColor: AppColors.primaryBorder,
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 20),
-          // Action buttons
-          Row(
-            children: [
-              // Navigation map
-              Expanded(
-                flex: 4,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => DriverNavigationScreen(order: order),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.navigation_rounded, size: 18),
-                  label: const Text('Bản đồ'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
+            const SizedBox(height: 18),
+            Text(
+              placeTitle,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
               ),
-              const SizedBox(width: 10),
-              // State transition button
-              if (order.status == OrderStatus.planned)
+            ),
+            const SizedBox(height: 4),
+            Text(
+              order.deliveryAddress,
+              style: const TextStyle(
+                fontSize: 14.5,
+                height: 1.4,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
                 Expanded(
-                  flex: 6,
-                  child: FilledButton.icon(
-                    onPressed: _isUpdating ? null : () => _updateStatus(OrderStatus.inTransit),
-                    icon: _isUpdating
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.two_wheeler_rounded, size: 18),
-                    label: const Text('Bắt đầu giao', style: TextStyle(fontWeight: FontWeight.bold)),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
+                  child: PhoneCallButton(
+                    phone: order.recipientPhone,
+                    label: 'Gọi khách',
                   ),
                 ),
-              if (order.status == OrderStatus.inTransit) ...[
+                const SizedBox(width: 10),
                 Expanded(
-                  flex: 6,
-                  child: FilledButton.icon(
-                    onPressed: _isUpdating ? null : () => _updateStatus(OrderStatus.delivered),
-                    icon: _isUpdating
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.check_circle_rounded, size: 18),
-                    label: const Text('Đã giao xong', style: TextStyle(fontWeight: FontWeight.bold)),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.success,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
+                  child: OutlinedButton.icon(
+                    onPressed: _openMap,
+                    icon: const Icon(Icons.navigation_rounded, size: 18),
+                    label: const Text('Dẫn đường'),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 12),
+            _InfoRow(
+              icon: Icons.schedule_rounded,
+              label: 'Khung giờ giao',
+              value: AppFormatters.timeWindow(
+                order.timeWindowStart,
+                order.timeWindowEnd,
+              ),
+            ),
+            _InfoRow(
+              icon: Icons.inventory_2_outlined,
+              label: 'Kiện hàng',
+              value: '1 kiện · ${order.weightKg.toStringAsFixed(1)} kg',
+            ),
+            if (order.packageDescription?.trim().isNotEmpty == true)
+              _InfoRow(
+                icon: Icons.description_outlined,
+                label: 'Mô tả',
+                value: order.packageDescription!.trim(),
+              ),
+            if (order.notes?.trim().isNotEmpty == true)
+              _InfoRow(
+                icon: Icons.sticky_note_2_outlined,
+                label: 'Ghi chú',
+                value: order.notes!.trim(),
+                emphasize: true,
+              ),
+            const SizedBox(height: 4),
+            CodBadge(amount: order.codAmount, large: true),
+            if (!isClosed) ...[
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton.icon(
+                  onPressed: _completeDelivery,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                  ),
+                  icon: const Icon(Icons.check_circle_rounded, size: 22),
+                  label: const Text(
+                    'Giao xong',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: _reportIncident,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  icon: const Icon(Icons.report_problem_outlined, size: 18),
+                  label: const Text('Báo sự cố'),
+                ),
+              ),
             ],
-          ),
-          if (order.status == OrderStatus.inTransit) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: _isUpdating ? null : _handleIncident,
-                icon: const Icon(Icons.report_problem_rounded, color: AppColors.error, size: 16),
-                label: const Text('Báo sự cố / Giao thất bại', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
-              ),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }
-
-  String _formatTime(DateTime dt) {
-    final local = dt.toLocal();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
 }
 
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({required this.title, required this.value, required this.icon});
-  final String title;
-  final String value;
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+  });
+
   final IconData icon;
+  final String label;
+  final String value;
+  final bool emphasize;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 14, color: AppColors.textSecondary),
-              const SizedBox(width: 4),
-              Text(title, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-            ],
+          Icon(icon, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 104,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13.5,
+                color: AppColors.textSecondary,
+              ),
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTheme.numStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: emphasize ? AppColors.warning : AppColors.textPrimary,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
-

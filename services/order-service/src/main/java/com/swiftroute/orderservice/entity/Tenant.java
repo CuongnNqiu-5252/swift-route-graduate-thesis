@@ -52,19 +52,15 @@ public class Tenant {
     @Builder.Default
     private BusinessType businessType = BusinessType.OTHER;
 
-    @Column(name = "address", length = 500)
-    private String address;
-
-    @Column(name = "pickup_lat")
-    private Double pickupLat;
-
-    @Column(name = "pickup_lng")
-    private Double pickupLng;
-
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "optimization_weights", nullable = false, columnDefinition = "jsonb")
     @Builder.Default
     private OptimizationWeights optimizationWeights = new OptimizationWeights(0.5, 0.5);
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "dispatch_config", columnDefinition = "jsonb")
+    @Builder.Default
+    private TenantDispatchConfig dispatchConfig = new TenantDispatchConfig();
 
     @Enumerated(EnumType.STRING)
     @Column(name = "subscription_plan", nullable = false, length = 50)
@@ -96,7 +92,30 @@ public class Tenant {
     @Column(name = "status_updated_at", nullable = false)
     private LocalDateTime statusUpdatedAt;
 
+    @Column(name="contact_phone", length=20)
+    private String contactPhone;
+    @Column(name="contact_email")
+    private String contactEmail;
+    @Column(name="country_code", length=2)
+    @Builder.Default
+    private String countryCode = "VN";
+    @Enumerated(EnumType.STRING)
+    @Column(name="delivery_mode", length=20)
+    @Builder.Default
+    private com.swiftroute.orderservice.entity.enums.DeliveryMode deliveryMode = com.swiftroute.orderservice.entity.enums.DeliveryMode.OWN_FLEET;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name="delivery_settings", columnDefinition="jsonb")
+    @Builder.Default
+    private java.util.Map<String,Object> deliverySettings = new java.util.LinkedHashMap<>();
+
     @Version
     @Column(nullable = false)
     private Long version;
+
+    public static class TenantBuilder {
+        /** Retained only for source compatibility with untouched test fixtures; physical addresses live in pickup_locations. */
+        public TenantBuilder address(String ignored) {
+            return this;
+        }
+    }
 }

@@ -22,14 +22,4 @@ public class RegisterRequestDTO {
     private String fullName;
     @NotBlank
     private String phoneNumber;
-    @NotBlank
-    private String address;
-    @NotBlank
-    private String city;
-    @NotBlank
-    private String state;
-    @NotBlank
-    private String zipCode;
-    @NotBlank
-    private String country;
 }

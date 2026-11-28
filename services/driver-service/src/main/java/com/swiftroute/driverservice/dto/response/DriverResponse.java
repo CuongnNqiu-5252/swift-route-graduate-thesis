@@ -17,6 +17,7 @@ public record DriverResponse(
         UUID userId,
         String fullName,
         String phone,
+        String email,
         String licensePlate,
         VehicleType vehicleType,
         Integer capacity,
@@ -26,7 +27,11 @@ public record DriverResponse(
         Double currentLat,
         Double currentLng,
         Boolean isAvailable,
-        DriverStatus status) {
+        DriverStatus status,
+        String reviewNote,
+        String bankCode,
+        String bankAccountNumber,
+        String bankAccountName) {
     public static DriverResponse fromEntity(Driver driver) {
         return DriverResponse.builder()
                 .id(driver.getId())
@@ -34,6 +39,7 @@ public record DriverResponse(
                 .userId(driver.getUserId())
                 .fullName(driver.getFullName())
                 .phone(driver.getPhone())
+                .email(driver.getEmail())
                 .licensePlate(driver.getLicensePlate())
                 .vehicleType(driver.getVehicleType())
                 .capacity(driver.getCapacity())
@@ -44,6 +50,10 @@ public record DriverResponse(
                 .currentLng(driver.getCurrentLng())
                 .isAvailable(driver.getIsAvailable())
                 .status(driver.getStatus())
+                .reviewNote(driver.getReviewNote())
+                .bankCode(driver.getBankCode())
+                .bankAccountNumber(driver.getBankAccountNumber())
+                .bankAccountName(driver.getBankAccountName())
                 .build();
     }
 }

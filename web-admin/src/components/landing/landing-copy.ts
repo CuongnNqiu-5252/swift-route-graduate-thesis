@@ -1,0 +1,558 @@
+import type { Locale } from '@/i18n/locale';
+
+interface FragmentRow {
+  label: string;
+  value: string;
+  tone?: 'ok' | 'warn';
+}
+
+const vi = {
+  metaTitle: 'SwiftRoute. Điều phối đội giao hàng của doanh nghiệp',
+  metaDescription:
+    'Nhập đơn từ Excel, chia tuyến theo giờ giao và tải trọng, theo dõi tài xế và chốt tiền COD khi bàn giao.',
+  nav: {
+    label: 'Điều hướng chính',
+    workflow: 'Quy trình',
+    capabilities: 'Năng lực',
+    tracking: 'Tra cứu đơn',
+    faq: 'Hỏi đáp',
+    login: 'Đăng nhập',
+    register: 'Đăng ký',
+    language: 'Ngôn ngữ',
+  },
+  hero: {
+    title: 'Điều phối đội giao hàng của bạn',
+    lead: 'Nhập đơn từ Excel, chia tuyến theo giờ giao và tải trọng, theo dõi tài xế và chốt tiền COD khi bàn giao.',
+    primary: 'Tạo không gian doanh nghiệp',
+    secondary: 'Xem quy trình',
+  },
+  sim: {
+    groupMode: 'Cách chia tuyến',
+    manual: 'Thủ công',
+    optimized: 'Tối ưu',
+    groupFleet: 'Số tài xế',
+    fleet: '{n} tài xế',
+    urgent: 'Chèn đơn gấp',
+    urgentOn: 'Bỏ đơn gấp',
+    distance: 'Tổng quãng đường',
+    kmUnit: 'km',
+    latest: 'Xe về kho muộn nhất',
+    late: 'Điểm trễ giờ giao',
+    vehicle: 'Xe',
+    stops: 'Điểm',
+    back: 'Về kho',
+    lateShort: 'Trễ',
+    onTime: 'Đúng hẹn',
+    legendLate: 'Trễ giờ giao',
+    legendUrgent: 'Đơn gấp',
+    depot: 'Kho',
+    note: 'Kịch bản mô phỏng: 1 kho, 12 điểm giao nội thành, xuất phát 08:00, tốc độ trung bình 18 km/h.',
+    mapLabel: 'Bản đồ {mode}, {fleet} tài xế',
+    urgentAdded: 'Đơn gấp vào Xe {vehicle}, thêm {minutes} phút.',
+    urgentLate: 'Đơn gấp đến trễ hơn khung giờ.',
+    urgentOnTime: 'Đơn gấp vẫn đúng khung giờ.',
+    summary: '{km} km, xe về muộn nhất lúc {clock}, {late} điểm trễ giờ giao.',
+  },
+  workflow: {
+    title: 'Một ca giao, bốn chặng',
+    steps: [
+      {
+        id: 'orders',
+        title: 'Trước tiên, rà soát vận đơn.',
+        detail: 'Nhập từ Excel, CSV hoặc Google Drive. Mỗi dòng được kiểm tra trước khi lưu.',
+      },
+      {
+        id: 'dispatch',
+        title: 'Tiếp theo, lập tuyến và giao cho tài xế.',
+        detail: 'Xem thứ tự điểm dừng, giờ đến dự kiến và tải trọng, rồi giao tuyến.',
+      },
+      {
+        id: 'tracking',
+        title: 'Trong lúc giao, theo dõi từng điểm dừng.',
+        detail: 'Vị trí tài xế, bằng chứng giao hàng và sự cố hiện ngay cho điều phối viên.',
+      },
+      {
+        id: 'cod',
+        title: 'Cuối ca, chốt COD tách khỏi thu nhập.',
+        detail: 'Tiền thu hộ được bàn giao và kiểm đếm. Thu nhập tài xế tính riêng.',
+      },
+    ],
+    import: {
+      title: 'Rà soát vận đơn nhập',
+      file: 'don-hang-sang-27-11.xlsx',
+      columns: ['Dòng', 'Người nhận', 'Địa chỉ', 'COD', 'Kiểm tra'],
+      rows: [
+        ['2', 'Trần Thu Hà', '45 Cộng Hòa, Tân Bình', '350.000 ₫', 'Hợp lệ'],
+        ['3', 'Lê Minh Quân', '12 Nguyễn Văn Trỗi, Phú Nhuận', '0 ₫', 'Hợp lệ'],
+        ['4', 'Phạm Ngọc Anh', '88 Lý Thường Kiệt, Quận 10', '520.000 ₫', 'Thiếu số điện thoại'],
+        ['5', 'Võ Thanh Tùng', '230 Phan Văn Trị, Gò Vấp', '280.000 ₫', 'Hợp lệ'],
+        ['6', 'Đặng Bảo Châu', 'Km 31 Quốc lộ 1A, Long An', '410.000 ₫', 'Ngoài vùng giao'],
+      ],
+      ok: 'Hợp lệ',
+      summary: '3 dòng hợp lệ. 2 dòng cần sửa.',
+      action: 'Lưu 3 đơn hợp lệ',
+    },
+    plan: {
+      title: 'Kế hoạch điều phối. Nháp',
+      driverLabel: 'Tài xế',
+      driver: 'Nguyễn Văn An',
+      columns: ['Điểm', 'Địa chỉ', 'Giờ đến', 'Khối lượng'],
+      rows: [
+        ['1', '45 Cộng Hòa, Tân Bình', '08:22', '4,2 kg'],
+        ['2', '12 Nguyễn Văn Trỗi, Phú Nhuận', '08:41', '1,8 kg'],
+        ['3', '88 Lý Thường Kiệt, Quận 10', '09:03', '6,5 kg'],
+        ['4', '230 Phan Văn Trị, Gò Vấp', '09:30', '3,1 kg'],
+      ],
+      total: 'Tổng tải 15,6 kg. Tuyến 14,3 km.',
+      action: 'Giao tuyến',
+    },
+    live: {
+      title: 'Tuyến của Nguyễn Văn An',
+      progress: 'Đã giao 3 trên 6 điểm',
+      rows: [
+        { label: 'Điểm 3, Lý Thường Kiệt', value: 'Đã giao 10:42. Có ảnh bằng chứng', tone: 'ok' },
+        { label: 'Điểm 4, Phan Văn Trị', value: 'Đang đến. Dự kiến 11:05', tone: 'ok' },
+        { label: 'Điểm 5, Quang Trung', value: 'Khách hẹn giao lại. Chờ điều phối xử lý', tone: 'warn' },
+      ] as FragmentRow[],
+      position: 'Vị trí cập nhật 20 giây trước',
+    },
+    cod: {
+      title: 'Đối soát COD cuối ca',
+      rows: [
+        { label: 'Nghĩa vụ COD', value: '2.450.000 ₫' },
+        { label: 'Chưa thu, 1 đơn giao thất bại', value: '350.000 ₫', tone: 'warn' },
+        { label: 'Tiền COD đang giữ', value: '2.100.000 ₫' },
+        { label: 'Thủ quỹ kiểm đếm', value: '2.050.000 ₫' },
+        { label: 'Chênh lệch COD', value: '50.000 ₫', tone: 'warn' },
+      ] as FragmentRow[],
+      earnings: 'Thu nhập tài xế, tính riêng',
+      earningsValue: '312.000 ₫',
+      action: 'Xác nhận phiếu bàn giao',
+    },
+  },
+  showcase: {
+    title: 'Tình huống điều phối thực tế',
+    previous: 'Mục trước',
+    next: 'Mục sau',
+    region: 'Các tình huống điều phối',
+    panels: [
+      {
+        name: 'Vùng giao hàng',
+        summary: 'Khoanh vùng phục vụ trên bản đồ. Đơn nằm ngoài vùng bị chặn trước khi lập kế hoạch.',
+        rows: [
+          { label: 'Trong vùng', value: '41 đơn', tone: 'ok' },
+          { label: 'Ngoài vùng', value: '3 đơn', tone: 'warn' },
+        ] as FragmentRow[],
+        note: 'Vẽ lại vùng, danh sách đơn được lọc lại.',
+      },
+      {
+        name: 'Thời tiết và giao thông',
+        summary: 'Mưa hoặc tắc đường được tính vào giờ đến dự kiến của từng chặng.',
+        rows: [
+          { label: 'Chặng 1. Tân Bình đến Phú Nhuận', value: 'Thông thoáng', tone: 'ok' },
+          { label: 'Chặng 2. Phú Nhuận đến Quận 10', value: 'Đông xe. Thêm 6 phút', tone: 'warn' },
+          { label: 'Chặng 3. Quận 10 đến Gò Vấp', value: 'Mưa 15:00 đến 16:00. Thêm 9 phút', tone: 'warn' },
+        ] as FragmentRow[],
+        note: 'Giờ đến dự kiến cập nhật khi điều kiện đổi.',
+      },
+      {
+        name: 'Hàng đợi sự cố',
+        summary: 'Điều phối viên xử lý ngay trên đơn gặp sự cố, không phải lần theo tin nhắn rời rạc.',
+        rows: [
+          { label: 'Điểm 5. Khách hẹn giao lại', value: 'Chờ xử lý', tone: 'warn' },
+          { label: 'Điểm 8. Sai số nhà', value: 'Đã liên hệ khách', tone: 'ok' },
+        ] as FragmentRow[],
+        note: 'Tài xế: Khách xin giao sau 14:00.',
+      },
+      {
+        name: 'Chính sách thu nhập',
+        summary: 'Thù lao nhiệm vụ tính theo chính sách của doanh nghiệp, chốt tại lúc hoàn tất.',
+        rows: [
+          { label: 'Phí cơ bản', value: '12.000 ₫' },
+          { label: 'Đơn giá mỗi km', value: '3.500 ₫' },
+          { label: 'Mức tối thiểu', value: '15.000 ₫' },
+          { label: 'Nhiệm vụ 8,4 km, giờ cao điểm', value: '46.400 ₫', tone: 'ok' },
+        ] as FragmentRow[],
+        note: '12.000 + 8,4 x 3.500 + 5.000 phụ phí = 46.400 ₫.',
+      },
+      {
+        name: 'Thành viên và điểm lấy hàng',
+        summary: 'Chủ doanh nghiệp phân quyền từng người và khai báo nhiều điểm lấy hàng.',
+        rows: [
+          { label: 'Trần Hoài Nam. Chủ doanh nghiệp', value: 'Toàn quyền' },
+          { label: 'Lê Thị Mai. Điều phối viên', value: 'Điều phối, đơn hàng' },
+          { label: 'Kho Tân Bình', value: 'Đang hoạt động', tone: 'ok' },
+          { label: 'Kho Thủ Đức', value: 'Đang hoạt động', tone: 'ok' },
+        ] as FragmentRow[],
+        note: 'Mỗi vai trò có bộ quyền riêng, có thể bổ sung hoặc thu hồi.',
+      },
+    ],
+  },
+  capabilities: {
+    title: 'Hệ thống làm được gì',
+    placeholder: 'Gõ COD, Excel, khung giờ…',
+    inputLabel: 'Tìm năng lực',
+    empty: 'Không có năng lực nào khớp. Thử từ khóa khác.',
+    listLabel: 'Danh sách năng lực',
+    items: [
+      { name: 'Nhập đơn hàng loạt', detail: 'Excel, CSV hoặc file trên Google Drive. Xem và sửa từng dòng trước khi lưu.', keywords: 'excel csv drive nhập import vận đơn' },
+      { name: 'Lập tuyến theo ràng buộc', detail: 'Khung giờ giao, tải trọng, số điểm tối đa mỗi tài xế và mức ưu tiên của đơn.', keywords: 'tuyến tối ưu khung giờ tải trọng ưu tiên' },
+      { name: 'Chèn đơn gấp vào tuyến đang chạy', detail: 'Thêm điểm dừng vào phần chưa giao, trong giới hạn tăng thời gian cho phép.', keywords: 'đơn gấp chèn urgent giữa ca' },
+      { name: 'Chỉnh tuyến trên bản đồ', detail: 'Kéo điểm dừng giữa các tuyến nháp, xem lại thứ tự và giờ đến trước khi duyệt.', keywords: 'bản đồ kéo thả chỉnh sửa nháp' },
+      { name: 'Theo dõi tài xế trực tiếp', detail: 'Vị trí cập nhật theo thời gian thực trên bản đồ điều phối.', keywords: 'vị trí gps trực tiếp tracking' },
+      { name: 'Bằng chứng giao hàng và sự cố', detail: 'Ảnh, chữ ký, giao thất bại và hoàn hàng, kèm hàng đợi sự cố cho điều phối viên.', keywords: 'pod ảnh chữ ký sự cố hoàn hàng' },
+      { name: 'Bàn giao và đối soát COD', detail: 'Phiếu bàn giao cho thủ quỹ, kiểm đếm và ghi nhận chênh lệch COD.', keywords: 'cod thu hộ thủ quỹ chênh lệch đối soát' },
+      { name: 'Thu nhập và đối soát tài xế', detail: 'Chính sách thu nhập, kỳ đối soát và mã VietQR để chi trả.', keywords: 'thu nhập lương vietqr kỳ đối soát tài xế' },
+      { name: 'Tra cứu vận đơn công khai', detail: 'Người nhận mở liên kết theo mã, không cần đăng nhập.', keywords: 'tra cứu người nhận liên kết mã vận đơn' },
+      { name: 'Báo cáo giao hàng định kỳ', detail: 'Tổng hợp kết quả giao theo kỳ để đối chiếu vận hành.', keywords: 'báo cáo định kỳ kết quả giao' },
+    ],
+  },
+  tracking: {
+    title: 'Người nhận tự xem đơn',
+    lead: 'Mỗi đơn có một liên kết tra cứu. Người nhận xem tiến độ và số tiền cần chuẩn bị mà không phải gọi cho điều phối viên.',
+    inputLabel: 'Mã tra cứu vận đơn',
+    placeholder: 'Dán mã từ tin nhắn của đơn',
+    action: 'Tra cứu',
+    sampleTitle: 'Xem thử trạng thái',
+    stepsLabel: 'Trạng thái đơn mẫu',
+    steps: ['Tiếp nhận đơn', 'Đã điều phối', 'Đang giao hàng', 'Giao thành công'],
+    sample: {
+      parcel: 'Bưu kiện',
+      cod: 'Cần chuẩn bị COD',
+      codValue: '350.000 ₫',
+      details: [
+        'Đơn đã được ghi nhận. Chưa có tài xế phụ trách.',
+        'Đơn đã vào tuyến. Tài xế sẽ bắt đầu giao theo lịch.',
+        'Tài xế đang trên đường. Dự kiến 10:40 đến 11:00.',
+        'Đơn đã giao thành công lúc 10:52.',
+      ],
+    },
+  },
+  faq: {
+    title: 'Câu hỏi thường gặp',
+    listLabel: 'Danh sách câu hỏi',
+    items: [
+      {
+        q: 'Đội giao hàng của doanh nghiệp là gì?',
+        a: 'Là tài xế do chính doanh nghiệp thuê và quản lý. SwiftRoute không chuyển đơn cho đơn vị vận chuyển bên thứ ba.',
+      },
+      {
+        q: 'Nhập đơn từ file cần gì?',
+        a: 'Một file Excel hoặc CSV, hoặc chọn file CSV trên Google Drive. Bạn xem từng dòng, sửa hoặc bỏ dòng lỗi rồi mới lưu.',
+      },
+      {
+        q: 'Đăng ký xong dùng ngay được không?',
+        a: 'Chưa. Bạn tạo tài khoản, xác minh email, khai báo doanh nghiệp và điểm lấy hàng rồi gửi xét duyệt. Vận hành cần thêm tài xế đủ điều kiện.',
+      },
+      {
+        q: 'COD khác thu nhập tài xế thế nào?',
+        a: 'COD là tiền tài xế thu hộ, bàn giao cho thủ quỹ kiểm đếm và ghi nhận chênh lệch. Thu nhập tính riêng theo chính sách và duyệt theo kỳ.',
+      },
+      {
+        q: 'Có đơn gấp giữa ca thì sao?',
+        a: 'Điều phối viên chèn điểm dừng vào phần tuyến chưa giao. Vị trí chèn làm tăng ít thời gian nhất, trong giới hạn cho phép.',
+      },
+      {
+        q: 'Tài xế dùng gì ngoài hiện trường?',
+        a: 'Ứng dụng SwiftRoute Driver trên điện thoại. Tài xế nhận tuyến, ghi nhận giao hàng kèm bằng chứng, báo sự cố và bàn giao COD.',
+      },
+    ],
+  },
+  start: {
+    title: 'Lập tuyến đầu tiên',
+    lead: 'Tạo tài khoản, xác minh email, rồi khai báo doanh nghiệp và điểm lấy hàng.',
+    dialogTitle: 'Ba bước để vận hành',
+    steps: [
+      { label: 'Tạo tài khoản', detail: 'Thông tin người quản trị' },
+      { label: 'Xác minh email', detail: 'Liên kết hiệu lực 24 giờ' },
+      { label: 'Tạo doanh nghiệp', detail: 'Hồ sơ, điểm lấy hàng, cấu hình giao hàng' },
+    ],
+    action: 'Tạo không gian doanh nghiệp',
+    hasAccount: 'Đã có tài khoản?',
+  },
+  footer: {
+    label: 'Điều hướng cuối trang',
+    statement: 'Công cụ điều phối cho doanh nghiệp tự vận hành đội giao hàng.',
+    legal: '© 2026 SwiftRoute',
+    access: 'Truy cập',
+    invite: 'Tạo không gian doanh nghiệp',
+  },
+};
+
+export type LandingCopy = typeof vi;
+
+const en: LandingCopy = {
+  metaTitle: 'SwiftRoute. Dispatch for your own delivery fleet',
+  metaDescription:
+    'Import orders from Excel, split routes by delivery window and load, track drivers and close out COD at handover.',
+  nav: {
+    label: 'Main navigation',
+    workflow: 'Workflow',
+    capabilities: 'Capabilities',
+    tracking: 'Tracking',
+    faq: 'FAQ',
+    login: 'Sign in',
+    register: 'Sign up',
+    language: 'Language',
+  },
+  hero: {
+    title: 'Dispatch your own delivery fleet',
+    lead: 'Import orders from Excel, split routes by delivery window and load, track drivers and close out COD at handover.',
+    primary: 'Create your workspace',
+    secondary: 'See the workflow',
+  },
+  sim: {
+    groupMode: 'Route planning',
+    manual: 'Manual',
+    optimized: 'Optimized',
+    groupFleet: 'Drivers',
+    fleet: '{n} drivers',
+    urgent: 'Add urgent order',
+    urgentOn: 'Remove urgent order',
+    distance: 'Total distance',
+    kmUnit: 'km',
+    latest: 'Last vehicle back',
+    late: 'Late stops',
+    vehicle: 'Van',
+    stops: 'Stops',
+    back: 'Back',
+    lateShort: 'Late',
+    onTime: 'On time',
+    legendLate: 'Late for window',
+    legendUrgent: 'Urgent order',
+    depot: 'Depot',
+    note: 'Sample scenario: 1 depot, 12 city stops, leaving at 08:00, 18 km/h average speed.',
+    mapLabel: 'Map, {mode}, {fleet} drivers',
+    urgentAdded: 'Urgent order joins Van {vehicle}, adding {minutes} min.',
+    urgentLate: 'The urgent order arrives after its window.',
+    urgentOnTime: 'The urgent order still arrives inside its window.',
+    summary: '{km} km, last vehicle back at {clock}, {late} late stops.',
+  },
+  workflow: {
+    title: 'One shift, four stages',
+    steps: [
+      {
+        id: 'orders',
+        title: 'First, review the incoming orders.',
+        detail: 'Import from Excel, CSV or Google Drive. Every row is checked before it is saved.',
+      },
+      {
+        id: 'dispatch',
+        title: 'Then plan routes and hand them to drivers.',
+        detail: 'Check stop order, expected arrival and load, then dispatch the route.',
+      },
+      {
+        id: 'tracking',
+        title: 'While delivering, follow every stop.',
+        detail: 'Driver position, proof of delivery and incidents reach the dispatcher at once.',
+      },
+      {
+        id: 'cod',
+        title: 'At day end, settle COD apart from earnings.',
+        detail: 'Cash collected is handed over and counted. Driver earnings are calculated separately.',
+      },
+    ],
+    import: {
+      title: 'Review imported orders',
+      file: 'orders-27-11.xlsx',
+      columns: ['Row', 'Recipient', 'Address', 'COD', 'Check'],
+      rows: [
+        ['2', 'Tran Thu Ha', '45 Cong Hoa, Tan Binh', '350,000 ₫', 'Valid'],
+        ['3', 'Le Minh Quan', '12 Nguyen Van Troi, Phu Nhuan', '0 ₫', 'Valid'],
+        ['4', 'Pham Ngoc Anh', '88 Ly Thuong Kiet, District 10', '520,000 ₫', 'Missing phone number'],
+        ['5', 'Vo Thanh Tung', '230 Phan Van Tri, Go Vap', '280,000 ₫', 'Valid'],
+        ['6', 'Dang Bao Chau', 'Km 31 Highway 1A, Long An', '410,000 ₫', 'Outside delivery zone'],
+      ],
+      ok: 'Valid',
+      summary: '3 rows valid. 2 rows need fixing.',
+      action: 'Save 3 valid orders',
+    },
+    plan: {
+      title: 'Dispatch plan. Draft',
+      driverLabel: 'Driver',
+      driver: 'Nguyen Van An',
+      columns: ['Stop', 'Address', 'Arrival', 'Weight'],
+      rows: [
+        ['1', '45 Cong Hoa, Tan Binh', '08:22', '4.2 kg'],
+        ['2', '12 Nguyen Van Troi, Phu Nhuan', '08:41', '1.8 kg'],
+        ['3', '88 Ly Thuong Kiet, District 10', '09:03', '6.5 kg'],
+        ['4', '230 Phan Van Tri, Go Vap', '09:30', '3.1 kg'],
+      ],
+      total: 'Total load 15.6 kg. Route 14.3 km.',
+      action: 'Dispatch route',
+    },
+    live: {
+      title: 'Route of Nguyen Van An',
+      progress: '3 of 6 stops delivered',
+      rows: [
+        { label: 'Stop 3, Ly Thuong Kiet', value: 'Delivered 10:42. Photo proof attached', tone: 'ok' },
+        { label: 'Stop 4, Phan Van Tri', value: 'On the way. Expected 11:05', tone: 'ok' },
+        { label: 'Stop 5, Quang Trung', value: 'Recipient asked to reschedule. Awaiting dispatcher', tone: 'warn' },
+      ] as FragmentRow[],
+      position: 'Position updated 20 seconds ago',
+    },
+    cod: {
+      title: 'COD reconciliation at day end',
+      rows: [
+        { label: 'COD due', value: '2,450,000 ₫' },
+        { label: 'Not collected, 1 failed delivery', value: '350,000 ₫', tone: 'warn' },
+        { label: 'COD held by driver', value: '2,100,000 ₫' },
+        { label: 'Counted by cashier', value: '2,050,000 ₫' },
+        { label: 'COD discrepancy', value: '50,000 ₫', tone: 'warn' },
+      ] as FragmentRow[],
+      earnings: 'Driver earnings, calculated separately',
+      earningsValue: '312,000 ₫',
+      action: 'Confirm handover slip',
+    },
+  },
+  showcase: {
+    title: 'Dispatch situations, as they happen',
+    previous: 'Previous item',
+    next: 'Next item',
+    region: 'Dispatch situations',
+    panels: [
+      {
+        name: 'Delivery zone',
+        summary: 'Draw the service area on the map. Orders outside it are stopped before planning.',
+        rows: [
+          { label: 'Inside the zone', value: '41 orders', tone: 'ok' },
+          { label: 'Outside the zone', value: '3 orders', tone: 'warn' },
+        ] as FragmentRow[],
+        note: 'Redraw the zone and the order list filters again.',
+      },
+      {
+        name: 'Weather and traffic',
+        summary: 'Rain or congestion is folded into the expected arrival of each leg.',
+        rows: [
+          { label: 'Leg 1. Tan Binh to Phu Nhuan', value: 'Clear', tone: 'ok' },
+          { label: 'Leg 2. Phu Nhuan to District 10', value: 'Heavy traffic. Adds 6 min', tone: 'warn' },
+          { label: 'Leg 3. District 10 to Go Vap', value: 'Rain 15:00 to 16:00. Adds 9 min', tone: 'warn' },
+        ] as FragmentRow[],
+        note: 'Expected arrival updates when conditions change.',
+      },
+      {
+        name: 'Incident queue',
+        summary: 'Dispatchers act on the order that has the problem instead of chasing scattered messages.',
+        rows: [
+          { label: 'Stop 5. Recipient asked to reschedule', value: 'Awaiting action', tone: 'warn' },
+          { label: 'Stop 8. Wrong house number', value: 'Recipient contacted', tone: 'ok' },
+        ] as FragmentRow[],
+        note: 'Driver: Recipient asks for delivery after 14:00.',
+      },
+      {
+        name: 'Earnings policy',
+        summary: 'Task pay follows the company policy and is fixed when the task completes.',
+        rows: [
+          { label: 'Base fee', value: '12,000 ₫' },
+          { label: 'Rate per km', value: '3,500 ₫' },
+          { label: 'Minimum', value: '15,000 ₫' },
+          { label: 'Task of 8.4 km, peak hour', value: '46,400 ₫', tone: 'ok' },
+        ] as FragmentRow[],
+        note: '12,000 + 8.4 x 3,500 + 5,000 surcharge = 46,400 ₫.',
+      },
+      {
+        name: 'Members and pickup points',
+        summary: 'The owner sets permissions per person and declares several pickup points.',
+        rows: [
+          { label: 'Tran Hoai Nam. Owner', value: 'Full access' },
+          { label: 'Le Thi Mai. Dispatcher', value: 'Dispatch, orders' },
+          { label: 'Tan Binh depot', value: 'Active', tone: 'ok' },
+          { label: 'Thu Duc depot', value: 'Active', tone: 'ok' },
+        ] as FragmentRow[],
+        note: 'Each role has its own permission set, which can be extended or revoked.',
+      },
+    ],
+  },
+  capabilities: {
+    title: 'What the system does',
+    placeholder: 'Type COD, Excel, time window…',
+    inputLabel: 'Search capabilities',
+    empty: 'No capability matches. Try another word.',
+    listLabel: 'Capability list',
+    items: [
+      { name: 'Bulk order import', detail: 'Excel, CSV or a file on Google Drive. Review and fix each row before saving.', keywords: 'excel csv drive import orders' },
+      { name: 'Constraint-based routing', detail: 'Delivery windows, load, maximum stops per driver and order priority.', keywords: 'routing optimize window load priority' },
+      { name: 'Urgent order into a live route', detail: 'Add a stop to the part not yet delivered, within the allowed time increase.', keywords: 'urgent insert mid-shift' },
+      { name: 'Edit routes on the map', detail: 'Drag stops between draft routes and recheck order and arrival before approval.', keywords: 'map drag edit draft' },
+      { name: 'Live driver tracking', detail: 'Position updates in real time on the dispatch map.', keywords: 'position gps live tracking' },
+      { name: 'Proof of delivery and incidents', detail: 'Photo, signature, failed delivery and returns, with an incident queue for dispatchers.', keywords: 'pod photo signature incident return' },
+      { name: 'COD handover and reconciliation', detail: 'Handover slips to the cashier, counting and recorded COD discrepancies.', keywords: 'cod cash cashier discrepancy reconcile' },
+      { name: 'Driver earnings and settlement', detail: 'Earnings policy, settlement periods and a VietQR code for payment.', keywords: 'earnings pay vietqr settlement driver' },
+      { name: 'Public order tracking', detail: 'Recipients open a link by code, no sign-in needed.', keywords: 'tracking recipient link code' },
+      { name: 'Periodic delivery report', detail: 'Delivery results by period to check against operations.', keywords: 'report periodic results' },
+    ],
+  },
+  tracking: {
+    title: 'Recipients follow their own order',
+    lead: 'Every order has a tracking link. Recipients see progress and the cash to prepare without calling the dispatcher.',
+    inputLabel: 'Order tracking code',
+    placeholder: 'Paste the code from the order message',
+    action: 'Track',
+    sampleTitle: 'Preview a status',
+    stepsLabel: 'Sample order status',
+    steps: ['Order received', 'Dispatched', 'Out for delivery', 'Delivered'],
+    sample: {
+      parcel: 'Parcel',
+      cod: 'COD to prepare',
+      codValue: '350,000 ₫',
+      details: [
+        'The order is recorded. No driver is assigned yet.',
+        'The order is on a route. The driver will start on schedule.',
+        'The driver is on the way. Expected 10:40 to 11:00.',
+        'The order was delivered at 10:52.',
+      ],
+    },
+  },
+  faq: {
+    title: 'Common questions',
+    listLabel: 'Question list',
+    items: [
+      {
+        q: 'What is the company-owned fleet?',
+        a: 'Drivers your business hires and manages. SwiftRoute does not hand orders to third-party carriers.',
+      },
+      {
+        q: 'What does a file import need?',
+        a: 'An Excel or CSV file, or pick a CSV on Google Drive. You review each row, fix or drop bad ones, then save.',
+      },
+      {
+        q: 'Can I run deliveries right after sign-up?',
+        a: 'Not yet. You create an account, verify your email, declare the business and pickup points, then submit for review. Operations also need eligible drivers.',
+      },
+      {
+        q: 'How is COD different from driver earnings?',
+        a: 'COD is cash drivers collect on your behalf, handed to the cashier who counts it and records any discrepancy. Earnings follow the policy and are approved per period.',
+      },
+      {
+        q: 'What if an urgent order arrives mid-shift?',
+        a: 'The dispatcher adds a stop to the part of the route not yet delivered. The position chosen adds the least time, within the allowed limit.',
+      },
+      {
+        q: 'What do drivers use in the field?',
+        a: 'The SwiftRoute Driver phone app. Drivers receive routes, record deliveries with proof, report incidents and hand over COD.',
+      },
+    ],
+  },
+  start: {
+    title: 'Plan your first route',
+    lead: 'Create an account, verify your email, then declare your business and pickup points.',
+    dialogTitle: 'Three steps to operate',
+    steps: [
+      { label: 'Create an account', detail: 'Administrator details' },
+      { label: 'Verify your email', detail: 'Link valid for 24 hours' },
+      { label: 'Create the business', detail: 'Profile, pickup points, delivery settings' },
+    ],
+    action: 'Create your workspace',
+    hasAccount: 'Already have an account?',
+  },
+  footer: {
+    label: 'Footer navigation',
+    statement: 'Dispatch software for businesses that run their own delivery fleet.',
+    legal: '© 2026 SwiftRoute',
+    access: 'Access',
+    invite: 'Create your workspace',
+  },
+};
+
+export const landingCopy: Record<Locale, LandingCopy> = { vi, en };
+export type { FragmentRow };

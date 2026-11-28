@@ -1,0 +1,333 @@
+'use client';
+
+import { authRepository, type AuthProfile } from '@/infrastructure/repositories/auth.repository';
+import { clearSessionAndRedirect } from '@/lib/api';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  role: string;
+  systemRole?: string;
+  accountRole?: string;
+  tenantRole?: string | null;
+  permissions: string[];
+  permissionsVersion?: number;
+  name?: string;
+  phone?: string;
+  tenantId?: string | null;
+  status?: string;
+  emailVerified?: boolean;
+  createdAt?: string;
+}
+
+export interface LivePermissionSyncPayload {
+  membershipRole?: string;
+  permissions?: string[];
+  permissionsVersion?: number;
+  status?: string;
+}
+
+interface AuthContextValue {
+  user: AuthUser | null;
+  token: string | null;
+  login: (email: string, password: string) => Promise<AuthUser>;
+  loginWithGoogle: (idToken: string) => Promise<AuthUser>;
+  logout: () => void;
+  refreshProfile: () => Promise<AuthUser | null>;
+  hasPermission: (permission: string | string[]) => boolean;
+  hasAllPermissions: (permissions: string[]) => boolean;
+  applyLivePermissions: (payload: LivePermissionSyncPayload) => void;
+  isLoading: boolean;
+}
+
+function normalizePermissions(raw?: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
+    new Set(
+      raw
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => item.trim().toLowerCase())
+    )
+  );
+}
+
+// Map backend UserProfileResponseDTO payload directly into client AuthUser state.
+function mapProfileToAuthUser(data: AuthProfile): AuthUser {
+  const resolvedTenantId = data.tenant_id ?? data.tenantId ?? null;
+  const systemRole = (data.account_role || data.accountRole)?.toUpperCase();
+  const tenantRole =
+    data.role && data.role !== systemRole ? data.role.toUpperCase() : null;
+  const effectivePerms = normalizePermissions(data.permissions);
+  const permissionsVersion = data.permissions_version ?? data.permissionsVersion;
+
+  return {
+    id: data.id,
+    email: data.email,
+    role: tenantRole || data.role || systemRole || '',
+    systemRole,
+    accountRole: systemRole,
+    tenantRole,
+    permissions: effectivePerms,
+    permissionsVersion: typeof permissionsVersion === 'number' ? permissionsVersion : undefined,
+    name: data.full_name || data.fullName || data.email,
+    phone: data.phone,
+    tenantId: resolvedTenantId,
+    emailVerified: data.email_verified ?? data.emailVerified ?? false,
+    status: data.status,
+    createdAt: data.created_at || data.createdAt,
+  };
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  // Fetch official user profile directly from GET /api/auth/me
+  const refreshProfile = useCallback(async (): Promise<AuthUser | null> => {
+    try {
+      const data = await authRepository.getProfile();
+      if (!data) return null;
+
+      const profile = mapProfileToAuthUser(data);
+      if (profile.tenantId) {
+        localStorage.setItem('tenant_id', profile.tenantId);
+      } else {
+        localStorage.removeItem('tenant_id');
+      }
+
+      setUser(profile);
+      localStorage.setItem('auth_user', JSON.stringify(profile));
+      return profile;
+    } catch (err) {
+      console.warn('[AuthContext] Profile sync deferred or failed:', err);
+      return null;
+    }
+  }, []);
+
+  const initializeSession = async (
+    tokens: Awaited<ReturnType<typeof authRepository.login>>
+  ): Promise<AuthUser> => {
+    const accessToken = tokens?.access_token;
+    const refreshToken = tokens?.refresh_token;
+
+    if (!accessToken) {
+      throw new Error('Không nhận được mã xác thực từ máy chủ');
+    }
+
+    setUser(null);
+
+    localStorage.removeItem('tenant_id');
+    localStorage.removeItem('auth_user');
+    localStorage.removeItem('refresh_token');
+
+    localStorage.setItem('access_token', accessToken);
+
+    if (refreshToken) {
+      localStorage.setItem('refresh_token', refreshToken);
+    }
+
+    setToken(accessToken);
+
+    if (tokens.user) {
+      const profile = mapProfileToAuthUser(tokens.user);
+      if (profile.tenantId) {
+        localStorage.setItem('tenant_id', profile.tenantId);
+      }
+      setUser(profile);
+      localStorage.setItem('auth_user', JSON.stringify(profile));
+      return profile;
+    }
+
+    const profile = await refreshProfile();
+
+    if (!profile) {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('auth_user');
+      localStorage.removeItem('tenant_id');
+
+      setToken(null);
+      setUser(null);
+
+      throw new Error(
+        'Không thể tải thông tin tài khoản sau khi đăng nhập'
+      );
+    }
+
+    return profile;
+  };
+  const loginWithGoogle = async (
+    idToken: string
+  ): Promise<AuthUser> => {
+    const tokens = await authRepository.loginWithGoogle(idToken);
+
+    return initializeSession(tokens);
+  };
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function initSession() {
+      try {
+        const storedToken = localStorage.getItem('access_token');
+        const storedUser = localStorage.getItem('auth_user');
+
+        if (!storedToken) {
+          if (!isCancelled) {
+            setToken(null);
+            setUser(null);
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser) as Partial<AuthUser>;
+            setUser({
+              ...(parsed as AuthUser),
+              permissions: normalizePermissions(parsed.permissions),
+            });
+          } catch {
+            localStorage.removeItem('auth_user');
+          }
+        }
+        setToken(storedToken);
+
+        // Fetch fresh profile from backend.
+        // If storedToken is expired, the Axios interceptor in api.ts will
+        // automatically refresh the token via /api/auth/refresh and retry this call.
+        await refreshProfile();
+      } catch (err) {
+        console.warn('[AuthProvider] Failed to initialize session:', err);
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    initSession();
+
+    // Event listener for token refreshed via Axios interceptor
+    const handleTokenRefreshed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ token: string }>;
+      if (customEvent.detail?.token) {
+        setToken(customEvent.detail.token);
+      }
+    };
+
+    // Event listener for session expired / logout
+    const handleLogout = () => {
+      setToken(null);
+      setUser(null);
+    };
+
+    window.addEventListener('auth:token-refreshed', handleTokenRefreshed);
+    window.addEventListener('auth:logout', handleLogout);
+
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
+      window.removeEventListener('auth:logout', handleLogout);
+    };
+  }, [refreshProfile]);
+
+  const applyLivePermissions = useCallback((payload: LivePermissionSyncPayload) => {
+    setUser((current) => {
+      if (!current) return current;
+      const nextTenantRole = payload.membershipRole
+        ? payload.membershipRole.toUpperCase()
+        : current.tenantRole;
+      const nextPermissions = payload.permissions
+        ? normalizePermissions(payload.permissions)
+        : current.permissions;
+      const updated: AuthUser = {
+        ...current,
+        role: nextTenantRole || current.role,
+        tenantRole: nextTenantRole,
+        permissions: nextPermissions,
+        permissionsVersion: payload.permissionsVersion ?? current.permissionsVersion,
+        status: payload.status ?? current.status,
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('auth_user', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  }, []);
+
+  const hasPermission = useCallback(
+    (permission: string | string[]): boolean => {
+      if (!user) return false;
+      const systemRole = (user.systemRole ?? user.accountRole ?? '').toUpperCase();
+      const tenantRole = (user.tenantRole ?? user.role ?? '').toUpperCase();
+      if (systemRole === 'SYSTEM_ADMIN' || tenantRole === 'OWNER') {
+        return true;
+      }
+      const userPerms = new Set(normalizePermissions(user.permissions));
+      const required = Array.isArray(permission) ? permission : [permission];
+      return required.some((code) => userPerms.has(code.trim().toLowerCase()));
+    },
+    [user]
+  );
+
+  const hasAllPermissions = useCallback(
+    (permissions: string[]): boolean => {
+      if (!user) return false;
+      const systemRole = (user.systemRole ?? user.accountRole ?? '').toUpperCase();
+      const tenantRole = (user.tenantRole ?? user.role ?? '').toUpperCase();
+      if (systemRole === 'SYSTEM_ADMIN' || tenantRole === 'OWNER') {
+        return true;
+      }
+      const userPerms = new Set(normalizePermissions(user.permissions));
+      return permissions.every((code) => userPerms.has(code.trim().toLowerCase()));
+    },
+    [user]
+  );
+
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<AuthUser> => {
+    const tokens = await authRepository.login(email, password);
+
+    return initializeSession(tokens);
+  };
+  const logout = () => {
+    const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null;
+    if (refreshToken) {
+      authRepository.logout(refreshToken).catch(() => { });
+    }
+    clearSessionAndRedirect();
+    setToken(null);
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        login,
+        loginWithGoogle,
+        logout,
+        refreshProfile,
+        hasPermission,
+        hasAllPermissions,
+        applyLivePermissions,
+        isLoading,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
+}

@@ -15,7 +15,7 @@ services:
     networks:
       - swiftroute-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-openpg} -d ${DB_NAME:-postgres}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-openpg} -d ${DB_NAME:-postgres}" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -28,7 +28,7 @@ services:
     networks:
       - swiftroute-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -42,7 +42,7 @@ services:
     networks:
       - swiftroute-net
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,7 +60,8 @@ services:
       - ORDER_SERVICE_URL=http://order-service:8082
       - DRIVER_SERVICE_URL=http://driver-service:8083
       - ROUTING_ENGINE_URL=http://routing-engine:8084
-      - PAYMENT_SERVICE_URL=http://payment-service:8085
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8086
+      - NOTIFICATION_WEBSOCKET_URL=ws://notification-service:8086
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
@@ -73,8 +74,6 @@ services:
         condition: service_started
       routing-engine:
         condition: service_started
-      payment-service:
-        condition: service_started
 
   auth-service:
     build:
@@ -84,14 +83,26 @@ services:
     ports:
       - "8081:8081"
     environment:
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-true}
+      - AUTH_FLYWAY_BASELINE_VERSION=${AUTH_FLYWAY_BASELINE_VERSION:-11}
+      - WEB_APP_URL=${WEB_APP_URL:-http://localhost:3000}
+      - PASSWORD_RESET_URL=${PASSWORD_RESET_URL:-http://localhost:3000/reset-password}
+      - ORDER_SERVICE_URL=http://order-service:8082
+      - DRIVER_SERVICE_URL=http://driver-service:8083
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-postgres}
+      - DB_NAME=${AUTH_DB_NAME:-auth_db}
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
       - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     networks:
       - swiftroute-net
     depends_on:
@@ -108,20 +119,39 @@ services:
     ports:
       - "8082:8082"
     environment:
+      - SPRING_FLYWAY_BASELINE_ON_MIGRATE=${SPRING_FLYWAY_BASELINE_ON_MIGRATE:-false}
+      - ORDER_FLYWAY_BASELINE_VERSION=${ORDER_FLYWAY_BASELINE_VERSION:-1}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY:-}
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - RECIPIENT_DELIVERY_STARTED_ENABLED=${RECIPIENT_DELIVERY_STARTED_ENABLED:-false}
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8086
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-postgres}
+      - DB_NAME=${ORDER_DB_NAME:-order_db}
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
       - AUTH_SERVICE_URL=http://auth-service:8081
+      - DRIVER_SERVICE_URL=http://driver-service:8083
+      - ROUTING_ENGINE_URL=http://routing-engine:8084
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY:-}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET:-}
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       auth-service:
         condition: service_started
@@ -134,19 +164,28 @@ services:
     ports:
       - "8083:8083"
     environment:
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - AUTH_SERVICE_URL=http://auth-service:8081
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-postgres}
+      - DB_NAME=${DRIVER_DB_NAME:-driver_db}
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
     networks:
       - swiftroute-net
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   routing-engine:
@@ -156,37 +195,48 @@ services:
     container_name: swiftroute-routing-engine
     ports:
       - "8084:8084"
+      - "50051:50051"
     environment:
-      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672/}
-      - ORDER_SERVICE_URL=${ORDER_SERVICE_URL:-http://order-service:8082}
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - GRPC_PORT=50051
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - GOONG_API_KEY=${GOONG_API_KEY:-}
+      - GOONG_BASE_URL=${GOONG_BASE_URL:-https://rsapi.goong.io}
     networks:
       - swiftroute-net
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
 
-  payment-service:
-    build:
-      context: ./services/payment-service
-      dockerfile: Dockerfile
-    container_name: swiftroute-payment-service
-    ports:
-      - "8085:8085"
+  notification-service:
+    build: ./services/notification-service
+    container_name: swiftroute-notification-service
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
-      - PAYMENT_DB_NAME=payment_db
       - DB_USER=${DB_USER:-openpg}
       - DB_PASSWORD=${DB_PASSWORD:-openpgpwd}
+      - NOTIFICATION_DB_NAME=notification_db
+      - AUTH_SERVICE_URL=http://auth-service:8081
+      - TENANT_INTERNAL_KEY=${TENANT_INTERNAL_KEY:-}
+      - ORDER_SERVICE_URL=http://order-service:8082
+      - RECIPIENT_DELIVERY_STARTED_ENABLED=${RECIPIENT_DELIVERY_STARTED_ENABLED:-false}
+      - WEB_APP_URL=${WEB_APP_URL:-http://localhost:3000}
+      - CHAT_ALLOWED_ORIGINS=${CHAT_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:4200,http://127.0.0.1:4200}
       - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-    networks:
-      - swiftroute-net
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_in_production}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_AUTH=${SMTP_AUTH:-true}
+      - SMTP_STARTTLS=${SMTP_STARTTLS:-true}
+      - SMTP_FROM=${SMTP_FROM:-}
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    networks:
+      - swiftroute-net
 
 networks:
   swiftroute-net:
